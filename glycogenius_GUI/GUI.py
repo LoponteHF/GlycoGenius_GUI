@@ -2119,12 +2119,12 @@ def run_main_window():
                 ax_spec.set_ylim(0, max_value*1.1)
         else:
             if og_x_range_spec[0] == og_x_range_spec[1]:
-                ax.set_xlim(0, 1000)
+                ax_spec.set_xlim(0, 1000)
             else:    
                 ax_spec.set_xlim(og_x_range_spec[0], og_x_range_spec[1])
                 
             if og_y_range_spec[0] == og_y_range_spec[1]:
-                ax.set_ylim(0, 1000)
+                ax_spec.set_ylim(0, 1000)
             else:    
                 ax_spec.set_ylim(og_y_range_spec[0], og_y_range_spec[1])
         
@@ -2888,15 +2888,19 @@ def run_main_window():
             if x in isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text.split(" ")[0]}"]:
                 x_values_if_ideal = isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text.split(" ")[0]}"][x][0]
                 y_values_if_ideal = isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text.split(" ")[0]}"][x][1]
-                ax_if.set_xlim(x_values_if_ideal[0]-0.2, x_values_if_ideal[-1]+0.2)
-                x_values_if_actual = [x-(ax_if.get_xlim()[1]-ax_if.get_xlim()[0])*0.02 for x in x_values_if_ideal]
-                y_values_if_actual = isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text.split(" ")[0]}"][x][2]
-                ax_if.set_ylim(0, max(y_values_if_actual)*1.1 if max(y_values_if_actual) > max(y_values_if_ideal) else max(y_values_if_ideal)*1.1)
-                ax_if.plot(x_values_if_ideal, y_values_if_ideal, marker='', linewidth=0, label="Ideal")
-                ax_if.plot(x_values_if_actual, y_values_if_actual, marker='', linewidth=0, label="Found")
-                ax_if.vlines(x_values_if_ideal, ymin=0, ymax=y_values_if_ideal, linewidth=3, colors='red')
-                ax_if.vlines(x_values_if_actual, ymin=0, ymax=y_values_if_actual, linewidth=3, colors='blue')
-                info_label.config(text=f"RT: {float("%.2f" % round(x, 2))}    Score: {float("%.3f" % round(isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text.split(" ")[0]}"][x][3], 3))}")
+                if len(x_values_if_ideal) > 0:
+                    ax_if.set_xlim(x_values_if_ideal[0]-0.2, x_values_if_ideal[-1]+0.2)
+                    x_values_if_actual = [x-(ax_if.get_xlim()[1]-ax_if.get_xlim()[0])*0.02 for x in x_values_if_ideal]
+                    y_values_if_actual = isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text.split(" ")[0]}"][x][2]
+                    ax_if.set_ylim(0, max(y_values_if_actual)*1.1 if max(y_values_if_actual) > max(y_values_if_ideal) else max(y_values_if_ideal)*1.1)
+                    ax_if.plot(x_values_if_ideal, y_values_if_ideal, marker='', linewidth=0, label="Ideal")
+                    ax_if.plot(x_values_if_actual, y_values_if_actual, marker='', linewidth=0, label="Found")
+                    ax_if.vlines(x_values_if_ideal, ymin=0, ymax=y_values_if_ideal, linewidth=3, colors='red')
+                    ax_if.vlines(x_values_if_actual, ymin=0, ymax=y_values_if_actual, linewidth=3, colors='blue')
+                    info_label.config(text=f"RT: {float("%.2f" % round(x, 2))}    Score: {float("%.3f" % round(isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text.split(" ")[0]}"][x][3], 3))}")
+                else:
+                    info_label.config(text=f"RT: {float("%.2f" % round(x, 2))}    Score: 0.0")
+                    ax_if.text(0.26, 0.35, 'No data available for this datapoint.\nThis might be caused by very poor data\nand may account for potentially low\nisotopic fitting score for the peak.', horizontalalignment='center', verticalalignment='center', transform=ax.transAxes, fontsize=10, wrap=True)
             else:
                 info_label.config(text=f"RT: {float("%.2f" % round(x, 2))}    Score: 0.0")
                 ax_if.text(0.26, 0.35, 'No data available for this datapoint.\nThis might be caused by very poor data\nand may account for potentially low\nisotopic fitting score for the peak.', horizontalalignment='center', verticalalignment='center', transform=ax.transAxes, fontsize=10, wrap=True)
@@ -3913,7 +3917,7 @@ def run_main_window():
     main_window.grid_rowconfigure(0, weight=0)
     main_window.grid_rowconfigure(1, weight=1)
     main_window.grid_rowconfigure(2, weight=1)
-    main_window.attributes("-topmost", False)
+    #main_window.attributes("-topmost", False)
     main_window.protocol("WM_DELETE_WINDOW", exit_window)
     
     global background_color
