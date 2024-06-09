@@ -18,7 +18,7 @@
 
 global gg_version, GUI_version
 gg_version = '1.1.14'
-GUI_version = '0.0.3'
+GUI_version = '0.0.4'
 
 from PIL import Image, ImageTk
 import threading
@@ -566,6 +566,7 @@ def pre_process(samples_list):
     samples_names = Execution_Functions.sample_names(samples_list)
     
     results = []
+    bad = False
     with concurrent.futures.ProcessPoolExecutor(max_workers = (os.cpu_count())-2) as executor:
         for i_i, i in enumerate(samples_list):
             result = executor.submit(pre_process_one_sample, i, samples_names[i_i])
@@ -573,9 +574,15 @@ def pre_process(samples_list):
             
         for i in results:
             result = i.result()
+            if result == 'bad':
+                bad = True
+                break
             sample_info[result[1]] = result[0]
     global processed_data
-    processed_data = sample_info
+    if bad:
+        processed_data = 'bad'
+    else:
+        processed_data = sample_info
     
 def pre_process_one_sample(sample, sample_name):
     data = {}
@@ -597,60 +604,69 @@ def pre_process_one_sample(sample, sample_name):
             time_unit = 'minutes'
     last_ms1 = ''
     max_mz = 0
-    for i in access:
-        if file_type == 'mzml':
-            if i['ms level'] == 2:
-                data['ms2'][last_ms1][float(i['scanList']['scan'][0]['scan start time'])] = []
-                for k in i['precursorList']['precursor'][0]['selectedIonList']['selectedIon']:
-                    data['ms2'][last_ms1][float(i['scanList']['scan'][0]['scan start time'])].append(k['selected ion m/z'])
-            if i['ms level'] == 1:
-                current_rt = float(i['scanList']['scan'][0]['scan start time'])
-                rt_array.append(current_rt)
-                if current_rt != last_ms1:
-                    last_ms1 = current_rt
-                    data['ms2'][current_rt] = {}
-                if 'base peak intensity' in i.keys():
-                    bpc.append(float(i['base peak intensity']))
-                else:
-                    bpc.append(0.0)
-        else:
-            if i['msLevel'] == 2:
-                data['ms2'][last_ms1][float(i['retentionTime'])] = []
-                for k in i['precursorMz']:
-                    data['ms2'][last_ms1][float(i['retentionTime'])].append(k['precursorMz'])
-            if i['msLevel'] == 1:
-                current_rt = float(i['retentionTime'])
-                rt_array.append(current_rt)
-                if current_rt != last_ms1:
-                    last_ms1 = current_rt
-                    data['ms2'][current_rt] = {}
-                if 'basePeakIntensity' in i.keys():
-                    bpc.append(float(i['basePeakIntensity']))
-                else:
-                    bpc.append(0.0)
-        if len(i['m/z array']):
-            temp_max = np.max(i['m/z array'])
-            if temp_max > max_mz:
-                max_mz = temp_max
-    data['time_unit'] = time_unit
-    data['rt_array'] = rt_array
-    data['bpc'] = bpc
-    data['file_type'] = file_type
-    data['access'] = access
-    data['file_path'] = sample
-    data['max_mz'] = max_mz
-    return data, sample_name
+    try:
+        for i in access:
+            if file_type == 'mzml':
+                if i['ms level'] == 2:
+                    data['ms2'][last_ms1][float(i['scanList']['scan'][0]['scan start time'])] = []
+                    for k in i['precursorList']['precursor'][0]['selectedIonList']['selectedIon']:
+                        data['ms2'][last_ms1][float(i['scanList']['scan'][0]['scan start time'])].append(k['selected ion m/z'])
+                if i['ms level'] == 1:
+                    current_rt = float(i['scanList']['scan'][0]['scan start time'])
+                    rt_array.append(current_rt)
+                    if current_rt != last_ms1:
+                        last_ms1 = current_rt
+                        data['ms2'][current_rt] = {}
+                    if 'base peak intensity' in i.keys():
+                        bpc.append(float(i['base peak intensity']))
+                    else:
+                        bpc.append(0.0)
+            else:
+                if i['msLevel'] == 2:
+                    data['ms2'][last_ms1][float(i['retentionTime'])] = []
+                    for k in i['precursorMz']:
+                        data['ms2'][last_ms1][float(i['retentionTime'])].append(k['precursorMz'])
+                if i['msLevel'] == 1:
+                    current_rt = float(i['retentionTime'])
+                    rt_array.append(current_rt)
+                    if current_rt != last_ms1:
+                        last_ms1 = current_rt
+                        data['ms2'][current_rt] = {}
+                    if 'basePeakIntensity' in i.keys():
+                        bpc.append(float(i['basePeakIntensity']))
+                    else:
+                        bpc.append(0.0)
+            if len(i['m/z array']):
+                temp_max = np.max(i['m/z array'])
+                if temp_max > max_mz:
+                    max_mz = temp_max
+        data['time_unit'] = time_unit
+        data['rt_array'] = rt_array
+        data['bpc'] = bpc
+        data['file_type'] = file_type
+        data['access'] = access
+        data['file_path'] = sample
+        data['max_mz'] = max_mz
+        return data, sample_name
+    except:
+        error_window(f"Something went wrong when loading the file {sample}. Check if it is an MzML/MzXML file. If it is, it might be corrupted.")
+        return 'bad'
     
 def load_reanalysis(reanalysis_path):
     global glycans_per_sample, chromatograms, curve_fittings, isotopic_fittings, samples_dropdown_options, df1, df2
     General_Functions.open_gg(reanalysis_path, temp_folder)
-    with open(os.path.join(temp_folder, 'raw_data_1'), 'rb') as f:
-        file = dill.load(f)
-        df1 = file[0]
-        df2 = file[1]
-        if len(file) == 4:
-            fragments_df = file[2]
-        f.close()
+    try:
+        with open(os.path.join(temp_folder, 'raw_data_1'), 'rb') as f:
+            file = dill.load(f)
+            df1 = file[0]
+            df2 = file[1]
+            if len(file) == 4:
+                fragments_df = file[2]
+            f.close()
+    except:
+        error_window(f"Something went wrong when loading the reanalysis file. Check if it is a .gg file. If it is, it might be corrupted.")
+        return
+        
     samples_dropdown_options = df2['File_Name']
     samples_dropdown['values'] = samples_dropdown_options
     glycans_per_sample = {}
@@ -878,11 +894,11 @@ def handle_selection(event):
     selected_item = samples_dropdown.get()
     chromatograms_list.delete(*chromatograms_list.get_children())
     if len(samples_list) > 0:
-        if 'processed_data' not in globals():
-            error_window("Something went wrong when loading the files! Check the files selected, as one of them might be of wrong type or corrupted.")
+        if processed_data == 'bad':
             loading_files.destroy()
             samples_dropdown['values'] = []
             samples_dropdown.set('')
+            return
         else:
             if selected_item in processed_data:
                 current_data = processed_data[selected_item]
@@ -1644,7 +1660,7 @@ def run_main_window():
             
     def save_results_button_command():
         if reanalysis_path == "":
-            error_window("No analysis file found! Choose an analysis file in the 'Select Files' menu or run an analysis on sample files before trying to save results!")
+            error_window("No reanalysis file found! Choose an reanalysis file in the 'Select Files' menu or run an analysis on sample files before trying to save results!")
         elif save_path == "":
             error_window("You must select a working directory in the 'Set Parameters' window before saving results!")
         else:
@@ -4502,7 +4518,10 @@ def run_select_files_window(samples_dropdown):
         item_ids = files_list.get_children()
         
         if len(gg_file_label.cget("text")) > 0 and len(item_ids) > 0:
-            General_Functions.open_gg(gg_file_label.cget("text"), temp_folder)
+            try:
+                General_Functions.open_gg(gg_file_label.cget("text"), temp_folder)
+            except:
+                error_window("Invalid reanalysis file. Check it and try again.")
             with open(os.path.join(temp_folder, 'raw_data_1'), 'rb') as f:
                 file = dill.load(f)
                 df1 = file[0]

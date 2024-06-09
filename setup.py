@@ -20,7 +20,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='glycogenius_GUI',
-    version='0.0.3',
+    version='0.0.4',
     author='Hector Franco Loponte',
     author_email='hectorfloponte@gmail.com',
     description='Accessory GUI for Glycogenius',
