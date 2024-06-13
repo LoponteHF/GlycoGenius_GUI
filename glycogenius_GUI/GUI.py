@@ -18,7 +18,7 @@
 
 global gg_version, GUI_version
 gg_version = '1.1.14'
-GUI_version = '0.0.5'
+GUI_version = '0.0.6'
 
 from PIL import Image, ImageTk
 import threading
