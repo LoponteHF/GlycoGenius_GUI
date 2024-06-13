@@ -18,7 +18,7 @@
 
 global gg_version, GUI_version
 gg_version = '1.1.14'
-GUI_version = '0.0.4'
+GUI_version = '0.0.5'
 
 from PIL import Image, ImageTk
 import threading
@@ -1291,6 +1291,7 @@ def run_main_window():
             import_library_button_frame.config(bg="lightgreen")
         else:
             import_library_button_frame.config(bg=background_color)
+            import_library_info.config(state=tk.DISABLED)
         
         file_dialog.destroy()
         
@@ -1680,7 +1681,7 @@ def run_main_window():
         banner_label_about = tk.Label(about_window, image=tk_banner)
         banner_label_about.grid(row=0, column=0, sticky='nsew')
         
-        about_text = tk.Label(about_window, text=f"GlycoGenius: Glycomics Data Analysis Tool\nCopyright (C) 2023 by Hector Franco Loponte\n\nGlycoGenius version: {gg_version}    GUI version: {GUI_version}\n\nThis program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or any later version.\n\nThis program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.\n\nYou should have received a copy of the GNU General Public License along with this program. It is accessible within the program files or by typing 'license' after running it stand-alone in the terminal by typing 'glycogenius'. If not, see <https://www.gnu.org/licenses/>.", justify="center", wraplength=800)
+        about_text = tk.Label(about_window, text=f"GlycoGenius: Glycomics Data Analysis Tool\nCopyright (C) 2023 by Hector Franco Loponte\n\nGlycoGenius version: {gg_version}    GUI version: {GUI_version}\n\nThis program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or any later version.\n\nThis program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.\n\nYou should have received a copy of the GNU General Public License along with this program. It is accessible within the program files or by typing 'license' after running it stand-alone in the terminal by typing 'glycogenius'. If not, see <https://www.gnu.org/licenses/>.", justify="center", wraplength=700)
         about_text.grid(row=1, column=0, pady=(20, 20), sticky='nsew')
         
         close_about_button = ttk.Button(about_window, text="Close", style="small_button_sfw_style1.TButton", command=close_about_window)
@@ -4234,7 +4235,7 @@ def run_main_window():
     ppm_error_entry.bind("<Return>", qcp_enter)
     
     global chromatograms_qc_numbers
-    chromatograms_qc_numbers = ttk.Label(main_window, text="", font=("Segoe UI", list_font_size_smaller))
+    chromatograms_qc_numbers = ttk.Label(main_window, text=f"Compositions Quality Control:\n        Good: {0}    Average: {0}    Bad: {0}", font=("Segoe UI", list_font_size_smaller))
     chromatograms_qc_numbers.grid(row=1, rowspan=2, column=0, padx=10, pady=10, sticky="sew")
     ToolTip(chromatograms_qc_numbers, "Good compositions have at least one peak that matches all quality criteria set above; Average have at least one peak that fails only one criteria; Bad have all peaks failing at least two criterias.")
 
@@ -5385,44 +5386,45 @@ def run_set_parameters_window():
         set_parameters_window.grab_set()
         
     def open_file_dialog_spw_custom_glycan():
-        global custom_glycans_text
+        global custom_glycans_text, custom_glycans_window
         file_dialog = tk.Toplevel()
         file_dialog.withdraw()
         file_dialog.grab_set()
         
         file_path = filedialog.askopenfilename(filetypes=[("Text files", "*.txt"), ("All files", "*.*")])
         temp_custom_glycans_list = ""
-        with open(file_path, 'r') as f:
-            for i in f:
-                temp_custom_glycans_list += i
-            f.close()
-        if len(temp_custom_glycans_list.strip()) == 0:
-            error_window("Custom glycans file is incorrect. Make sure the glycans are comma-separated or line-separated.")
-            file_dialog.destroy()
-            custom_glycans_window.grab_set()
-            return
-        ocgw_custom_glycans = temp_custom_glycans_list.split(",")
-        if len(ocgw_custom_glycans) == 1:
-            ocgw_custom_glycans = ocgw_custom_glycans[0].split("\n")
-        to_remove = []
-        if len(ocgw_custom_glycans) > 1:
+        if file_path != "":
+            with open(file_path, 'r') as f:
+                for i in f:
+                    temp_custom_glycans_list += i
+                f.close()
+            if len(temp_custom_glycans_list.strip()) == 0:
+                error_window("Custom glycans file is incorrect. Make sure the glycans are comma-separated or line-separated.")
+                file_dialog.destroy()
+                custom_glycans_window.grab_set()
+                return
+            ocgw_custom_glycans = temp_custom_glycans_list.split(",")
+            if len(ocgw_custom_glycans) == 1:
+                ocgw_custom_glycans = ocgw_custom_glycans[0].split("\n")
+            to_remove = []
+            if len(ocgw_custom_glycans) > 1:
+                for i_i, i in enumerate(ocgw_custom_glycans):
+                    ocgw_custom_glycans[i_i] = i.strip()
+                    if len(i) == 0:
+                        to_remove.append(i_i)
+            for i in sorted(to_remove, reverse = True):
+                del ocgw_custom_glycans[i]
+            custom_glycans_text.delete(1.0, tk.END)
             for i_i, i in enumerate(ocgw_custom_glycans):
-                ocgw_custom_glycans[i_i] = i.strip()
-                if len(i) == 0:
-                    to_remove.append(i_i)
-        for i in sorted(to_remove, reverse = True):
-            del ocgw_custom_glycans[i]
-        custom_glycans_text.delete(1.0, tk.END)
-        for i_i, i in enumerate(ocgw_custom_glycans):
-            custom_glycans_text.insert(tk.END, i)
-            if i_i != len(ocgw_custom_glycans[1])-1:
-                custom_glycans_text.insert(tk.END, ", ")
-                
+                custom_glycans_text.insert(tk.END, i)
+                if i_i != len(ocgw_custom_glycans[1])-1:
+                    custom_glycans_text.insert(tk.END, ", ")
+                    
         file_dialog.destroy()
         custom_glycans_window.grab_set()
     
     def open_custom_glycans_window():
-        global custom_glycans_text
+        global custom_glycans_text, custom_glycans_window
         def ok_ocg_window():
             ocgw_custom_glycans = custom_glycans_text.get("1.0", "end-1c").split(",")
             if len(ocgw_custom_glycans) == 1:
@@ -5443,7 +5445,7 @@ def run_set_parameters_window():
                         return
             local_custom_glycans_list[1] = ocgw_custom_glycans
             custom_glycans_window.destroy()
-                
+        
         custom_glycans_window = tk.Toplevel()
         custom_glycans_window.withdraw()
         custom_glycans_window.title("Custom Glycans List")

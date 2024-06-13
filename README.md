@@ -1,3 +1,7 @@
+![GitHub License](https://img.shields.io/github/license/LoponteHF/GlycoGenius_GUI)
+![GitHub Downloads (all assets, all releases)](https://img.shields.io/github/downloads/LoponteHF/GlycoGenius_GUI/total)
+![GitHub Release](https://img.shields.io/github/v/tag/LoponteHF/GlycoGenius_GUI)
+
 ![GlycoGenius banner](./banner.png "GlycoGenius")
 
 # GlycoGenius - Glycomics Data Analysis Tool

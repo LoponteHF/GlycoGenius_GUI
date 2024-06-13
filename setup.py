@@ -18,9 +18,16 @@
 
 from setuptools import setup, find_packages
 
+long_description_from_file = ""
+with open("README.md", "r", encoding="utf-8") as f:
+    for lines in f:
+        if lines[0] != "!":
+            long_description_from_file+= lines
+    f.close()
+
 setup(
     name='glycogenius_GUI',
-    version='0.0.4',
+    version='0.0.5',
     author='Hector Franco Loponte',
     author_email='hectorfloponte@gmail.com',
     description='Accessory GUI for Glycogenius',
@@ -31,7 +38,10 @@ setup(
         'Operating System :: OS Independent',
     ],
     python_requires='>=3.6',
-    install_requires=["pillow", "psutil"],
+    install_requires=["pandas", "scipy", "pyteomics==4.6.3",
+                     "dill", "numpy", "lxml",
+                     "openpyxl", "setuptools",
+                     "xlsxwriter", "glycogenius"],
     entry_points={
         'gui_scripts': [
             'glycogenius_GUI = glycogenius_GUI:glycogenius_GUI',

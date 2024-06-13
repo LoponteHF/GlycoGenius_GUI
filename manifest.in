@@ -1,0 +1,2 @@
+recursive-include *py
+recursive-include glycogenius_GUI/Assets *ico *png
