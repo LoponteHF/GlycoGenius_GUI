@@ -17,7 +17,11 @@
 # by typing 'glycogenius'. If not, see <https://www.gnu.org/licenses/>.
 
 from setuptools import setup, find_packages
+from distutils.command.install import INSTALL_SCHEMES
 
+for scheme in INSTALL_SCHEMES.values():
+    scheme['data'] = scheme['purelib']
+    
 long_description_from_file = ""
 with open("README.md", "r", encoding="utf-8") as f:
     for lines in f:
@@ -27,11 +31,17 @@ with open("README.md", "r", encoding="utf-8") as f:
 
 setup(
     name='glycogenius_GUI',
-    version='0.0.6',
+    version='0.0.8',
     author='Hector Franco Loponte',
     author_email='hectorfloponte@gmail.com',
     description='Accessory GUI for Glycogenius',
+    long_description=long_description_from_file,
+    long_description_content_type="text/markdown",
     packages=find_packages(),
+    include_package_data=True,
+    package_data={
+        'glycogenius_GUI': ['Assets/*']
+    },
     classifiers=[
         'Programming Language :: Python :: 3',
         'License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)',

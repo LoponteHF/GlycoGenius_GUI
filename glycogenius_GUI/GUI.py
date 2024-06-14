@@ -18,7 +18,7 @@
 
 global gg_version, GUI_version
 gg_version = '1.1.14'
-GUI_version = '0.0.6'
+GUI_version = '0.0.8'
 
 from PIL import Image, ImageTk
 import threading
@@ -31,11 +31,15 @@ import tempfile
 global current_dir
 current_dir = str(pathlib.Path(__file__).parent.resolve())
 
+for i_i, i in enumerate(current_dir):
+    if i == "\\":
+        current_dir = current_dir[:i_i]+"/"+current_dir[i_i+1:]
+
 exec_check_folder = os.path.join(tempfile.gettempdir())
 
 global number_executions
 
-def splash():
+def start_splash():
     global splash_screen, run_once
     
     try:
@@ -78,8 +82,7 @@ def splash():
         splash_screen.update()
 
 if __name__ == "__main__":
-    splash = threading.Thread(target=splash())
-    splash.start
+    start_splash()
 
 from glycogenius.Modules.core import main as run_glycogenius
 from glycogenius.Modules import Execution_Functions, General_Functions, Config_Handler
@@ -107,10 +110,6 @@ import concurrent.futures
 import copy
 import datetime
 import dill
-
-for i_i, i in enumerate(current_dir):
-    if i == "\\":
-        current_dir = current_dir[:i_i]+"/"+current_dir[i_i+1:]
 
 #all the settings necessary to make a Glycogenius run
 global min_max_monos, min_max_hex, min_max_hexnac, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, force_nglycan, max_adducts, max_charges, tag_mass, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, fast_iso, high_res
@@ -210,6 +209,11 @@ colors = [
     "#708090"   # Slate
 ]
 color_number = 0
+
+list_font_size = 10
+list_font_size_smaller = 8
+button_font_size = 10
+big_button_size = (int(button_font_size), int(button_font_size*2))
             
 class ToolTip:
     def __init__(self, widget, text, delay=1000):
@@ -6318,3 +6322,15 @@ if __name__ == "__main__":
     except:
         pass
     run_main_window()
+    
+def main():
+    global splash_screen
+    multiprocessing.freeze_support()
+    matplotlib.use("Qt5Agg")
+    global date, begin_time, temp_folder
+    date = datetime.datetime.now()
+    begin_time = str(date)[2:4]+str(date)[5:7]+str(date)[8:10]+"_"+str(date)[11:13]+str(date)[14:16]+str(date)[17:19]
+    temp_folder = os.path.join(tempfile.gettempdir(), "gg_"+begin_time)
+    os.makedirs(temp_folder)
+    run_main_window()
+    

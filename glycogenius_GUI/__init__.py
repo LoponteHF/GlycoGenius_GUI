@@ -1,4 +1,4 @@
-from glycogenius_GUI.GUI import run_main_window as main
+from glycogenius_GUI.GUI import main
 
 def glycogenius_GUI():
     main()

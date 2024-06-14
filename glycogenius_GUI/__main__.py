@@ -1,4 +1,4 @@
-from glycogenius_GUI.GUI import run_main_window as main
+from glycogenius_GUI.GUI import main
 
 if __name__ == "__main__":
 	main()
