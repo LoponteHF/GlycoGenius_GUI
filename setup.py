@@ -31,7 +31,7 @@ with open("README.md", "r", encoding="utf-8") as f:
 
 setup(
     name='glycogenius_GUI',
-    version='0.0.8',
+    version='0.0.9',
     author='Hector Franco Loponte',
     author_email='hectorfloponte@gmail.com',
     description='Accessory GUI for Glycogenius',
@@ -51,7 +51,7 @@ setup(
     install_requires=["pandas", "scipy", "pyteomics==4.6.3",
                      "dill", "numpy", "lxml",
                      "openpyxl", "setuptools",
-                     "xlsxwriter", "glycogenius"],
+                     "xlsxwriter", "glycogenius==1.1.15"],
     entry_points={
         'gui_scripts': [
             'glycogenius_GUI = glycogenius_GUI:glycogenius_GUI',

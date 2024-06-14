@@ -1,6 +1,6 @@
 ![GitHub License](https://img.shields.io/github/license/LoponteHF/GlycoGenius_GUI)
 ![GitHub Downloads (all assets, all releases)](https://img.shields.io/github/downloads/LoponteHF/GlycoGenius_GUI/total)
-![GitHub Release](https://img.shields.io/github/v/tag/LoponteHF/GlycoGenius_GUI)
+![GitHub Release](https://img.shields.io/github/v/release/LoponteHF/GlycoGenius_GUI)
 
 ![GlycoGenius banner](./banner.png "GlycoGenius")
 
@@ -25,13 +25,21 @@ In order to do that, this tool is able to do several different tasks:
 
 ## Installation
 
-Download the latest version from Releases page, unzip it and run the executable file.
-	
+There are two ways to install it:
+1. Download the latest version from Releases page on https://github.com/LoponteHF/GlycoGenius_GUI, unzip it and run the executable file;
+2. Install from PyPI:
+	1. Install Python from python.org or from your OS package distributor;
+	2. Type "pip install glycogenius_GUI" on a terminal:
+	3. Run it by typing "glycogenius_GUI" on the terminal.
 ## Usage
 
 1. Export your MS data to an MzXML or MzML file;
 2. Open GlycoGenius;
 3. Follow the buttons workflow on the top part of the program.
+
+## Citation
+
+> Article for citation currently being finished.
 
 ## Credits
 

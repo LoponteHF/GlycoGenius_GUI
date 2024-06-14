@@ -17,8 +17,8 @@
 # by typing 'glycogenius'. If not, see <https://www.gnu.org/licenses/>.
 
 global gg_version, GUI_version
-gg_version = '1.1.14'
-GUI_version = '0.0.8'
+gg_version = '1.1.15'
+GUI_version = '0.0.9'
 
 from PIL import Image, ImageTk
 import threading
@@ -1292,12 +1292,98 @@ def run_main_window():
                 generate_library_button_frame.config(bg=background_color)
             library_path = file_path
             import_library_info.config(state=tk.NORMAL)
+            imp_exp_library = [True, False]
             import_library_button_frame.config(bg="lightgreen")
         else:
             import_library_button_frame.config(bg=background_color)
             import_library_info.config(state=tk.DISABLED)
+            imp_exp_library = [False, False]
         
         file_dialog.destroy()
+        
+    def get_lib_info():
+        lib_info_window = tk.Toplevel()
+        lib_info_window.withdraw()
+        lib_info_window.title("Library Information")
+        lib_info_window.iconbitmap(current_dir+"/Assets/gg_icon.ico")
+        lib_info_window.resizable(False, False)
+        lib_info_window.grab_set()
+
+        information_text = ScrolledText(lib_info_window, width=52, height=18, wrap=tk.WORD)
+        information_text.grid(row=0, column=0, padx = 10, pady = 10, sticky="new")
+        
+        shutil.copy(library_path, os.path.join(temp_folder, 'glycans_library.py'))
+        spec = importlib.util.spec_from_file_location("glycans_library", temp_folder+"/glycans_library.py")
+        lib_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(lib_module)
+        try:
+            library_metadata = lib_module.metadata
+        except:
+            library_metadata = []
+        if len(library_metadata) > 0:
+            if len(library_metadata) == 18:
+                if library_metadata[17][0]:
+                    information_text.insert(tk.END, f"Custom glycans list: {library_metadata[17][1]}\n\n")
+                    information_text.insert(tk.END, f"Maximum adducts: {library_metadata[8]}\n")
+                    information_text.insert(tk.END, f"Maximum charges: {library_metadata[9]}\n")
+                    information_text.insert(tk.END, f"Reducing end tag mass/composition: {library_metadata[10]}\n")
+                    information_text.insert(tk.END, f"Internal Standard mass: {library_metadata[11]}\n")
+                    information_text.insert(tk.END, f"Permethylated: {library_metadata[12]}\n")
+                    information_text.insert(tk.END, f"Amidated/Ethyl-Esterified: {library_metadata[13]}\n")
+                    information_text.insert(tk.END, f"Reduced end: {library_metadata[14]}\n")
+                    information_text.insert(tk.END, f"Fast isotopic distribution calculation: {library_metadata[15]}\n")
+                    information_text.insert(tk.END, f"High resolution isotopic distribution: {library_metadata[16]}")
+                else:
+                    information_text.insert(tk.END, f"Min/Max number of monosaccharides: {library_metadata[0][0]}/{library_metadata[0][1]}\n")
+                    information_text.insert(tk.END, f"Min/Max number of Hexoses: {library_metadata[1][0]}/{library_metadata[1][1]}\n")
+                    information_text.insert(tk.END, f"Min/Max number of N-Acetylhexosamines: {library_metadata[2][0]}/{library_metadata[2][1]}\n")
+                    information_text.insert(tk.END, f"Min/Max number of deoxyHexoses: {library_metadata[3][0]}/{library_metadata[3][1]}\n")
+                    information_text.insert(tk.END, f"Min/Max number of Sialic Acids: {library_metadata[4][0]}/{library_metadata[4][1]}\n")
+                    information_text.insert(tk.END, f"Min/Max number of N-Acetylneuraminic Acids: {library_metadata[5][0]}/{library_metadata[5][1]}\n")
+                    information_text.insert(tk.END, f"Min/Max number of N-Glycolylneuraminic Acids: {library_metadata[6][0]}/{library_metadata[6][1]}\n")
+                    information_text.insert(tk.END, f"Force N-Glycans compositions: {library_metadata[7]}\n")
+                    information_text.insert(tk.END, f"Maximum adducts: {library_metadata[8]}\n")
+                    information_text.insert(tk.END, f"Maximum charges: {library_metadata[9]}\n")
+                    information_text.insert(tk.END, f"Reducing end tag mass/composition: {library_metadata[10]}\n")
+                    information_text.insert(tk.END, f"Internal Standard mass: {library_metadata[11]}\n")
+                    information_text.insert(tk.END, f"Permethylated: {library_metadata[12]}\n")
+                    information_text.insert(tk.END, f"Amidated/Ethyl-Esterified: {library_metadata[13]}\n")
+                    information_text.insert(tk.END, f"Reduced end: {library_metadata[14]}\n")
+                    information_text.insert(tk.END, f"Fast isotopic distribution calculation: {library_metadata[15]}\n")
+                    information_text.insert(tk.END, f"High resolution isotopic distribution: {library_metadata[16]}")
+            else:
+                information_text.insert(tk.END, f"Min/Max number of monosaccharides: {library_metadata[0][0]}/{library_metadata[0][1]}\n")
+                information_text.insert(tk.END, f"Min/Max number of Hexoses: {library_metadata[1][0]}/{library_metadata[1][1]}\n")
+                information_text.insert(tk.END, f"Min/Max number of N-Acetylhexosamines: {library_metadata[2][0]}/{library_metadata[2][1]}\n")
+                information_text.insert(tk.END, f"Min/Max number of deoxyHexoses: {library_metadata[3][0]}/{library_metadata[3][1]}\n")
+                information_text.insert(tk.END, f"Min/Max number of Sialic Acids: {library_metadata[4][0]}/{library_metadata[4][1]}\n")
+                information_text.insert(tk.END, f"Min/Max number of N-Acetylneuraminic Acids: {library_metadata[5][0]}/{library_metadata[5][1]}\n")
+                information_text.insert(tk.END, f"Min/Max number of N-Glycolylneuraminic Acids: {library_metadata[6][0]}/{library_metadata[6][1]}\n")
+                information_text.insert(tk.END, f"Force N-Glycans compositions: {library_metadata[7]}\n")
+                information_text.insert(tk.END, f"Maximum adducts: {library_metadata[8]}\n")
+                information_text.insert(tk.END, f"Maximum charges: {library_metadata[9]}\n")
+                information_text.insert(tk.END, f"Reducing end tag mass/composition: {library_metadata[10]}\n")
+                information_text.insert(tk.END, f"Internal Standard mass: {library_metadata[11]}\n")
+                information_text.insert(tk.END, f"Permethylated: {library_metadata[12]}\n")
+                information_text.insert(tk.END, f"Amidated/Ethyl-Esterified: {library_metadata[13]}\n")
+                information_text.insert(tk.END, f"Reduced end: {library_metadata[14]}\n")
+                information_text.insert(tk.END, f"Fast isotopic distribution calculation: {library_metadata[15]}\n")
+                information_text.insert(tk.END, f"High resolution isotopic distribution: {library_metadata[16]}")
+        else:
+            information_text.insert(tk.END, f"No information available for this library.\nThis library was created in an older (<1.1.14) version of GlycoGenius.")
+        
+        close_lib_info_button = ttk.Button(lib_info_window, text="Close", style="small_button_sfw_style1.TButton", command=lib_info_window.destroy)
+        close_lib_info_button.grid(row=1, column=0, padx=10, pady=10)
+        
+        lib_info_window.update_idletasks()
+        lib_info_window.deiconify()
+        window_width = lib_info_window.winfo_width()
+        window_height = lib_info_window.winfo_height()
+        screen_width = lib_info_window.winfo_screenwidth()
+        screen_height = lib_info_window.winfo_screenheight()
+        x_position = (screen_width - window_width) // 2
+        y_position = (screen_height - window_height) // 2
+        lib_info_window.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
         
     def run_generate_library():
         def close_progress_gen_lib_window():
@@ -1309,8 +1395,9 @@ def run_main_window():
             progress_gen_lib.destroy()
             
         def ok_progress_gen_lib_window():
-            global library_path
+            global library_path, imp_exp_library
             library_path = save_path+library_name+".ggl"
+            imp_exp_library = [False, False]
             generate_library_button_frame.config(bg="lightgreen")
             import_library_button_frame.config(bg=background_color)
             import_library_info.config(state=tk.DISABLED)
@@ -3979,59 +4066,6 @@ def run_main_window():
         y_position = (screen_height - window_height) // 2
         compare_samples.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
         
-    def get_lib_info():
-        lib_info_window = tk.Toplevel()
-        lib_info_window.withdraw()
-        lib_info_window.title("Library Information")
-        lib_info_window.iconbitmap(current_dir+"/Assets/gg_icon.ico")
-        lib_info_window.resizable(False, False)
-        lib_info_window.grab_set()
-
-        information_text = ScrolledText(lib_info_window, width=52, height=18, wrap=tk.WORD)
-        information_text.grid(row=0, column=0, padx = 10, pady = 10, sticky="new")
-        
-        shutil.copy(library_path, os.path.join(temp_folder, 'glycans_library.py'))
-        spec = importlib.util.spec_from_file_location("glycans_library", temp_folder+"/glycans_library.py")
-        lib_module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(lib_module)
-        try:
-            library_metadata = lib_module.metadata
-        except:
-            library_metadata = []
-        if len(library_metadata) > 0:
-            information_text.insert(tk.END, f"Min/Max number of monosaccharides: {library_metadata[0][0]}/{library_metadata[0][1]}\n")
-            information_text.insert(tk.END, f"Min/Max number of Hexoses: {library_metadata[1][0]}/{library_metadata[1][1]}\n")
-            information_text.insert(tk.END, f"Min/Max number of N-Acetylhexosamines: {library_metadata[2][0]}/{library_metadata[2][1]}\n")
-            information_text.insert(tk.END, f"Min/Max number of deoxyHexoses: {library_metadata[3][0]}/{library_metadata[3][1]}\n")
-            information_text.insert(tk.END, f"Min/Max number of Sialic Acids: {library_metadata[4][0]}/{library_metadata[4][1]}\n")
-            information_text.insert(tk.END, f"Min/Max number of N-Acetylneuraminic Acids: {library_metadata[5][0]}/{library_metadata[5][1]}\n")
-            information_text.insert(tk.END, f"Min/Max number of N-Glycolylneuraminic Acids: {library_metadata[6][0]}/{library_metadata[6][1]}\n")
-            information_text.insert(tk.END, f"Force N-Glycans compositions: {library_metadata[7]}\n")
-            information_text.insert(tk.END, f"Maximum adducts: {library_metadata[8]}\n")
-            information_text.insert(tk.END, f"Maximum charges: {library_metadata[9]}\n")
-            information_text.insert(tk.END, f"Reducing end tag mass/composition: {library_metadata[10]}\n")
-            information_text.insert(tk.END, f"Internal Standard mass: {library_metadata[11]}\n")
-            information_text.insert(tk.END, f"Permethylated: {library_metadata[12]}\n")
-            information_text.insert(tk.END, f"Amidated/Ethyl-Esterified: {library_metadata[13]}\n")
-            information_text.insert(tk.END, f"Reduced end: {library_metadata[14]}\n")
-            information_text.insert(tk.END, f"Fast isotopic distribution calculation: {library_metadata[15]}\n")
-            information_text.insert(tk.END, f"High resolution isotopic distribution: {library_metadata[16]}")
-        else:
-            information_text.insert(tk.END, f"No information available for this library.\nThis library was created in an older (<1.1.14) version of GlycoGenius.")
-        
-        close_lib_info_button = ttk.Button(lib_info_window, text="Close", style="small_button_sfw_style1.TButton", command=lib_info_window.destroy)
-        close_lib_info_button.grid(row=1, column=0, padx=10, pady=10)
-        
-        lib_info_window.update_idletasks()
-        lib_info_window.deiconify()
-        window_width = lib_info_window.winfo_width()
-        window_height = lib_info_window.winfo_height()
-        screen_width = lib_info_window.winfo_screenwidth()
-        screen_height = lib_info_window.winfo_screenheight()
-        x_position = (screen_width - window_width) // 2
-        y_position = (screen_height - window_height) // 2
-        lib_info_window.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
-        
     def qcp_enter(event):
         global max_ppm, iso_fit_score, curve_fit_score, s_to_n
         max_ppm = int(ppm_error_entry.get())
@@ -6130,7 +6164,7 @@ def save_results_window():
         groups_window.withdraw()
         groups_window.title("Sample Groups")
         groups_window.iconbitmap(current_dir+"/Assets/gg_icon.ico")
-        groups_window.resizable(False, False)
+        #groups_window.resizable(True, False)
         groups_window.grab_set()
         groups_window.columnconfigure(0, weight=1)
         groups_window.geometry("600x400")
