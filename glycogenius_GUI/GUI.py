@@ -17,8 +17,8 @@
 # by typing 'glycogenius'. If not, see <https://www.gnu.org/licenses/>.
 
 global gg_version, GUI_version
-gg_version = '1.1.15'
-GUI_version = '0.0.9'
+gg_version = '1.1.19'
+GUI_version = '0.0.10'
 
 from PIL import Image, ImageTk
 import threading
@@ -112,12 +112,13 @@ import datetime
 import dill
 
 #all the settings necessary to make a Glycogenius run
-global min_max_monos, min_max_hex, min_max_hexnac, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, force_nglycan, max_adducts, max_charges, tag_mass, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, fast_iso, high_res
+global min_max_monos, min_max_hex, min_max_hexnac, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, force_nglycan, max_adducts, max_charges, tag_mass, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, fast_iso, high_res, number_cores, multithreaded_analysis
 
 custom_glycans_list = [False, '']
 min_max_monos = [5, 22]
 min_max_hex = [3, 10]
 min_max_hexnac = [2, 8]
+min_max_xyl = [0, 0]
 min_max_sia = [0, 4]
 min_max_fuc = [0, 2]
 min_max_ac = [0, 4]
@@ -146,13 +147,13 @@ tolerance = ['ppm', 10]
 ret_time_interval = [0.0, 999.0, 0.2]
 rt_tolerance_frag = 0.2
 min_isotopologue_peaks = 2
-min_ppp = [False, 0]
-close_peaks = [True, 5]
+min_ppp = [False, 10]
+close_peaks = [False, 5]
 align_chromatograms = True
 percentage_auc = 0.01
 max_ppm = 10
-iso_fit_score = 0.9
-curve_fit_score = 0.9
+iso_fit_score = 0.7
+curve_fit_score = 0.7
 s_to_n = 3
 custom_noise = [False, []]
 samples_path = ''
@@ -362,7 +363,7 @@ def make_total_glycans_df(df1,
                           df2,
                           percentage_auc = percentage_auc,
                           rt_tolerance = ret_time_interval[2]):
-    '''
+    '''This is used here for the real-time alignment when comparing samples.
     '''
     global s_to_n, iso_fit_score, curve_fit_score
     sn = s_to_n
@@ -1321,40 +1322,23 @@ def run_main_window():
         except:
             library_metadata = []
         if len(library_metadata) > 0:
-            if len(library_metadata) == 18:
-                if library_metadata[17][0]:
-                    information_text.insert(tk.END, f"Custom glycans list: {library_metadata[17][1]}\n\n")
-                    information_text.insert(tk.END, f"Maximum adducts: {library_metadata[8]}\n")
-                    information_text.insert(tk.END, f"Maximum charges: {library_metadata[9]}\n")
-                    information_text.insert(tk.END, f"Reducing end tag mass/composition: {library_metadata[10]}\n")
-                    information_text.insert(tk.END, f"Internal Standard mass: {library_metadata[11]}\n")
-                    information_text.insert(tk.END, f"Permethylated: {library_metadata[12]}\n")
-                    information_text.insert(tk.END, f"Amidated/Ethyl-Esterified: {library_metadata[13]}\n")
-                    information_text.insert(tk.END, f"Reduced end: {library_metadata[14]}\n")
-                    information_text.insert(tk.END, f"Fast isotopic distribution calculation: {library_metadata[15]}\n")
-                    information_text.insert(tk.END, f"High resolution isotopic distribution: {library_metadata[16]}")
-                else:
-                    information_text.insert(tk.END, f"Min/Max number of monosaccharides: {library_metadata[0][0]}/{library_metadata[0][1]}\n")
-                    information_text.insert(tk.END, f"Min/Max number of Hexoses: {library_metadata[1][0]}/{library_metadata[1][1]}\n")
-                    information_text.insert(tk.END, f"Min/Max number of N-Acetylhexosamines: {library_metadata[2][0]}/{library_metadata[2][1]}\n")
-                    information_text.insert(tk.END, f"Min/Max number of deoxyHexoses: {library_metadata[3][0]}/{library_metadata[3][1]}\n")
-                    information_text.insert(tk.END, f"Min/Max number of Sialic Acids: {library_metadata[4][0]}/{library_metadata[4][1]}\n")
-                    information_text.insert(tk.END, f"Min/Max number of N-Acetylneuraminic Acids: {library_metadata[5][0]}/{library_metadata[5][1]}\n")
-                    information_text.insert(tk.END, f"Min/Max number of N-Glycolylneuraminic Acids: {library_metadata[6][0]}/{library_metadata[6][1]}\n")
-                    information_text.insert(tk.END, f"Force N-Glycans compositions: {library_metadata[7]}\n")
-                    information_text.insert(tk.END, f"Maximum adducts: {library_metadata[8]}\n")
-                    information_text.insert(tk.END, f"Maximum charges: {library_metadata[9]}\n")
-                    information_text.insert(tk.END, f"Reducing end tag mass/composition: {library_metadata[10]}\n")
-                    information_text.insert(tk.END, f"Internal Standard mass: {library_metadata[11]}\n")
-                    information_text.insert(tk.END, f"Permethylated: {library_metadata[12]}\n")
-                    information_text.insert(tk.END, f"Amidated/Ethyl-Esterified: {library_metadata[13]}\n")
-                    information_text.insert(tk.END, f"Reduced end: {library_metadata[14]}\n")
-                    information_text.insert(tk.END, f"Fast isotopic distribution calculation: {library_metadata[15]}\n")
-                    information_text.insert(tk.END, f"High resolution isotopic distribution: {library_metadata[16]}")
+            if len(library_metadata) > 17 and library_metadata[17][0]:
+                information_text.insert(tk.END, f"Custom glycans list: {library_metadata[17][1]}\n\n")
+                information_text.insert(tk.END, f"Maximum adducts: {library_metadata[8]}\n")
+                information_text.insert(tk.END, f"Maximum charges: {library_metadata[9]}\n")
+                information_text.insert(tk.END, f"Reducing end tag mass/composition: {library_metadata[10]}\n")
+                information_text.insert(tk.END, f"Internal Standard mass: {library_metadata[11]}\n")
+                information_text.insert(tk.END, f"Permethylated: {library_metadata[12]}\n")
+                information_text.insert(tk.END, f"Amidated/Ethyl-Esterified: {library_metadata[13]}\n")
+                information_text.insert(tk.END, f"Reduced end: {library_metadata[14]}\n")
+                information_text.insert(tk.END, f"Fast isotopic distribution calculation: {library_metadata[15]}\n")
+                information_text.insert(tk.END, f"High resolution isotopic distribution: {library_metadata[16]}")
             else:
                 information_text.insert(tk.END, f"Min/Max number of monosaccharides: {library_metadata[0][0]}/{library_metadata[0][1]}\n")
                 information_text.insert(tk.END, f"Min/Max number of Hexoses: {library_metadata[1][0]}/{library_metadata[1][1]}\n")
                 information_text.insert(tk.END, f"Min/Max number of N-Acetylhexosamines: {library_metadata[2][0]}/{library_metadata[2][1]}\n")
+                if len(library_metadata) > 18:
+                    information_text.insert(tk.END, f"Min/Max number of Xyloses: {library_metadata[18][0]}/{library_metadata[18][1]}\n")
                 information_text.insert(tk.END, f"Min/Max number of deoxyHexoses: {library_metadata[3][0]}/{library_metadata[3][1]}\n")
                 information_text.insert(tk.END, f"Min/Max number of Sialic Acids: {library_metadata[4][0]}/{library_metadata[4][1]}\n")
                 information_text.insert(tk.END, f"Min/Max number of N-Acetylneuraminic Acids: {library_metadata[5][0]}/{library_metadata[5][1]}\n")
@@ -1369,6 +1353,24 @@ def run_main_window():
                 information_text.insert(tk.END, f"Reduced end: {library_metadata[14]}\n")
                 information_text.insert(tk.END, f"Fast isotopic distribution calculation: {library_metadata[15]}\n")
                 information_text.insert(tk.END, f"High resolution isotopic distribution: {library_metadata[16]}")
+            # else:
+                # information_text.insert(tk.END, f"Min/Max number of monosaccharides: {library_metadata[0][0]}/{library_metadata[0][1]}\n")
+                # information_text.insert(tk.END, f"Min/Max number of Hexoses: {library_metadata[1][0]}/{library_metadata[1][1]}\n")
+                # information_text.insert(tk.END, f"Min/Max number of N-Acetylhexosamines: {library_metadata[2][0]}/{library_metadata[2][1]}\n")
+                # information_text.insert(tk.END, f"Min/Max number of deoxyHexoses: {library_metadata[3][0]}/{library_metadata[3][1]}\n")
+                # information_text.insert(tk.END, f"Min/Max number of Sialic Acids: {library_metadata[4][0]}/{library_metadata[4][1]}\n")
+                # information_text.insert(tk.END, f"Min/Max number of N-Acetylneuraminic Acids: {library_metadata[5][0]}/{library_metadata[5][1]}\n")
+                # information_text.insert(tk.END, f"Min/Max number of N-Glycolylneuraminic Acids: {library_metadata[6][0]}/{library_metadata[6][1]}\n")
+                # information_text.insert(tk.END, f"Force N-Glycans compositions: {library_metadata[7]}\n")
+                # information_text.insert(tk.END, f"Maximum adducts: {library_metadata[8]}\n")
+                # information_text.insert(tk.END, f"Maximum charges: {library_metadata[9]}\n")
+                # information_text.insert(tk.END, f"Reducing end tag mass/composition: {library_metadata[10]}\n")
+                # information_text.insert(tk.END, f"Internal Standard mass: {library_metadata[11]}\n")
+                # information_text.insert(tk.END, f"Permethylated: {library_metadata[12]}\n")
+                # information_text.insert(tk.END, f"Amidated/Ethyl-Esterified: {library_metadata[13]}\n")
+                # information_text.insert(tk.END, f"Reduced end: {library_metadata[14]}\n")
+                # information_text.insert(tk.END, f"Fast isotopic distribution calculation: {library_metadata[15]}\n")
+                # information_text.insert(tk.END, f"High resolution isotopic distribution: {library_metadata[16]}")
         else:
             information_text.insert(tk.END, f"No information available for this library.\nThis library was created in an older (<1.1.14) version of GlycoGenius.")
         
@@ -1437,11 +1439,11 @@ def run_main_window():
             original_stdout = sys.stdout
             sys.stdout = TextRedirector_Gen_Lib(output_text)
             
-            global min_max_monos, min_max_hex, min_max_hexnac, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, force_nglycan, max_adducts, max_charges, tag_mass, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, fast_iso, high_res
+            global min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, force_nglycan, max_adducts, max_charges, tag_mass, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, fast_iso, high_res
             
             output_filtered_data_args = [curve_fit_score, iso_fit_score, s_to_n, max_ppm, percentage_auc, reanalysis, reanalysis_path, save_path, analyze_ms2[0], analyze_ms2[2], reporter_ions, plot_metaboanalyst, compositions, align_chromatograms, force_nglycan, ret_time_interval[2], rt_tolerance_frag, iso_fittings, output_plot_data, multithreaded_analysis, number_cores]
 
-            imp_exp_gen_library_args = [custom_glycans_list, min_max_monos, min_max_hex, min_max_hexnac, min_max_sia, min_max_fuc, min_max_ac, min_max_gc, force_nglycan, max_adducts, adducts_exclusion, max_charges, reducing_end_tag, fast_iso, high_res, [False, False], library_path, exp_lib_name, True, save_path, internal_standard, permethylated, lactonized_ethyl_esterified, reduced]
+            imp_exp_gen_library_args = [custom_glycans_list, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_sia, min_max_fuc, min_max_ac, min_max_gc, force_nglycan, max_adducts, adducts_exclusion, max_charges, reducing_end_tag, fast_iso, high_res, [False, False], library_path, exp_lib_name, True, save_path, internal_standard, permethylated, lactonized_ethyl_esterified, reduced]
 
             list_of_data_args = [samples_list]
 
@@ -1451,7 +1453,7 @@ def run_main_window():
 
             analyze_files_args = [None, None, None, None, tolerance, ret_time_interval, min_isotopologue_peaks, min_ppp, max_charges, custom_noise, close_peaks, multithreaded_analysis, number_cores]
 
-            analyze_ms2_args = [None, None, None, ret_time_interval, tolerance, min_max_monos, min_max_hex, min_max_hexnac,  min_max_sia, min_max_fuc, min_max_ac, min_max_gc, max_charges, reducing_end_tag, force_nglycan, permethylated, reduced, lactonized_ethyl_esterified, analyze_ms2[1], analyze_ms2[2], ret_time_interval[2], multithreaded_analysis, number_cores]
+            analyze_ms2_args = [None, None, None, ret_time_interval, tolerance, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl,  min_max_sia, min_max_fuc, min_max_ac, min_max_gc, max_charges, reducing_end_tag, force_nglycan, permethylated, reduced, lactonized_ethyl_esterified, analyze_ms2[1], analyze_ms2[2], ret_time_interval[2], multithreaded_analysis, number_cores]
 
             arrange_raw_data_args = [None, samples_names, analyze_ms2[0], save_path, []]
             
@@ -1702,7 +1704,7 @@ def run_main_window():
             original_stdout = sys.stdout
             sys.stdout = TextRedirector_Run_Analysis(output_text)
             
-            global min_max_monos, min_max_hex, min_max_hexnac, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, force_nglycan, max_adducts, max_charges, tag_mass, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, fast_iso, high_res
+            global min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, force_nglycan, max_adducts, max_charges, tag_mass, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, fast_iso, high_res
             
             shutil.copy(library_path, os.path.join(temp_folder, 'glycans_library.py'))
             spec = importlib.util.spec_from_file_location("glycans_library", temp_folder+"/glycans_library.py")
@@ -1716,6 +1718,7 @@ def run_main_window():
                 min_max_monos = library_metadata[0]
                 min_max_hex = library_metadata[1]
                 min_max_hexnac = library_metadata[2]
+                min_max_xyl = library_metadata[18]
                 min_max_fuc = library_metadata[3]
                 min_max_sia = library_metadata[4]
                 min_max_ac = library_metadata[5]
@@ -1733,7 +1736,7 @@ def run_main_window():
             
             output_filtered_data_args = [curve_fit_score, iso_fit_score, s_to_n, max_ppm, percentage_auc, reanalysis, reanalysis_path, save_path, analyze_ms2[0], analyze_ms2[2], reporter_ions, plot_metaboanalyst, compositions, align_chromatograms, force_nglycan, ret_time_interval[2], rt_tolerance_frag, iso_fittings, output_plot_data, multithreaded_analysis, number_cores, 0.0]
                         
-            imp_exp_gen_library_args = [custom_glycans_list, min_max_monos, min_max_hex, min_max_hexnac, min_max_sia, min_max_fuc, min_max_ac, min_max_gc, force_nglycan, max_adducts, adducts_exclusion, max_charges, reducing_end_tag, fast_iso, high_res, [True, True], library_path, exp_lib_name, False, save_path, internal_standard, permethylated, lactonized_ethyl_esterified, reduced]
+            imp_exp_gen_library_args = [custom_glycans_list, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_sia, min_max_fuc, min_max_ac, min_max_gc, force_nglycan, max_adducts, adducts_exclusion, max_charges, reducing_end_tag, fast_iso, high_res, [True, True], library_path, exp_lib_name, False, save_path, internal_standard, permethylated, lactonized_ethyl_esterified, reduced]
 
             list_of_data_args = [samples_list]
 
@@ -1743,9 +1746,9 @@ def run_main_window():
 
             analyze_files_args = [None, None, None, None, tolerance, ret_time_interval, min_isotopologue_peaks, min_ppp, max_charges, custom_noise, close_peaks, multithreaded_analysis, number_cores, True]
 
-            analyze_ms2_args = [None, None, None, ret_time_interval, tolerance, min_max_monos, min_max_hex, min_max_hexnac,  min_max_sia, min_max_fuc, min_max_ac, min_max_gc, max_charges, reducing_end_tag, force_nglycan, permethylated, reduced, lactonized_ethyl_esterified, analyze_ms2[1], analyze_ms2[2], ret_time_interval[2], multithreaded_analysis, number_cores, True]
+            analyze_ms2_args = [None, None, None, ret_time_interval, tolerance, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl,  min_max_sia, min_max_fuc, min_max_ac, min_max_gc, max_charges, reducing_end_tag, force_nglycan, permethylated, reduced, lactonized_ethyl_esterified, analyze_ms2[1], analyze_ms2[2], ret_time_interval[2], multithreaded_analysis, number_cores, True]
 
-            arrange_raw_data_args = [None, samples_names, analyze_ms2[0], save_path, [(custom_glycans_list, min_max_monos, min_max_hex, min_max_hexnac, min_max_sia, min_max_fuc, min_max_ac, min_max_gc, force_nglycan, max_adducts, adducts_exclusion, max_charges, reducing_end_tag, permethylated, reduced, lactonized_ethyl_esterified, fast_iso, high_res, internal_standard, imp_exp_library, exp_lib_name, library_path, only_gen_lib), (multithreaded_analysis, number_cores, analyze_ms2, reporter_ions, tolerance, ret_time_interval, rt_tolerance_frag, min_isotopologue_peaks, min_ppp, close_peaks, align_chromatograms, percentage_auc, max_ppm, iso_fit_score, curve_fit_score, s_to_n, custom_noise, samples_path, save_path, plot_metaboanalyst, compositions, iso_fittings, reanalysis, reanalysis_path, output_plot_data)], True]
+            arrange_raw_data_args = [None, samples_names, analyze_ms2[0], save_path, [(custom_glycans_list, min_max_monos, min_max_hex, min_max_hexnac, min_max_sia, min_max_fuc, min_max_ac, min_max_gc, force_nglycan, max_adducts, adducts_exclusion, max_charges, reducing_end_tag, permethylated, reduced, lactonized_ethyl_esterified, fast_iso, high_res, internal_standard, imp_exp_library, exp_lib_name, library_path, only_gen_lib, min_max_xyl), (multithreaded_analysis, number_cores, analyze_ms2, reporter_ions, tolerance, ret_time_interval, rt_tolerance_frag, min_isotopologue_peaks, min_ppp, close_peaks, align_chromatograms, percentage_auc, max_ppm, iso_fit_score, curve_fit_score, s_to_n, custom_noise, samples_path, save_path, plot_metaboanalyst, compositions, iso_fittings, reanalysis, reanalysis_path, output_plot_data)], True]
             
             t = threading.Thread(target=run_glycogenius, args=([(output_filtered_data_args, imp_exp_gen_library_args, list_of_data_args, index_spectra_from_file_ms1_args, index_spectra_from_file_ms2_args, analyze_files_args, analyze_ms2_args, arrange_raw_data_args, samples_names, reanalysis, analyze_ms2[0], True)]))
             t.start()
@@ -3903,8 +3906,8 @@ def run_main_window():
         
         total_glycans_df = make_total_glycans_df(df1, df2)
         if len(total_glycans_df[0]['Glycan']) != 0:
-            chromatograms_delta = Execution_Functions.align_assignments(total_glycans_df, "total_glycans", rt_tol = ret_time_interval[2])
-            chromatograms_aligned = Execution_Functions.align_assignments(chromatograms, 'chromatograms', chromatograms_delta[1])
+            chromatograms_delta = Execution_Functions.align_assignments(total_glycans_df, "total_glycans", multithreaded_analysis, number_cores, rt_tol = ret_time_interval[2])
+            chromatograms_aligned = Execution_Functions.align_assignments(chromatograms, 'chromatograms', multithreaded_analysis, number_cores, chromatograms_delta[1])
         else:
             chromatograms_aligned = chromatograms
         
@@ -4233,6 +4236,7 @@ def run_main_window():
     compare_samples_button.grid(row=1, rowspan=2, column=0, padx=10, pady=(10, 175), sticky="sew")
     ToolTip(compare_samples_button, "Opens a window for comparing the chromatograms for the selected compound on different samples. It features an option for alignment of the chromatograms and, due to that, and depending on the number of samples you have, this may take a while to load.")
     
+    global s_n_entry, curve_fit_entry, ppm_error_entry, iso_fit_entry
     qcp_frame = ttk.Labelframe(main_window, text="Quality Control Parameters:", style="qcp_frame.TLabelframe")
     qcp_frame.grid(row=1, rowspan=2, column=0, padx=10, pady=(10, 40), sticky="sew")
     
@@ -4642,7 +4646,12 @@ def run_select_files_window(samples_dropdown):
         additional_info = ''
         if not parameters_gg[0][0][0]:
             library_type = 'Generated Library'
-            additional_info = f" - Monosaccharides: {str(parameters_gg[0][1])[1:-1]}\n - Hexoses: {str(parameters_gg[0][2])[1:-1]}\n - HexNAcs: {str(parameters_gg[0][3])[1:-1]}\n - Sialic Acids: {str(parameters_gg[0][4])[1:-1]}\n - dHex: {str(parameters_gg[0][5])[1:-1]}\n - Neu5Acs: {str(parameters_gg[0][6])[1:-1]}\n - Neu5Gcs: {str(parameters_gg[0][7])[1:-1]}\n\n - Force N-Glycans composition: {parameters_gg[0][8]}\n - Maximum adducts: {parameters_gg[0][9]}\n - Adducts excluded: {parameters_gg[0][10]}\n - Maximum charges: {parameters_gg[0][11]}\n - Reducing end tag: {parameters_gg[0][12] if parameters_gg[0][12] != 0.0 else False}\n - Permethylated: {parameters_gg[0][13]}\n - Reduced end: {parameters_gg[0][14]}\n - Amidated/Ethyl-Esterified: {parameters_gg[0][15]}\n - Fast isotopic calculations: {parameters_gg[0][16]}\n - High resolution isotopic calculations: {parameters_gg[0][17]}\n - Internal standard: {parameters_gg[0][18] if parameters_gg[0][18] != 0.0 else False}"
+            additional_info = f" - Monosaccharides: {str(parameters_gg[0][1])[1:-1]}\n - Hexoses: {str(parameters_gg[0][2])[1:-1]}\n - HexNAcs: {str(parameters_gg[0][3])[1:-1]}"
+            
+            if len(parameters_gg[0]) > 23:
+                additional_info+= f"\n - Xyloses: {str(parameters_gg[0][23])[1:-1]}"
+                
+            additional_info+= f"\n - Sialic Acids: {str(parameters_gg[0][4])[1:-1]}\n - dHex: {str(parameters_gg[0][5])[1:-1]}\n - Neu5Acs: {str(parameters_gg[0][6])[1:-1]}\n - Neu5Gcs: {str(parameters_gg[0][7])[1:-1]}\n\n - Force N-Glycans composition: {parameters_gg[0][8]}\n - Maximum adducts: {parameters_gg[0][9]}\n - Adducts excluded: {parameters_gg[0][10]}\n - Maximum charges: {parameters_gg[0][11]}\n - Reducing end tag: {parameters_gg[0][12] if parameters_gg[0][12] != 0.0 else False}\n - Permethylated: {parameters_gg[0][13]}\n - Reduced end: {parameters_gg[0][14]}\n - Amidated/Ethyl-Esterified: {parameters_gg[0][15]}\n - Fast isotopic calculations: {parameters_gg[0][16]}\n - High resolution isotopic calculations: {parameters_gg[0][17]}\n - Internal standard: {parameters_gg[0][18] if parameters_gg[0][18] != 0.0 else False}"
         else:
             library_type = 'Custom glycans list'
             additional_info = f" - Glycans list/path: {parameters_gg[0][0][1]}\n\n - Force N-Glycans composition: {parameters_gg[0][8]}\n - Maximum adducts: {parameters_gg[0][9]}\n - Adducts excluded: {parameters_gg[0][10]}\n - Maximum charges: {parameters_gg[0][11]}\n - Reducing end tag: {parameters_gg[0][12] if parameters_gg[0][12] != 0.0 else False}\n - Permethylated: {parameters_gg[0][13]}\n - Reduced end: {parameters_gg[0][14]}\n - Amidated/Ethyl-Esterified: {parameters_gg[0][15]}\n - Fast isotopic calculations: {parameters_gg[0][16]}\n - High resolution isotopic calculations: {parameters_gg[0][17]}"
@@ -4795,6 +4804,8 @@ def run_set_parameters_window():
             max_hex_entry.config(state=tk.DISABLED)
             min_hexnac_entry.config(state=tk.DISABLED)
             max_hexnac_entry.config(state=tk.DISABLED)
+            min_xyl_entry.config(state=tk.DISABLED)
+            max_xyl_entry.config(state=tk.DISABLED)
             min_dhex_entry.config(state=tk.DISABLED)
             max_dhex_entry.config(state=tk.DISABLED)
             min_sia_entry.config(state=tk.DISABLED)
@@ -4813,6 +4824,8 @@ def run_set_parameters_window():
             max_hex_entry.config(state=tk.NORMAL)
             min_hexnac_entry.config(state=tk.NORMAL)
             max_hexnac_entry.config(state=tk.NORMAL)
+            min_xyl_entry.config(state=tk.NORMAL)
+            max_xyl_entry.config(state=tk.NORMAL)
             min_dhex_entry.config(state=tk.NORMAL)
             max_dhex_entry.config(state=tk.NORMAL)
             min_sia_entry.config(state=tk.NORMAL)
@@ -4915,6 +4928,7 @@ def run_set_parameters_window():
         global min_max_monos
         global min_max_hex
         global min_max_hexnac
+        global min_max_xyl
         global min_max_fuc
         global min_max_sia
         global min_max_ac
@@ -5029,6 +5043,10 @@ def run_set_parameters_window():
                     error_window("Max. HexNAc value must be greater than min. HexNAc value.")
                     return
                 min_max_hexnac = [int(min_hexnac_entry.get()), int(max_hexnac_entry.get())]
+                if int(max_xyl_entry.get()) < int(min_xyl_entry.get()):
+                    error_window("Max. Xyl value must be greater than min. Xyl value.")
+                    return
+                min_max_xyl = [int(min_xyl_entry.get()), int(max_xyl_entry.get())]
                 if int(max_dhex_entry.get()) < int(min_dhex_entry.get()):
                     error_window("Max. dHex value must be greater than min. dHex value.")
                     return
@@ -5082,6 +5100,7 @@ def run_set_parameters_window():
                         break
     
     def save_param_to_file():
+        global s_n_entry, curve_fit_entry, ppm_error_entry, iso_fit_entry
         file_dialog = tk.Toplevel()
         file_dialog.withdraw()
         file_dialog.grab_set()
@@ -5122,6 +5141,7 @@ def run_set_parameters_window():
                 f.write(f"total_monosaccharides = {int(min_monosaccharides_entry.get())}, {int(max_monosaccharides_entry.get())}\n")
                 f.write(f"hexoses = {int(min_hex_entry.get())}, {int(max_hex_entry.get())}\n")
                 f.write(f"hexnacs = {int(min_hexnac_entry.get())}, {int(max_hexnac_entry.get())}\n")
+                f.write(f"xyloses = {int(min_xyl_entry.get())}, {int(max_xyl_entry.get())}\n")
                 f.write(f"sialic_acids = {int(min_sia_entry.get())}, {int(max_sia_entry.get())}\n")
                 f.write(f"fucoses = {int(min_dhex_entry.get())}, {int(max_dhex_entry.get())}\n")
                 f.write(f"neu5ac = {int(min_neu5ac_entry.get())}, {int(max_neu5ac_entry.get())}\n")
@@ -5139,6 +5159,7 @@ def run_set_parameters_window():
                 f.write(f"total_monosaccharides = {int(min_monosaccharides_entry.get())}, {int(max_monosaccharides_entry.get())}\n")
                 f.write(f"hexoses = {int(min_hex_entry.get())}, {int(max_hex_entry.get())}\n")
                 f.write(f"hexnacs = {int(min_hexnac_entry.get())}, {int(max_hexnac_entry.get())}\n")
+                f.write(f"xyloses = {int(min_xyl_entry.get())}, {int(max_xyl_entry.get())}\n")
                 f.write(f"sialic_acids = {int(min_sia_entry.get())}, {int(max_sia_entry.get())}\n")
                 f.write(f"fucoses = {int(min_dhex_entry.get())}, {int(max_dhex_entry.get())}\n")
                 f.write(f"neu5ac = {int(min_neu5ac_entry.get())}, {int(max_neu5ac_entry.get())}\n")
@@ -5316,6 +5337,10 @@ def run_set_parameters_window():
         min_hexnac_entry.insert(0, parameters[0][3][0])
         max_hexnac_entry.delete(0, tk.END)
         max_hexnac_entry.insert(0, parameters[0][3][1])
+        min_xyl_entry.delete(0, tk.END)
+        min_xyl_entry.insert(0, parameters[0][23][0])
+        max_xyl_entry.delete(0, tk.END)
+        max_xyl_entry.insert(0, parameters[0][23][1])
         min_dhex_entry.delete(0, tk.END)
         min_dhex_entry.insert(0, parameters[0][5][0])
         max_dhex_entry.delete(0, tk.END)
@@ -5766,8 +5791,35 @@ def run_set_parameters_window():
     max_neu5gc_entry.grid(row=10, column=0, padx=(120, 0), pady=0, sticky='w')
     ToolTip(max_neu5gc_entry, "Insert the maximum number of Neu5Gc in your glycans.")
     
+    xyl_label = ttk.Label(library_building_frame, text='Xylose:', font=("Segoe UI", list_font_size))
+    xyl_label.grid(row=9, column=1, padx=(10, 10), pady=(0, 0), sticky="w")
+    
+    min_xyl_label = ttk.Label(library_building_frame, text='Min:', font=("Segoe UI", list_font_size))
+    min_xyl_label.grid(row=10, column=1, padx=(10, 10), pady=(0, 0), sticky="w")
+    
+    min_xyl_entry_state = tk.NORMAL
+    if use_custom_library_checkbox_state.get():
+        min_xyl_entry_state = tk.DISABLED
+    min_xyl_entry = ttk.Entry(library_building_frame, width=5, state=tk.NORMAL)
+    min_xyl_entry.insert(0, min_max_xyl[0])
+    min_xyl_entry.config(state=min_xyl_entry_state)
+    min_xyl_entry.grid(row=10, column=1, padx=(40, 0), pady=0, sticky='w')
+    ToolTip(min_xyl_entry, "Insert the minimum number of Xylose in your glycans.")
+    
+    max_xyl_label = ttk.Label(library_building_frame, text='Max:', font=("Segoe UI", list_font_size))
+    max_xyl_label.grid(row=10, column=1, padx=(80, 10), pady=(0, 0), sticky="w")
+    
+    max_xyl_entry_state = tk.NORMAL
+    if use_custom_library_checkbox_state.get():
+        max_xyl_entry_state = tk.DISABLED
+    max_xyl_entry = ttk.Entry(library_building_frame, width=5, state=tk.NORMAL)
+    max_xyl_entry.insert(0, min_max_xyl[1])
+    max_xyl_entry.config(state=max_xyl_entry_state)
+    max_xyl_entry.grid(row=10, column=1, padx=(120, 0), pady=0, sticky='w')
+    ToolTip(max_xyl_entry, "Insert the maximum number of Xylose in your glycans.")
+    
     intstandard_label = ttk.Label(library_building_frame, text='Internal Standard Mass:', font=("Segoe UI", list_font_size))
-    intstandard_label.grid(row=9, column=1, padx=(10, 10), pady=(0, 0), sticky="w")
+    intstandard_label.grid(row=11, column=0, padx=(10, 10), pady=(0, 0), sticky="w")
     
     intstandard_entry_state = tk.NORMAL
     if use_custom_library_checkbox_state.get():
@@ -5775,22 +5827,22 @@ def run_set_parameters_window():
     intstandard_entry = ttk.Entry(library_building_frame, width=5, state=tk.NORMAL)
     intstandard_entry.insert(0, internal_standard)
     intstandard_entry.config(state=intstandard_entry_state)
-    intstandard_entry.grid(row=10, column=1, padx=(10, 10), pady=0, sticky='we')
+    intstandard_entry.grid(row=12, column=0, padx=(10, 10), pady=0, sticky='we')
     ToolTip(intstandard_entry, "Insert the mass of the internal standard used. If you added a reducing end tag to your samples, it will also be added to the internal standard. Leave at 0.0 if no internal standard is used.")
     
     modifications_label = ttk.Label(library_building_frame, text='Modifications:', font=("Segoe UI", list_font_size))
-    modifications_label.grid(row=11, column=0, columnspan=2, padx=(10, 10), pady=(10, 0), sticky="w")
+    modifications_label.grid(row=13, column=0, columnspan=2, padx=(10, 10), pady=(10, 0), sticky="w")
     
     reducing_end_tag_checkbox_activation_state = tk.NORMAL
     if reduced:
         reducing_end_tag_checkbox_activation_state = tk.DISABLED
     reducing_end_tag_checkbox_state = tk.BooleanVar(value=reducing_end_boolean)
     reducing_end_tag_checkbox = ttk.Checkbutton(library_building_frame, text="Reducing End Tag", variable=reducing_end_tag_checkbox_state, command=reducing_end_tag_checkbox_state_check, state=reducing_end_tag_checkbox_activation_state)
-    reducing_end_tag_checkbox.grid(row=12, column=0, padx=10, sticky="nw")
+    reducing_end_tag_checkbox.grid(row=14, column=0, padx=10, sticky="nw")
     ToolTip(reducing_end_tag_checkbox, "Select if you added a reducing end tag to your samples' glycans or if you're analyzing a glycopeptide.")
     
     reducing_end_tag_label = ttk.Label(library_building_frame, text='Tag:', font=("Segoe UI", list_font_size))
-    reducing_end_tag_label.grid(row=13, column=0, padx=(10, 10), pady=(0, 0), sticky="w")
+    reducing_end_tag_label.grid(row=15, column=0, padx=(10, 10), pady=(0, 0), sticky="w")
     
     reducing_end_tag_entry_state = tk.DISABLED
     if reducing_end_tag_checkbox_state.get():
@@ -5798,12 +5850,12 @@ def run_set_parameters_window():
     reducing_end_tag_entry = ttk.Entry(library_building_frame, width=20, state = tk.NORMAL)
     reducing_end_tag_entry.insert(0, reducing_end_tag) 
     reducing_end_tag_entry.config(state = reducing_end_tag_entry_state)
-    reducing_end_tag_entry.grid(row=13, column=0, columnspan=2, padx=(50, 10), pady=0, sticky='w')
+    reducing_end_tag_entry.grid(row=15, column=0, columnspan=2, padx=(50, 10), pady=0, sticky='w')
     ToolTip(reducing_end_tag_entry, "Type in the ADDED mass of the reducing end tag (ie. 133.0644 for Girard Reagent P (GirP) tag or 219.1735 for Procainamide (ProA) tag), or type in the chemical formula of the reducing end tag (ie. C7H7N3 for GirP or C13H21N3 for ProA) or type in 'pep-' followed by a peptide sequence for analyzing a glycopeptide (ie. pep-NK for the dipeptide made out of an asparagine and a lysine residue).")
     
     permethylated_checkbox_state = tk.BooleanVar(value=permethylated)
     permethylated_checkbox = ttk.Checkbutton(library_building_frame, text="Permethylated", variable=permethylated_checkbox_state, command=permethylated_checkbox_state_check)
-    permethylated_checkbox.grid(row=14, column=0, padx=10, sticky="w")
+    permethylated_checkbox.grid(row=16, column=0, padx=10, sticky="w")
     ToolTip(permethylated_checkbox, "Select if the sample was permethylated.")
     
     reduced_checkbox_activation_state = tk.NORMAL
@@ -5811,30 +5863,30 @@ def run_set_parameters_window():
         reduced_checkbox_activation_state = tk.DISABLED
     reduced_checkbox_state = tk.BooleanVar(value=reduced)
     reduced_checkbox = ttk.Checkbutton(library_building_frame, text="Reduced End", variable=reduced_checkbox_state, command=reduced_checkbox_state_check, state = reduced_checkbox_activation_state)
-    reduced_checkbox.grid(row=15, column=0, padx=10, sticky="w")
+    reduced_checkbox.grid(row=17, column=0, padx=10, sticky="w")
     ToolTip(reduced_checkbox, "Select if the sample doesn't have a reducing end tag and had it's reducing end reduced.")
     
     lac_ee_checkbox_state = tk.BooleanVar(value=lactonized_ethyl_esterified)
     lac_ee_checkbox = ttk.Checkbutton(library_building_frame, text="Amidated/Ethyl-Esterified", variable=lac_ee_checkbox_state, command=lac_ee_checkbox_state_check)
-    lac_ee_checkbox.grid(row=16, column=0, padx=10, sticky="w")
+    lac_ee_checkbox.grid(row=18, column=0, padx=10, sticky="w")
     ToolTip(lac_ee_checkbox, "Select if the sample has been amidated and ethyl-esterified, allowing to distinguish between alpha-2,3 and alpha-2,6 N-Acetilneuraminic Acids.")
     
     negative_mode_checkbox_state = tk.BooleanVar(value=(True if max_charges<0 else False))
     negative_mode_checkbox = ttk.Checkbutton(library_building_frame, text="Negative Mode", variable=negative_mode_checkbox_state, command=negative_mode_checkbox_state_check)
-    negative_mode_checkbox.grid(row=18, column=0, padx=10, sticky="w")
+    negative_mode_checkbox.grid(row=20, column=0, padx=10, sticky="w")
     ToolTip(negative_mode_checkbox, "Allows analysis of data acquired in negative mode. For now only supports proton adducts.")
     
     add_settings_label = ttk.Label(library_building_frame, text='Additional Settings:', font=("Segoe UI", list_font_size))
-    add_settings_label.grid(row=19, column=0, columnspan=2, padx=(10, 10), pady=(0, 0), sticky="w")
+    add_settings_label.grid(row=21, column=0, columnspan=2, padx=(10, 10), pady=(0, 0), sticky="w")
     
     force_n_glycan_checkbox_state = tk.BooleanVar(value=force_nglycan)
     force_n_glycan_checkbox = ttk.Checkbutton(library_building_frame, text="Force N-Glycan Compositions", variable=force_n_glycan_checkbox_state, command=force_n_glycan_checkbox_state_check)
-    force_n_glycan_checkbox.grid(row=20, column=0, columnspan=2, padx=10, sticky="w")
+    force_n_glycan_checkbox.grid(row=22, column=0, columnspan=2, padx=10, sticky="w")
     ToolTip(force_n_glycan_checkbox, "If enabled, forces the compositions to match the known N-glycans' biological features, such as a minimum composition of H3N2 and avoidance of odd structures, such as more than one sialic acid per antennae.")
     
     fast_iso_checkbox_state = tk.BooleanVar(value=fast_iso)
     fast_iso_checkbox = ttk.Checkbutton(library_building_frame, text="Fast Isotopic Distribution Calculation", variable=fast_iso_checkbox_state, command=fast_iso_checkbox_state_check)
-    fast_iso_checkbox.grid(row=21, column=0, columnspan=2, padx=10, sticky="w")
+    fast_iso_checkbox.grid(row=23, column=0, columnspan=2, padx=10, sticky="w")
     ToolTip(fast_iso_checkbox, "If enabled, calculates the isotopic distribution only based on carbon atoms and corrects it to improve accuracy. If disabled, all atoms are considered in the isotopic distribution calculation and the library building process will take SIGNIFICANTLY longer.")
     
     hires_iso_checkbox_active_state = tk.NORMAL
@@ -5842,75 +5894,75 @@ def run_set_parameters_window():
         hires_iso_checkbox_active_state = tk.DISABLED
     hires_iso_checkbox_state = tk.BooleanVar(value=high_res)
     hires_iso_checkbox = ttk.Checkbutton(library_building_frame, text="High Resolution Distribution Calculation", variable=hires_iso_checkbox_state, command=hires_iso_checkbox_state_check, state=hires_iso_checkbox_active_state)
-    hires_iso_checkbox.grid(row=22, column=0, columnspan=2, padx=10, pady=(0, 10), sticky="w")
+    hires_iso_checkbox.grid(row=24, column=0, columnspan=2, padx=10, pady=(0, 10), sticky="w")
     ToolTip(hires_iso_checkbox, "Only available if fast isotopic distribution calculation is disabled. Calculates the isotopic distribution peaks in very high resolution. Useful for data acquired in very high resolution MS instruments, such as FT analyzers.")
     
     adducts_label = ttk.Label(library_building_frame, text='Adducts:', font=("Segoe UI", list_font_size))
-    adducts_label.grid(row=12, column=1, padx=(25, 10), pady=(0, 0), sticky="w")
+    adducts_label.grid(row=14, column=1, padx=(25, 10), pady=(0, 0), sticky="w")
     
     adducts_min_label = ttk.Label(library_building_frame, text='Min:', font=("Segoe UI", 9))
-    adducts_min_label.grid(row=13, column=1, padx=(35, 10), pady=(0, 0), sticky="w")
+    adducts_min_label.grid(row=15, column=1, padx=(35, 10), pady=(0, 0), sticky="w")
     
     adducts_max_label = ttk.Label(library_building_frame, text='Max:', font=("Segoe UI", 9))
-    adducts_max_label.grid(row=13, column=1, padx=(80, 10), pady=(0, 0), sticky="w")
+    adducts_max_label.grid(row=15, column=1, padx=(80, 10), pady=(0, 0), sticky="w")
     
     hydrogen_min_entry = ttk.Entry(library_building_frame, width=6)
-    hydrogen_min_entry.grid(row=14, column=1, padx=(25, 0), pady=(0, 0), sticky='w')
+    hydrogen_min_entry.grid(row=16, column=1, padx=(25, 0), pady=(0, 0), sticky='w')
     hydrogen_min_entry.insert(0, h_adduct[0])
     ToolTip(hydrogen_min_entry, "Set the minimum number of proton adducts.")
     
     hydrogen_max_entry = ttk.Entry(library_building_frame, width=6)
-    hydrogen_max_entry.grid(row=14, column=1, padx=(75, 0), pady=(0, 0), sticky='w')
+    hydrogen_max_entry.grid(row=16, column=1, padx=(75, 0), pady=(0, 0), sticky='w')
     hydrogen_max_entry.insert(0, h_adduct[1])
     ToolTip(hydrogen_max_entry, "Set the maximum number of proton adducts.")
     
     hydrogen_label = ttk.Label(library_building_frame, text='H', font=("Segoe UI", list_font_size))
-    hydrogen_label.grid(row=14, column=1, padx=(125, 10), pady=(0, 0), sticky="w")
+    hydrogen_label.grid(row=16, column=1, padx=(125, 10), pady=(0, 0), sticky="w")
     
     sodium_min_entry = ttk.Entry(library_building_frame, width=6)
-    sodium_min_entry.grid(row=15, column=1, padx=(25, 0), pady=(5, 0), sticky='w')
+    sodium_min_entry.grid(row=17, column=1, padx=(25, 0), pady=(5, 0), sticky='w')
     sodium_min_entry.insert(0, na_adduct[0])
     ToolTip(sodium_min_entry, "Set the minimum number of sodium adducts.")
     
     sodium_max_entry = ttk.Entry(library_building_frame, width=6)
-    sodium_max_entry.grid(row=15, column=1, padx=(75, 0), pady=(5, 0), sticky='w')
+    sodium_max_entry.grid(row=17, column=1, padx=(75, 0), pady=(5, 0), sticky='w')
     sodium_max_entry.insert(0, na_adduct[1])
     ToolTip(sodium_max_entry, "Set the maximum number of sodium adducts.")
     
     sodium_label = ttk.Label(library_building_frame, text='Na', font=("Segoe UI", list_font_size))
-    sodium_label.grid(row=15, column=1, padx=(125, 10), pady=(5, 0), sticky="w")
+    sodium_label.grid(row=17, column=1, padx=(125, 10), pady=(5, 0), sticky="w")
     
     potassium_min_entry = ttk.Entry(library_building_frame, width=6)
-    potassium_min_entry.grid(row=16, column=1, padx=(25, 0), pady=(5, 0), sticky='w')
+    potassium_min_entry.grid(row=18, column=1, padx=(25, 0), pady=(5, 0), sticky='w')
     potassium_min_entry.insert(0, k_adduct[0])
     ToolTip(potassium_min_entry, "Set the minimum number of potassium adducts.")
     
     potassium_max_entry = ttk.Entry(library_building_frame, width=6)
-    potassium_max_entry.grid(row=16, column=1, padx=(75, 0), pady=(5, 0), sticky='w')
+    potassium_max_entry.grid(row=18, column=1, padx=(75, 0), pady=(5, 0), sticky='w')
     potassium_max_entry.insert(0, k_adduct[1])
     ToolTip(potassium_max_entry, "Set the maximum number of potassium adducts.")
     
     potassium_label = ttk.Label(library_building_frame, text='K', font=("Segoe UI", list_font_size))
-    potassium_label.grid(row=16, column=1, padx=(125, 10), pady=(5, 0), sticky="w")
+    potassium_label.grid(row=18, column=1, padx=(125, 10), pady=(5, 0), sticky="w")
     
     lithium_min_entry = ttk.Entry(library_building_frame, width=6)
-    lithium_min_entry.grid(row=17, column=1, padx=(25, 0), pady=(5, 0), sticky='w')
+    lithium_min_entry.grid(row=19, column=1, padx=(25, 0), pady=(5, 0), sticky='w')
     lithium_min_entry.insert(0, li_adduct[0])
     ToolTip(lithium_min_entry, "Set the minimum number of lithium adducts.")
     
     lithium_max_entry = ttk.Entry(library_building_frame, width=6)
-    lithium_max_entry.grid(row=17, column=1, padx=(75, 0), pady=(5, 0), sticky='w')
+    lithium_max_entry.grid(row=19, column=1, padx=(75, 0), pady=(5, 0), sticky='w')
     lithium_max_entry.insert(0, li_adduct[1])
     ToolTip(lithium_max_entry, "Set the maximum number of lithium adducts.")
     
     lithium_label = ttk.Label(library_building_frame, text='Li', font=("Segoe UI", list_font_size))
-    lithium_label.grid(row=17, column=1, padx=(125, 10), pady=(5, 0), sticky="w")
+    lithium_label.grid(row=19, column=1, padx=(125, 10), pady=(5, 0), sticky="w")
     
     max_charges_label = ttk.Label(library_building_frame, text='Max Charges:', font=("Segoe UI", list_font_size))
-    max_charges_label.grid(row=18, column=1, padx=(20, 10), pady=(5, 10), sticky="w")
+    max_charges_label.grid(row=20, column=1, padx=(20, 10), pady=(5, 10), sticky="w")
     
     max_charges_entry = ttk.Entry(library_building_frame, width=6)
-    max_charges_entry.grid(row=18, column=1, padx=(110, 0), pady=(5, 10), sticky='w')
+    max_charges_entry.grid(row=20, column=1, padx=(110, 0), pady=(5, 10), sticky='w')
     max_charges_entry.insert(0, abs(max_charges))
     ToolTip(max_charges_entry, "Set the maximum amount of charges for any given combination of the adducts selected. Adducts combination that exceed this number won't be used for analysis.")
     
