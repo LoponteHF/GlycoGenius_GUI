@@ -17,8 +17,8 @@
 # by typing 'glycogenius'. If not, see <https://www.gnu.org/licenses/>.
 
 global gg_version, GUI_version
-gg_version = '1.1.19'
-GUI_version = '0.0.10'
+gg_version = '1.1.20'
+GUI_version = '0.0.11'
 
 from PIL import Image, ImageTk
 import threading
@@ -91,6 +91,7 @@ from tkinter.scrolledtext import ScrolledText
 from ttkwidgets import CheckboxTreeview
 from pyteomics import mass, mzxml, mzml
 from itertools import product
+from scipy.stats import gaussian_kde
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.patches import Rectangle, Ellipse
 from matplotlib.colors import LogNorm, PowerNorm
@@ -151,9 +152,9 @@ min_ppp = [False, 10]
 close_peaks = [False, 5]
 align_chromatograms = True
 percentage_auc = 0.01
-max_ppm = 10
-iso_fit_score = 0.7
-curve_fit_score = 0.7
+max_ppm = [-10, 10]
+iso_fit_score = 0.9
+curve_fit_score = 0.9
 s_to_n = 3
 custom_noise = [False, []]
 samples_path = ''
@@ -164,6 +165,8 @@ iso_fittings = False
 reanalysis = False
 reanalysis_path = ''
 output_plot_data = False
+
+verbose = False
 
 global samples_list, samples_names
 samples_list = []
@@ -398,7 +401,7 @@ def make_total_glycans_df(df1,
                         to_remove_glycan.append(df1[i_i]["Glycan"][j_j])
                         to_remove_adduct.append(j)
                         continue
-                    if abs(float(temp_ppm[k_k])) > max_ppm:
+                    if float(temp_ppm[k_k]) < max_ppm[0] or float(temp_ppm[k_k]) > max_ppm[1]:
                         to_remove.append(k_k)
                         to_remove_glycan.append(df1[i_i]["Glycan"][j_j])
                         to_remove_adduct.append(j)
@@ -760,140 +763,174 @@ def handle_selection(event):
     try:
         canvas.mpl_disconnect(on_plot_hover_motion)
     except:
-        print("Couldn't disconnect on_plot_hover_motion")
+        if verbose:
+            print("Couldn't disconnect on_plot_hover_motion")
     try:
         canvas.mpl_disconnect(zoom_selection_key_press)
     except:
-        print("Couldn't disconnect zoom_selection_key_press")
+        if verbose:
+            print("Couldn't disconnect zoom_selection_key_press")
     try:
         canvas.mpl_disconnect(zoom_selection_key_release)
     except:
-        print("Couldn't disconnect zoom_selection_key_release")
+        if verbose:
+            print("Couldn't disconnect zoom_selection_key_release")
     try:
         canvas.mpl_disconnect(zoom_selection_motion_notify)
     except:
-        print("Couldn't disconnect zoom_selection_motion_notify")
+        if verbose:
+            print("Couldn't disconnect zoom_selection_motion_notify")
     try:
         canvas.mpl_disconnect(zoom_selection_button_press)
     except:
-        print("Couldn't disconnect zoom_selection_button_press")
+        if verbose:
+            print("Couldn't disconnect zoom_selection_button_press")
     try:
         canvas.mpl_disconnect(zoom_selection_button_release)
     except:
-        print("Couldn't disconnect zoom_selection_button_release")
+        if verbose:
+            print("Couldn't disconnect zoom_selection_button_release")
     try:
         canvas.mpl_disconnect(on_scroll_event)
     except:
-        print("Couldn't disconnect on_scroll_event")
+        if verbose:
+            print("Couldn't disconnect on_scroll_event")
     try:
         canvas.mpl_disconnect(on_double_click_event)
     except:
-        print("Couldn't disconnect on_double_click_event")
+        if verbose:
+            print("Couldn't disconnect on_double_click_event")
     try:
         canvas.mpl_disconnect(on_pan_press)
     except:
-        print("Couldn't disconnect on_pan_press")
+        if verbose:
+            print("Couldn't disconnect on_pan_press")
     try:
         canvas.mpl_disconnect(on_pan_release)
     except:
-        print("Couldn't disconnect on_pan_release")
+        if verbose:
+            print("Couldn't disconnect on_pan_release")
     try:
         canvas.mpl_disconnect(on_pan_motion)
     except:
-        print("Couldn't disconnect on_pan_motion")
+        if verbose:
+            print("Couldn't disconnect on_pan_motion")
     try:
         canvas.mpl_disconnect(on_click_press)
     except:
-        print("Couldn't disconnect on_click_press")
+        if verbose:
+            print("Couldn't disconnect on_click_press")
     try:
         canvas.mpl_disconnect(on_click_release)
     except:
-        print("Couldn't disconnect on_click_release")
+        if verbose:
+            print("Couldn't disconnect on_click_release")
     try:
         canvas.mpl_disconnect(right_move_spectra)
     except:
-        print("Couldn't disconnect right_move_spectra")
+        if verbose:
+            print("Couldn't disconnect right_move_spectra")
     try:
         canvas.mpl_disconnect(left_move_spectra)
     except:
-        print("Couldn't disconnect left_move_spectra")
+        if verbose:
+            print("Couldn't disconnect left_move_spectra")
     try:
         canvas.mpl_disconnect(on_pan_right_click_press)
     except:
-        print("Couldn't disconnect on_pan_right_click_press")
+        if verbose:
+            print("Couldn't disconnect on_pan_right_click_press")
     try:
         canvas.mpl_disconnect(on_pan_right_click_release)
     except:
-        print("Couldn't disconnect on_pan_right_click_release")
+        if verbose:
+            print("Couldn't disconnect on_pan_right_click_release")
     try:
         canvas.mpl_disconnect(on_pan_right_click_motion)
     except:
-        print("Couldn't disconnect on_pan_right_click_motion")
+        if verbose:
+            print("Couldn't disconnect on_pan_right_click_motion")
         
     try:
         canvas_spec.mpl_disconnect(on_plot_hover_motion_spec)
     except:
-        print("Couldn't disconnect on_plot_hover_motion_spec")
+        if verbose:
+            print("Couldn't disconnect on_plot_hover_motion_spec")
     try:
         canvas_spec.mpl_disconnect(zoom_selection_key_press_spec)
     except:
-        print("Couldn't disconnect zoom_selection_key_press_spec")
+        if verbose:
+            print("Couldn't disconnect zoom_selection_key_press_spec")
     try:
         canvas_spec.mpl_disconnect(zoom_selection_key_release_spec)
     except:
-        print("Couldn't disconnect zoom_selection_key_release_spec")
+        if verbose:
+            print("Couldn't disconnect zoom_selection_key_release_spec")
     try:
         canvas_spec.mpl_disconnect(zoom_selection_motion_notify_spec)
     except:
-        print("Couldn't disconnect zoom_selection_motion_notify_spec")
+        if verbose:
+            print("Couldn't disconnect zoom_selection_motion_notify_spec")
     try:
         canvas_spec.mpl_disconnect(zoom_selection_button_press_spec)
     except:
-        print("Couldn't disconnect zoom_selection_button_press_spec")
+        if verbose:
+            print("Couldn't disconnect zoom_selection_button_press_spec")
     try:
         canvas_spec.mpl_disconnect(zoom_selection_button_release_spec)
     except:
-        print("Couldn't disconnect zoom_selection_button_release_spec")
+        if verbose:
+            print("Couldn't disconnect zoom_selection_button_release_spec")
     try:
         canvas_spec.mpl_disconnect(on_scroll_event_spec)
     except:
-        print("Couldn't disconnect on_scroll_event_spec")
+        if verbose:
+            print("Couldn't disconnect on_scroll_event_spec")
     try:
         canvas_spec.mpl_disconnect(on_double_click_event_spec)
     except:
-        print("Couldn't disconnect on_double_click_event_spec")
+        if verbose:
+            print("Couldn't disconnect on_double_click_event_spec")
     try:
         canvas_spec.mpl_disconnect(on_pan_press_spec)
     except:
-        print("Couldn't disconnect on_pan_press_spec")
+        if verbose:
+            print("Couldn't disconnect on_pan_press_spec")
     try:
         canvas_spec.mpl_disconnect(on_pan_release_spec)
     except:
-        print("Couldn't disconnect on_pan_release_spec")
+        if verbose:
+            print("Couldn't disconnect on_pan_release_spec")
     try:
         canvas_spec.mpl_disconnect(on_pan_motion_spec)
     except:
-        print("Couldn't disconnect on_pan_motion_spec")
+        if verbose:
+            print("Couldn't disconnect on_pan_motion_spec")
     try:
         canvas_spec.mpl_disconnect(pick_event_spec)
     except:
-        print("Couldn't disconnect pick_event_spec")
+        if verbose:
+            print("Couldn't disconnect pick_event_spec")
     try:
         canvas_spec.mpl_disconnect(hand_hover_spec)
     except:
-        print("Couldn't disconnect hand_hover_spec")
+        if verbose:
+            print("Couldn't disconnect hand_hover_spec")
     try:
         canvas_spec.mpl_disconnect(on_pan_right_click_press_spec)
     except:
-        print("Couldn't disconnect on_pan_right_click_press_spec")
+        if verbose:
+            print("Couldn't disconnect on_pan_right_click_press_spec")
     try:
         canvas_spec.mpl_disconnect(on_pan_right_click_release_spec)
     except:
-        print("Couldn't disconnect on_pan_right_click_release_spec")
+        if verbose:
+            print("Couldn't disconnect on_pan_right_click_release_spec")
     try:
         canvas_spec.mpl_disconnect(on_pan_right_click_motion_spec)
     except:
-        print("Couldn't disconnect on_pan_right_click_motion_spec")
+        if verbose:
+            print("Couldn't disconnect on_pan_right_click_motion_spec")
     two_d.config(state=tk.DISABLED)
     compare_samples_button.config(state=tk.DISABLED)
     selected_item = samples_dropdown.get()
@@ -951,7 +988,7 @@ def color_treeview():
             snratio = glycans_per_sample[selected_item][chromatograms_list.item(grandparent_item, "text")][chromatograms_list.item(parent_item, "text").split(" ")[0]]['sn'][glycans_per_sample[selected_item][chromatograms_list.item(grandparent_item, "text")][chromatograms_list.item(parent_item, "text").split(" ")[0]]['peaks'].index(chromatograms_list.item(i, "text"))]
             
             count = 0
-            if current_ppm > max_ppm:
+            if current_ppm > max_ppm[1] or current_ppm < max_ppm[0]:
                 count+= 1
             if current_iso < iso_fit_score:
                 count+= 1
@@ -1353,24 +1390,6 @@ def run_main_window():
                 information_text.insert(tk.END, f"Reduced end: {library_metadata[14]}\n")
                 information_text.insert(tk.END, f"Fast isotopic distribution calculation: {library_metadata[15]}\n")
                 information_text.insert(tk.END, f"High resolution isotopic distribution: {library_metadata[16]}")
-            # else:
-                # information_text.insert(tk.END, f"Min/Max number of monosaccharides: {library_metadata[0][0]}/{library_metadata[0][1]}\n")
-                # information_text.insert(tk.END, f"Min/Max number of Hexoses: {library_metadata[1][0]}/{library_metadata[1][1]}\n")
-                # information_text.insert(tk.END, f"Min/Max number of N-Acetylhexosamines: {library_metadata[2][0]}/{library_metadata[2][1]}\n")
-                # information_text.insert(tk.END, f"Min/Max number of deoxyHexoses: {library_metadata[3][0]}/{library_metadata[3][1]}\n")
-                # information_text.insert(tk.END, f"Min/Max number of Sialic Acids: {library_metadata[4][0]}/{library_metadata[4][1]}\n")
-                # information_text.insert(tk.END, f"Min/Max number of N-Acetylneuraminic Acids: {library_metadata[5][0]}/{library_metadata[5][1]}\n")
-                # information_text.insert(tk.END, f"Min/Max number of N-Glycolylneuraminic Acids: {library_metadata[6][0]}/{library_metadata[6][1]}\n")
-                # information_text.insert(tk.END, f"Force N-Glycans compositions: {library_metadata[7]}\n")
-                # information_text.insert(tk.END, f"Maximum adducts: {library_metadata[8]}\n")
-                # information_text.insert(tk.END, f"Maximum charges: {library_metadata[9]}\n")
-                # information_text.insert(tk.END, f"Reducing end tag mass/composition: {library_metadata[10]}\n")
-                # information_text.insert(tk.END, f"Internal Standard mass: {library_metadata[11]}\n")
-                # information_text.insert(tk.END, f"Permethylated: {library_metadata[12]}\n")
-                # information_text.insert(tk.END, f"Amidated/Ethyl-Esterified: {library_metadata[13]}\n")
-                # information_text.insert(tk.END, f"Reduced end: {library_metadata[14]}\n")
-                # information_text.insert(tk.END, f"Fast isotopic distribution calculation: {library_metadata[15]}\n")
-                # information_text.insert(tk.END, f"High resolution isotopic distribution: {library_metadata[16]}")
         else:
             information_text.insert(tk.END, f"No information available for this library.\nThis library was created in an older (<1.1.14) version of GlycoGenius.")
         
@@ -1475,139 +1494,173 @@ def run_main_window():
                 try:
                     canvas.mpl_disconnect(on_plot_hover_motion)
                 except:
-                    print("Couldn't disconnect on_plot_hover_motion")
+                    if verbose:
+                        print("Couldn't disconnect on_plot_hover_motion")
                 try:
                     canvas.mpl_disconnect(zoom_selection_key_press)
                 except:
-                    print("Couldn't disconnect zoom_selection_key_press")
+                    if verbose:
+                        print("Couldn't disconnect zoom_selection_key_press")
                 try:
                     canvas.mpl_disconnect(zoom_selection_key_release)
                 except:
-                    print("Couldn't disconnect zoom_selection_key_release")
+                    if verbose:
+                        print("Couldn't disconnect zoom_selection_key_release")
                 try:
                     canvas.mpl_disconnect(zoom_selection_motion_notify)
                 except:
-                    print("Couldn't disconnect zoom_selection_motion_notify")
+                    if verbose:
+                        print("Couldn't disconnect zoom_selection_motion_notify")
                 try:
                     canvas.mpl_disconnect(zoom_selection_button_press)
                 except:
-                    print("Couldn't disconnect zoom_selection_button_press")
+                    if verbose:
+                        print("Couldn't disconnect zoom_selection_button_press")
                 try:
                     canvas.mpl_disconnect(zoom_selection_button_release)
                 except:
-                    print("Couldn't disconnect zoom_selection_button_release")
+                    if verbose:
+                        print("Couldn't disconnect zoom_selection_button_release")
                 try:
                     canvas.mpl_disconnect(on_scroll_event)
                 except:
-                    print("Couldn't disconnect on_scroll_event")
+                    if verbose:
+                        print("Couldn't disconnect on_scroll_event")
                 try:
                     canvas.mpl_disconnect(on_double_click_event)
                 except:
-                    print("Couldn't disconnect on_double_click_event")
+                    if verbose:
+                        print("Couldn't disconnect on_double_click_event")
                 try:
                     canvas.mpl_disconnect(on_pan_press)
                 except:
-                    print("Couldn't disconnect on_pan_press")
+                    if verbose:
+                        print("Couldn't disconnect on_pan_press")
                 try:
                     canvas.mpl_disconnect(on_pan_release)
                 except:
-                    print("Couldn't disconnect on_pan_release")
+                    if verbose:
+                        print("Couldn't disconnect on_pan_release")
                 try:
                     canvas.mpl_disconnect(on_pan_motion)
                 except:
-                    print("Couldn't disconnect on_pan_motion")
+                    if verbose:
+                        print("Couldn't disconnect on_pan_motion")
                 try:
                     canvas.mpl_disconnect(on_click_press)
                 except:
-                    print("Couldn't disconnect on_click_press")
+                    if verbose:
+                        print("Couldn't disconnect on_click_press")
                 try:
                     canvas.mpl_disconnect(on_click_release)
                 except:
-                    print("Couldn't disconnect on_click_release")
+                    if verbose:
+                        print("Couldn't disconnect on_click_release")
                 try:
                     canvas.mpl_disconnect(right_move_spectra)
                 except:
-                    print("Couldn't disconnect right_move_spectra")
+                    if verbose:
+                        print("Couldn't disconnect right_move_spectra")
                 try:
                     canvas.mpl_disconnect(left_move_spectra)
                 except:
-                    print("Couldn't disconnect left_move_spectra")
+                    if verbose:
+                        print("Couldn't disconnect left_move_spectra")
                 try:
                     canvas.mpl_disconnect(on_pan_right_click_press)
                 except:
-                    print("Couldn't disconnect on_pan_right_click_press")
+                    if verbose:
+                        print("Couldn't disconnect on_pan_right_click_press")
                 try:
                     canvas.mpl_disconnect(on_pan_right_click_release)
                 except:
-                    print("Couldn't disconnect on_pan_right_click_release")
+                    if verbose:
+                        print("Couldn't disconnect on_pan_right_click_release")
                 try:
                     canvas.mpl_disconnect(on_pan_right_click_motion)
                 except:
-                    print("Couldn't disconnect on_pan_right_click_motion")
+                    if verbose:
+                        print("Couldn't disconnect on_pan_right_click_motion")
                 try:
                     canvas_spec.mpl_disconnect(on_plot_hover_motion_spec)
                 except:
-                    print("Couldn't disconnect on_plot_hover_motion_spec")
+                    if verbose:
+                        print("Couldn't disconnect on_plot_hover_motion_spec")
                 try:
                     canvas_spec.mpl_disconnect(zoom_selection_key_press_spec)
                 except:
-                    print("Couldn't disconnect zoom_selection_key_press_spec")
+                    if verbose:
+                        print("Couldn't disconnect zoom_selection_key_press_spec")
                 try:
                     canvas_spec.mpl_disconnect(zoom_selection_key_release_spec)
                 except:
-                    print("Couldn't disconnect zoom_selection_key_release_spec")
+                    if verbose:
+                        print("Couldn't disconnect zoom_selection_key_release_spec")
                 try:
                     canvas_spec.mpl_disconnect(zoom_selection_motion_notify_spec)
                 except:
-                    print("Couldn't disconnect zoom_selection_motion_notify_spec")
+                    if verbose:
+                        print("Couldn't disconnect zoom_selection_motion_notify_spec")
                 try:
                     canvas_spec.mpl_disconnect(zoom_selection_button_press_spec)
                 except:
-                    print("Couldn't disconnect zoom_selection_button_press_spec")
+                    if verbose:
+                        print("Couldn't disconnect zoom_selection_button_press_spec")
                 try:
                     canvas_spec.mpl_disconnect(zoom_selection_button_release_spec)
                 except:
-                    print("Couldn't disconnect zoom_selection_button_release_spec")
+                    if verbose:
+                        print("Couldn't disconnect zoom_selection_button_release_spec")
                 try:
                     canvas_spec.mpl_disconnect(on_scroll_event_spec)
                 except:
-                    print("Couldn't disconnect on_scroll_event_spec")
+                    if verbose:
+                        print("Couldn't disconnect on_scroll_event_spec")
                 try:
                     canvas_spec.mpl_disconnect(on_double_click_event_spec)
                 except:
-                    print("Couldn't disconnect on_double_click_event_spec")
+                    if verbose:
+                        print("Couldn't disconnect on_double_click_event_spec")
                 try:
                     canvas_spec.mpl_disconnect(on_pan_press_spec)
                 except:
-                    print("Couldn't disconnect on_pan_press_spec")
+                    if verbose:
+                        print("Couldn't disconnect on_pan_press_spec")
                 try:
                     canvas_spec.mpl_disconnect(on_pan_release_spec)
                 except:
-                    print("Couldn't disconnect on_pan_release_spec")
+                    if verbose:
+                        print("Couldn't disconnect on_pan_release_spec")
                 try:
                     canvas_spec.mpl_disconnect(on_pan_motion_spec)
                 except:
-                    print("Couldn't disconnect on_pan_motion_spec")
+                    if verbose:
+                        print("Couldn't disconnect on_pan_motion_spec")
                 try:
                     canvas_spec.mpl_disconnect(pick_event_spec)
                 except:
-                    print("Couldn't disconnect pick_event_spec")
+                    if verbose:
+                        print("Couldn't disconnect pick_event_spec")
                 try:
                     canvas_spec.mpl_disconnect(hand_hover_spec)
                 except:
-                    print("Couldn't disconnect hand_hover_spec")
+                    if verbose:
+                        print("Couldn't disconnect hand_hover_spec")
                 try:
                     canvas_spec.mpl_disconnect(on_pan_right_click_press_spec)
                 except:
-                    print("Couldn't disconnect on_pan_right_click_press_spec")
+                    if verbose:
+                        print("Couldn't disconnect on_pan_right_click_press_spec")
                 try:
                     canvas_spec.mpl_disconnect(on_pan_right_click_release_spec)
                 except:
-                    print("Couldn't disconnect on_pan_right_click_release_spec")
+                    if verbose:
+                        print("Couldn't disconnect on_pan_right_click_release_spec")
                 try:
                     canvas_spec.mpl_disconnect(on_pan_right_click_motion_spec)
                 except:
-                    print("Couldn't disconnect on_pan_right_click_motion_spec")
+                    if verbose:
+                        print("Couldn't disconnect on_pan_right_click_motion_spec")
                     
                 close_lf()
                 
@@ -1654,6 +1707,7 @@ def run_main_window():
             reanalysis_file = threading.Thread(target=load_reanalysis, args=(reanalysis_path,))
             reanalysis_file.start()
             loading_files_after_analysis()
+            check_qc_dist_button.config(state=tk.NORMAL)
                     
         if len(samples_list) == 0:
             error_window("You must select files for analysis on 'Select Files' menu!")
@@ -1878,140 +1932,93 @@ def run_main_window():
         try:
             canvas.mpl_disconnect(on_plot_hover_motion)
         except:
-            print("Couldn't disconnect on_plot_hover_motion")
+            if verbose:
+                print("Couldn't disconnect on_plot_hover_motion")
         try:
             canvas.mpl_disconnect(zoom_selection_key_press)
         except:
-            print("Couldn't disconnect zoom_selection_key_press")
+            if verbose:
+                print("Couldn't disconnect zoom_selection_key_press")
         try:
             canvas.mpl_disconnect(zoom_selection_key_release)
         except:
-            print("Couldn't disconnect zoom_selection_key_release")
+            if verbose:
+                print("Couldn't disconnect zoom_selection_key_release")
         try:
             canvas.mpl_disconnect(zoom_selection_motion_notify)
         except:
-            print("Couldn't disconnect zoom_selection_motion_notify")
+            if verbose:
+                print("Couldn't disconnect zoom_selection_motion_notify")
         try:
             canvas.mpl_disconnect(zoom_selection_button_press)
         except:
-            print("Couldn't disconnect zoom_selection_button_press")
+            if verbose:
+                print("Couldn't disconnect zoom_selection_button_press")
         try:
             canvas.mpl_disconnect(zoom_selection_button_release)
         except:
-            print("Couldn't disconnect zoom_selection_button_release")
+            if verbose:
+                print("Couldn't disconnect zoom_selection_button_release")
         try:
             canvas.mpl_disconnect(on_scroll_event)
         except:
-            print("Couldn't disconnect on_scroll_event")
+            if verbose:
+                print("Couldn't disconnect on_scroll_event")
         try:
             canvas.mpl_disconnect(on_double_click_event)
         except:
-            print("Couldn't disconnect on_double_click_event")
+            if verbose:
+                print("Couldn't disconnect on_double_click_event")
         try:
             canvas.mpl_disconnect(on_pan_press)
         except:
-            print("Couldn't disconnect on_pan_press")
+            if verbose:
+                print("Couldn't disconnect on_pan_press")
         try:
             canvas.mpl_disconnect(on_pan_release)
         except:
-            print("Couldn't disconnect on_pan_release")
+            if verbose:
+                print("Couldn't disconnect on_pan_release")
         try:
             canvas.mpl_disconnect(on_pan_motion)
         except:
-            print("Couldn't disconnect on_pan_motion")
+            if verbose:
+                print("Couldn't disconnect on_pan_motion")
         try:
             canvas.mpl_disconnect(on_click_press)
         except:
-            print("Couldn't disconnect on_click_press")
+            if verbose:
+                print("Couldn't disconnect on_click_press")
         try:
             canvas.mpl_disconnect(on_click_release)
         except:
-            print("Couldn't disconnect on_click_release")
+            if verbose:
+                print("Couldn't disconnect on_click_release")
         try:
             canvas.mpl_disconnect(right_move_spectra)
         except:
-            print("Couldn't disconnect right_move_spectra")
+            if verbose:
+                print("Couldn't disconnect right_move_spectra")
         try:
             canvas.mpl_disconnect(left_move_spectra)
         except:
-            print("Couldn't disconnect left_move_spectra")
+            if verbose:
+                print("Couldn't disconnect left_move_spectra")
         try:
             canvas.mpl_disconnect(on_pan_right_click_press)
         except:
-            print("Couldn't disconnect on_pan_right_click_press")
+            if verbose:
+                print("Couldn't disconnect on_pan_right_click_press")
         try:
             canvas.mpl_disconnect(on_pan_right_click_release)
         except:
-            print("Couldn't disconnect on_pan_right_click_release")
+            if verbose:
+                print("Couldn't disconnect on_pan_right_click_release")
         try:
             canvas.mpl_disconnect(on_pan_right_click_motion)
         except:
-            print("Couldn't disconnect on_pan_right_click_motion")
-            
-        # try:
-            # canvas_spec.mpl_disconnect(on_plot_hover_motion_spec)
-        # except:
-            # print("Couldn't disconnect on_plot_hover_motion_spec")
-        # try:
-            # canvas_spec.mpl_disconnect(zoom_selection_key_press_spec)
-        # except:
-            # print("Couldn't disconnect zoom_selection_key_press_spec")
-        # try:
-            # canvas_spec.mpl_disconnect(zoom_selection_key_release_spec)
-        # except:
-            # print("Couldn't disconnect zoom_selection_key_release_spec")
-        # try:
-            # canvas_spec.mpl_disconnect(zoom_selection_motion_notify_spec)
-        # except:
-            # print("Couldn't disconnect zoom_selection_motion_notify_spec")
-        # try:
-            # canvas_spec.mpl_disconnect(zoom_selection_button_press_spec)
-        # except:
-            # print("Couldn't disconnect zoom_selection_button_press_spec")
-        # try:
-            # canvas_spec.mpl_disconnect(zoom_selection_button_release_spec)
-        # except:
-            # print("Couldn't disconnect zoom_selection_button_release_spec")
-        # try:
-            # canvas_spec.mpl_disconnect(on_scroll_event_spec)
-        # except:
-            # print("Couldn't disconnect on_scroll_event_spec")
-        # try:
-            # canvas_spec.mpl_disconnect(on_double_click_event_spec)
-        # except:
-            # print("Couldn't disconnect on_double_click_event_spec")
-        # try:
-            # canvas_spec.mpl_disconnect(on_pan_press_spec)
-        # except:
-            # print("Couldn't disconnect on_pan_press_spec")
-        # try:
-            # canvas_spec.mpl_disconnect(on_pan_release_spec)
-        # except:
-            # print("Couldn't disconnect on_pan_release_spec")
-        # try:
-            # canvas_spec.mpl_disconnect(on_pan_motion_spec)
-        # except:
-            # print("Couldn't disconnect on_pan_motion_spec")
-        # try:
-            # canvas_spec.mpl_disconnect(pick_event_spec)
-        # except:
-            # print("Couldn't disconnect pick_event_spec")
-        # try:
-            # canvas_spec.mpl_disconnect(hand_hover_spec)
-        # except:
-            # print("Couldn't disconnect hand_hover_spec")
-        # try:
-            # canvas_spec.mpl_disconnect(on_pan_right_click_press_spec)
-        # except:
-            # print("Couldn't disconnect on_pan_right_click_press_spec")
-        # try:
-            # canvas_spec.mpl_disconnect(on_pan_right_click_release_spec)
-        # except:
-            # print("Couldn't disconnect on_pan_right_click_release_spec")
-        # try:
-            # canvas_spec.mpl_disconnect(on_pan_right_click_motion_spec)
-        # except:
-            # print("Couldn't disconnect on_pan_right_click_motion_spec")
+            if verbose:
+                print("Couldn't disconnect on_pan_right_click_motion")
         
         if item_text == "Base Peak Chromatogram":
             x_values = [i/60 for i in current_data['rt_array']] if current_data['time_unit'] == 'seconds' else current_data['rt_array']
@@ -2165,67 +2172,83 @@ def run_main_window():
         try:
             canvas_spec.mpl_disconnect(on_plot_hover_motion_spec)
         except:
-            print("Couldn't disconnect on_plot_hover_motion_spec")
+            if verbose:
+                print("Couldn't disconnect on_plot_hover_motion_spec")
         try:
             canvas_spec.mpl_disconnect(zoom_selection_key_press_spec)
         except:
-            print("Couldn't disconnect zoom_selection_key_press_spec")
+            if verbose:
+                print("Couldn't disconnect zoom_selection_key_press_spec")
         try:
             canvas_spec.mpl_disconnect(zoom_selection_key_release_spec)
         except:
-            print("Couldn't disconnect zoom_selection_key_release_spec")
+            if verbose:
+                print("Couldn't disconnect zoom_selection_key_release_spec")
         try:
             canvas_spec.mpl_disconnect(zoom_selection_motion_notify_spec)
         except:
-            print("Couldn't disconnect zoom_selection_motion_notify_spec")
+            if verbose:
+                print("Couldn't disconnect zoom_selection_motion_notify_spec")
         try:
             canvas_spec.mpl_disconnect(zoom_selection_button_press_spec)
         except:
-            print("Couldn't disconnect zoom_selection_button_press_spec")
+            if verbose:
+                print("Couldn't disconnect zoom_selection_button_press_spec")
         try:
             canvas_spec.mpl_disconnect(zoom_selection_button_release_spec)
         except:
-            print("Couldn't disconnect zoom_selection_button_release_spec")
+            if verbose:
+                print("Couldn't disconnect zoom_selection_button_release_spec")
         try:
             canvas_spec.mpl_disconnect(on_scroll_event_spec)
         except:
-            print("Couldn't disconnect on_scroll_event_spec")
+            if verbose:
+                print("Couldn't disconnect on_scroll_event_spec")
         try:
             canvas_spec.mpl_disconnect(on_double_click_event_spec)
         except:
-            print("Couldn't disconnect on_double_click_event_spec")
+            if verbose:
+                print("Couldn't disconnect on_double_click_event_spec")
         try:
             canvas_spec.mpl_disconnect(on_pan_press_spec)
         except:
-            print("Couldn't disconnect on_pan_press_spec")
+            if verbose:
+                print("Couldn't disconnect on_pan_press_spec")
         try:
             canvas_spec.mpl_disconnect(on_pan_release_spec)
         except:
-            print("Couldn't disconnect on_pan_release_spec")
+            if verbose:
+                print("Couldn't disconnect on_pan_release_spec")
         try:
             canvas_spec.mpl_disconnect(on_pan_motion_spec)
         except:
-            print("Couldn't disconnect on_pan_motion_spec")
+            if verbose:
+                print("Couldn't disconnect on_pan_motion_spec")
         try:
             canvas_spec.mpl_disconnect(pick_event_spec)
         except:
-            print("Couldn't disconnect pick_event_spec")
+            if verbose:
+                print("Couldn't disconnect pick_event_spec")
         try:
             canvas_spec.mpl_disconnect(hand_hover_spec)
         except:
-            print("Couldn't disconnect hand_hover_spec")
+            if verbose:
+                print("Couldn't disconnect hand_hover_spec")
         try:
             canvas_spec.mpl_disconnect(on_pan_right_click_press_spec)
         except:
-            print("Couldn't disconnect on_pan_right_click_press_spec")
+            if verbose:
+                print("Couldn't disconnect on_pan_right_click_press_spec")
         try:
             canvas_spec.mpl_disconnect(on_pan_right_click_release_spec)
         except:
-            print("Couldn't disconnect on_pan_right_click_release_spec")
+            if verbose:
+                print("Couldn't disconnect on_pan_right_click_release_spec")
         try:
             canvas_spec.mpl_disconnect(on_pan_right_click_motion_spec)
         except:
-            print("Couldn't disconnect on_pan_right_click_motion_spec")
+            if verbose:
+                print("Couldn't disconnect on_pan_right_click_motion_spec")
             
         if len(samples_list) == 0:
             return
@@ -2303,7 +2326,7 @@ def run_main_window():
                         if highest != 0:
                             ax_spec.set_ylim(0, highest*1.1)
                             for i in peaks:
-                                ax_spec.add_patch(Rectangle((i-0.1, ax_spec.get_ylim()[0]), (i+0.1) - (i-0.1), ax_spec.get_ylim()[1] - ax_spec.get_ylim()[0], color='#FEB7A1', alpha=0.3))
+                                ax_spec.add_patch(Rectangle((i-0.1, ax_spec.get_ylim()[0]), (i+0.1) - (i-0.1), 1000000000000, color='#FEB7A1', alpha=0.3))
         
         if len(processed_data[selected_item]['ms2']) > 0:
             get_ms2(rt, ax_spec, canvas_spec, x_values_spec, y_values_spec)
@@ -4069,12 +4092,239 @@ def run_main_window():
         y_position = (screen_height - window_height) // 2
         compare_samples.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
         
+    def check_qc_dist():
+        def exit_check_qc_dist():
+            qc_dist.destroy()
+            
+        def on_hover_qc_plot(event, canvas, ax, scatter, x_values, y_values, tooltip):
+            if event.inaxes == ax:
+                cont, ind = scatter.contains(event)
+                if cont:
+                    ind = ind['ind'][0]
+                    name = names[ind]
+                    x, y = x_values[ind], y_values[ind]
+                    tooltip.set_text(f'{name}\nX: {x}\nY: {y}')
+                    tooltip.xy = (x, y)
+                    tooltip.set_visible(True)
+                    canvas.draw_idle()
+                else:
+                    tooltip.set_visible(False)
+                    canvas.draw_idle()
+                    
+        qc_dist = tk.Toplevel()
+        qc_dist.iconbitmap(current_dir+"/Assets/gg_icon.ico")
+        qc_dist.withdraw()
+        qc_dist.bind("<Configure>", on_resize)
+        qc_dist.title(f"QC Scores Distribution - {selected_item}")
+        qc_dist.resizable(False, False)
+        qc_dist.protocol("WM_DELETE_WINDOW", exit_check_qc_dist)
+        
+        names = []
+        
+        ppm_list = []
+        iso_fit_list = []
+        curve_fit_list = []
+        sn_list = []
+        
+        for i in glycans_per_sample[selected_item]: #going through glycans
+            for k in glycans_per_sample[selected_item][i]: #going through adducts
+                for j in glycans_per_sample[selected_item][i][k]['peaks']:
+                    names.append(f"{i}_{k}_{j}")
+                ppm_list+=glycans_per_sample[selected_item][i][k]['ppm']
+                iso_fit_list+=glycans_per_sample[selected_item][i][k]['iso']
+                curve_fit_list+=glycans_per_sample[selected_item][i][k]['curve']
+                sn_list+=glycans_per_sample[selected_item][i][k]['sn']
+        
+        global qc_ppm_line1, qc_ppm_line2, qc_curvefit_line, qc_sn_line, qc_isofit_line, canvas_ppmplot, canvas_curvefitplot, canvas_isofitplot, canvas_snplot
+        #PPM plot
+        ppm_plot_frame = ttk.Labelframe(qc_dist, text="PPM:", style="qcp_frame.TLabelframe")
+        ppm_plot_frame.grid(row=0, column=0, padx=10, pady=(10, 10), sticky="nsew")
+        
+        fig_ppmplot = plt.figure(figsize=(4.5, 3.5))
+        gs_ppmplot = fig.add_gridspec(1, 2, width_ratios=[5, 1])
+        
+        ax_ppmplot = fig_ppmplot.add_subplot(gs_ppmplot[0])
+        ax_ppmplot_kde = fig_ppmplot.add_subplot(gs_ppmplot[1], sharey=ax_ppmplot)
+        
+        ppm_scatter = ax_ppmplot.scatter(range(len(ppm_list)), ppm_list, s=1)
+        qc_ppm_line1 = ax_ppmplot.axhline(max_ppm[0], linestyle='--', linewidth=1, color='blue')
+        qc_ppm_line2 = ax_ppmplot.axhline(max_ppm[1], linestyle='--', linewidth=1, color='blue')
+        ax_ppmplot.axhline(0, linestyle='--', linewidth=1, color='black')
+        
+        values_ppm = np.array(ppm_list)
+        kde_ppm = gaussian_kde(values_ppm)
+        y_values_ppm = np.linspace(ax_ppmplot.get_ylim()[0], ax_ppmplot.get_ylim()[1], 500)
+        kde_ppm_values = kde_ppm(y_values_ppm)
+        
+        ax_ppmplot_kde.plot(kde_ppm_values, y_values_ppm)
+        ax_ppmplot_kde.axis('off')
+        
+        fig_ppmplot.subplots_adjust(wspace=0)
+        
+        canvas_ppmplot = FigureCanvasTkAgg(fig_ppmplot, master=ppm_plot_frame)
+        canvas_ppmplot.draw()
+        canvas_ppmplot.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        
+        tooltip_ppmplot = ax_ppmplot.annotate('', xy=(0, 0), xytext=(10, -20), textcoords='offset points', bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.9), arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'))
+        
+        canvas_ppmplot.mpl_connect('motion_notify_event', lambda event: on_hover_qc_plot(event, canvas_ppmplot, ax_ppmplot, ppm_scatter, range(len(ppm_list)), ppm_list, tooltip_ppmplot))
+        
+        
+        # Isotopic Fittings plot
+        isofit_plot_frame = ttk.Labelframe(qc_dist, text="Isotopic Fittings:", style="qcp_frame.TLabelframe")
+        isofit_plot_frame.grid(row=1, column=0, padx=10, pady=(10, 10), sticky="nsew")
+        
+        fig_isofitplot = plt.figure(figsize=(4.5, 3.5))
+        gs_isofitplot = fig.add_gridspec(1, 2, width_ratios=[5, 1])
+        
+        ax_isofitplot = fig_isofitplot.add_subplot(gs_isofitplot[0])
+        ax_isofitplot_kde = fig_isofitplot.add_subplot(gs_isofitplot[1], sharey=ax_isofitplot)
+        
+        isofitplot_scatter = ax_isofitplot.scatter(range(len(iso_fit_list)), iso_fit_list, s=1)
+        qc_isofit_line = ax_isofitplot.axhline(iso_fit_score, linestyle='--', linewidth=1, color='blue')
+        
+        values_isofit = np.array(iso_fit_list)
+        kde_isofit = gaussian_kde(values_isofit)
+        y_values_isofit = np.linspace(ax_isofitplot.get_ylim()[0], ax_isofitplot.get_ylim()[1], 500)
+        kde_isofit_values = kde_isofit(y_values_isofit)
+        
+        ax_isofitplot_kde.plot(kde_isofit_values, y_values_isofit)
+        ax_isofitplot_kde.axis('off')
+        
+        fig_isofitplot.subplots_adjust(wspace=0)
+        
+        canvas_isofitplot = FigureCanvasTkAgg(fig_isofitplot, master=isofit_plot_frame)
+        canvas_isofitplot.draw()
+        canvas_isofitplot.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        
+        tooltip_isofitplot = ax_isofitplot.annotate('', xy=(0, 0), xytext=(10, -20), textcoords='offset points', bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.9), arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'))
+        
+        canvas_isofitplot.mpl_connect('motion_notify_event', lambda event: on_hover_qc_plot(event, canvas_isofitplot, ax_isofitplot, isofitplot_scatter, range(len(iso_fit_list)), iso_fit_list, tooltip_isofitplot))
+        
+        
+        #Signal-to-Noise ratio plot
+        sn_plot_frame = ttk.Labelframe(qc_dist, text="Signal-to-Noise Ratio:", style="qcp_frame.TLabelframe")
+        sn_plot_frame.grid(row=0, column=1, padx=10, pady=(10, 10), sticky="nsew")
+        
+        fig_snplot = plt.figure(figsize=(4.5, 3.5))
+        gs_snplot = fig.add_gridspec(1, 2, width_ratios=[5, 1])
+        
+        ax_snplot = fig_snplot.add_subplot(gs_snplot[0])
+        ax_snplot_kde = fig_snplot.add_subplot(gs_snplot[1], sharey=ax_snplot)
+        
+        ax_snplot.set_yscale('log')
+        
+        snplot_scatter = ax_snplot.scatter(range(len(sn_list)), sn_list, s=1)
+        qc_sn_line = ax_snplot.axhline(s_to_n, linestyle='--', linewidth=1, color='blue')
+        ax_snplot.axhline(3, linestyle='--', linewidth=1, color='red')
+        ax_snplot.axhline(10, linestyle='--', linewidth=1, color='green')
+        
+        values_sn = np.array(sn_list)
+        kde_sn = gaussian_kde(values_sn)
+        y_values_sn = np.linspace(ax_snplot.get_ylim()[0], ax_snplot.get_ylim()[1], 500)
+        kde_sn_values = kde_sn(y_values_sn)
+        
+        ax_snplot_kde.plot(kde_sn_values, y_values_sn)
+        ax_snplot_kde.axis('off')
+        
+        fig_snplot.subplots_adjust(wspace=0)
+        
+        canvas_snplot = FigureCanvasTkAgg(fig_snplot, master=sn_plot_frame)
+        canvas_snplot.draw()
+        canvas_snplot.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        
+        tooltip_snplot = ax_snplot.annotate('', xy=(0, 0), xytext=(10, -20), textcoords='offset points', bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.9), arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'))
+        
+        canvas_snplot.mpl_connect('motion_notify_event', lambda event: on_hover_qc_plot(event, canvas_snplot, ax_snplot, snplot_scatter, range(len(sn_list)), sn_list, tooltip_snplot))
+        
+        #Curve Fittings plot
+        curvefit_plot_frame = ttk.Labelframe(qc_dist, text="Curve Fittings:", style="qcp_frame.TLabelframe")
+        curvefit_plot_frame.grid(row=1, column=1, padx=10, pady=(10, 10), sticky="nsew")
+        
+        fig_curvefitplot = plt.figure(figsize=(4.5, 3.5))
+        gs_curvefitplot = fig.add_gridspec(1, 2, width_ratios=[5, 1])
+        
+        ax_curvefitplot = fig_curvefitplot.add_subplot(gs_curvefitplot[0])
+        ax_curvefitplot_kde = fig_curvefitplot.add_subplot(gs_curvefitplot[1], sharey=ax_curvefitplot)
+        
+        curvefitplot_scatter = ax_curvefitplot.scatter(range(len(curve_fit_list)), curve_fit_list, s=1)
+        qc_curvefit_line = ax_curvefitplot.axhline(curve_fit_score, linestyle='--', linewidth=1, color='blue')
+        
+        values_curve = np.array(curve_fit_list)
+        kde_curve = gaussian_kde(values_curve)
+        y_values_curve = np.linspace(ax_curvefitplot.get_ylim()[0], ax_curvefitplot.get_ylim()[1], 500)
+        kde_curve_values = kde_curve(y_values_curve)
+        
+        ax_curvefitplot_kde.plot(kde_curve_values, y_values_curve)
+        ax_curvefitplot_kde.axis('off')
+        
+        fig_curvefitplot.subplots_adjust(wspace=0)
+        
+        canvas_curvefitplot = FigureCanvasTkAgg(fig_curvefitplot, master=curvefit_plot_frame)
+        canvas_curvefitplot.draw()
+        canvas_curvefitplot.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        
+        tooltip_curvefitplot = ax_curvefitplot.annotate('', xy=(0, 0), xytext=(10, -20), textcoords='offset points', bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.9), arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'))
+        
+        canvas_curvefitplot.mpl_connect('motion_notify_event', lambda event: on_hover_qc_plot(event, canvas_curvefitplot, ax_curvefitplot, curvefitplot_scatter, range(len(curve_fit_list)), curve_fit_list, tooltip_curvefitplot))
+        
+        qc_dist.update_idletasks()
+        qc_dist.deiconify()
+        window_width = qc_dist.winfo_width()
+        window_height = qc_dist.winfo_height()
+        screen_width = qc_dist.winfo_screenwidth()
+        screen_height = qc_dist.winfo_screenheight()
+        x_position = (screen_width - window_width) // 2
+        y_position = (screen_height - window_height) // 2
+        qc_dist.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
+        
+        
     def qcp_enter(event):
         global max_ppm, iso_fit_score, curve_fit_score, s_to_n
-        max_ppm = int(ppm_error_entry.get())
-        iso_fit_score = float(iso_fit_entry.get())
-        curve_fit_score = float(curve_fit_entry.get())
-        s_to_n = float(s_n_entry.get())
+        try:
+            min_ppm_range = float(ppm_error_min_entry.get())
+        except:
+            error_window("Invalid input in Minimum PPM Error.")
+            return
+        try:
+            max_ppm_range = float(ppm_error_max_entry.get())
+        except:
+            error_window("Invalid input in Maximum PPM Error.")
+            return
+        if min_ppm_range > max_ppm_range:
+            error_window("Minimum PPM Error can't be higher than Maximum PPM Error.")
+            return
+        try:
+            iso_fit_temp = float(iso_fit_entry.get())
+        except:
+            error_window("Invalid input in Minimum Isotopic Fitting Score.")
+            return
+        try:
+            curve_fit_temp = float(curve_fit_entry.get())
+        except:
+            error_window("Invalid input in Minimum Curve Fitting Score.")
+            return
+        try:
+            sn_temp = float(s_n_entry.get())
+        except:
+            error_window("Invalid input in Minimum Signal-to-Noise ratio.")
+            return
+        max_ppm = (min_ppm_range, max_ppm_range)
+        iso_fit_score = iso_fit_temp
+        curve_fit_score = curve_fit_temp
+        s_to_n = sn_temp
+        try:
+            qc_ppm_line1.set_ydata([max_ppm[0]])
+            qc_ppm_line2.set_ydata([max_ppm[1]])
+            qc_isofit_line.set_ydata([iso_fit_score])
+            qc_curvefit_line.set_ydata([curve_fit_score])
+            qc_sn_line.set_ydata([s_to_n])
+            canvas_ppmplot.draw_idle()
+            canvas_curvefitplot.draw_idle()
+            canvas_isofitplot.draw_idle()
+            canvas_snplot.draw_idle()
+        except:
+            pass
         color_treeview()
         
     # Create the main window
@@ -4224,8 +4474,8 @@ def run_main_window():
     chromatograms_list["show"] = "tree" #removes the header
     chromatograms_list.column("#0", width=250)
     chromatograms_list_scrollbar.config(command=chromatograms_list.yview, width=10)
-    chromatograms_list.grid(row=1, rowspan=2, column=0, padx=(10,10), pady=(23, 215), sticky="nsew")
-    chromatograms_list_scrollbar.grid(row=1, rowspan=2, column=0, pady=(23, 215), sticky="nse")
+    chromatograms_list.grid(row=1, rowspan=2, column=0, padx=(10,10), pady=(23, 260), sticky="nsew")
+    chromatograms_list_scrollbar.grid(row=1, rowspan=2, column=0, pady=(23, 260), sticky="nse")
     chromatograms_list.bind("<KeyRelease-Up>", handle_treeview_select)
     chromatograms_list.bind("<KeyRelease-Down>", handle_treeview_select)
     chromatograms_list.bind("<ButtonRelease-1>", click_treeview)
@@ -4233,48 +4483,62 @@ def run_main_window():
     
     global compare_samples_button
     compare_samples_button = ttk.Button(main_window, text="Compare samples", style="small_button_style1.TButton", command=compare_samples_window, state=tk.DISABLED)
-    compare_samples_button.grid(row=1, rowspan=2, column=0, padx=10, pady=(10, 175), sticky="sew")
+    compare_samples_button.grid(row=1, rowspan=2, column=0, padx=10, pady=(10, 220), sticky="sew")
     ToolTip(compare_samples_button, "Opens a window for comparing the chromatograms for the selected compound on different samples. It features an option for alignment of the chromatograms and, due to that, and depending on the number of samples you have, this may take a while to load.")
     
-    global s_n_entry, curve_fit_entry, ppm_error_entry, iso_fit_entry
+    global s_n_entry, curve_fit_entry, ppm_error_min_entry, ppm_error_max_entry, iso_fit_entry
     qcp_frame = ttk.Labelframe(main_window, text="Quality Control Parameters:", style="qcp_frame.TLabelframe")
     qcp_frame.grid(row=1, rowspan=2, column=0, padx=10, pady=(10, 40), sticky="sew")
     
+    global check_qc_dist_button
+    check_qc_dist_button = ttk.Button(qcp_frame, text="Check QC Distribution", style="small_button_style1.TButton", command=check_qc_dist, state=tk.DISABLED)
+    check_qc_dist_button.grid(row=0, column=0, columnspan=2, padx=10, pady=(5, 0), sticky="new")
+    ToolTip(check_qc_dist_button, "Plots all the quality control parameters of all the peaks identified for all the glycans in the analysis. This can work as a base for setting the Quality Control Parameters below.")
+    
     iso_fit_label = ttk.Label(qcp_frame, text='Minimum Isotopic Fitting Score:', font=("Segoe UI", list_font_size_smaller))
-    iso_fit_label.grid(row=0, column=0, padx=(10, 10), pady=(5, 0), sticky="w")
+    iso_fit_label.grid(row=1, column=0, padx=(10, 10), pady=(5, 0), sticky="w")
     
     iso_fit_entry = ttk.Entry(qcp_frame, width=6)
     iso_fit_entry.insert(0, iso_fit_score)
-    iso_fit_entry.grid(row=0, column=1, padx=(5, 10), pady=(5, 0), sticky='e')
+    iso_fit_entry.grid(row=1, column=1, padx=(5, 10), pady=(5, 0), sticky='e')
     ToolTip(iso_fit_entry, "Insert here the minimum isotopic fitting score for peaks. Values allowed from 0.0 to 1.0.\nPress ENTER to apply.")
     iso_fit_entry.bind("<Return>", qcp_enter)
     
     curve_fit_label = ttk.Label(qcp_frame, text='Minimum Curve Fitting Score:', font=("Segoe UI", list_font_size_smaller))
-    curve_fit_label.grid(row=1, column=0, padx=(10, 10), pady=(5, 0), sticky="w")
+    curve_fit_label.grid(row=2, column=0, padx=(10, 10), pady=(5, 0), sticky="w")
     
     curve_fit_entry = ttk.Entry(qcp_frame, width=6)
     curve_fit_entry.insert(0, curve_fit_score)
-    curve_fit_entry.grid(row=1, column=1, padx=(5, 10), pady=(5, 0), sticky='e')
+    curve_fit_entry.grid(row=2, column=1, padx=(5, 10), pady=(5, 0), sticky='e')
     ToolTip(curve_fit_entry, "Insert here the minimum curve-fitting score for peaks. Values allowed from 0.0 to 1.0.\nPress ENTER to apply.")
     curve_fit_entry.bind("<Return>", qcp_enter)
     
     s_n_label = ttk.Label(qcp_frame, text='Minimum Signal-to-Noise Ratio:', font=("Segoe UI", list_font_size_smaller))
-    s_n_label.grid(row=2, column=0, padx=(10, 10), pady=(5, 0), sticky="w")
+    s_n_label.grid(row=3, column=0, padx=(10, 10), pady=(5, 0), sticky="w")
     
     s_n_entry = ttk.Entry(qcp_frame, width=6)
     s_n_entry.insert(0, s_to_n)
-    s_n_entry.grid(row=2, column=1, padx=(5, 10), pady=(5, 0), sticky='e')
+    s_n_entry.grid(row=3, column=1, padx=(5, 10), pady=(5, 0), sticky='e')
     ToolTip(s_n_entry, "Insert here the minimum amount of signal-to-noise ratio. Values under 1.0 won't make a difference.\nPress ENTER to apply.")
     s_n_entry.bind("<Return>", qcp_enter)
     
-    ppm_error_label = ttk.Label(qcp_frame, text='Maximum PPM Error:', font=("Segoe UI", list_font_size_smaller))
-    ppm_error_label.grid(row=3, column=0, padx=(10, 10), pady=(5, 10), sticky="w")
+    ppm_error_label = ttk.Label(qcp_frame, text='Min/Max PPM Error:', font=("Segoe UI", list_font_size_smaller))
+    ppm_error_label.grid(row=4, column=0, padx=(10, 10), pady=(5, 10), sticky="w")
     
-    ppm_error_entry = ttk.Entry(qcp_frame, width=6)
-    ppm_error_entry.insert(0, max_ppm)
-    ppm_error_entry.grid(row=3, column=1, padx=(5, 10), pady=(5, 10), sticky='e')
-    ToolTip(ppm_error_entry, "Insert here the maximum PPM error.\nPress ENTER to apply.")
-    ppm_error_entry.bind("<Return>", qcp_enter)
+    ppm_error_min_entry = ttk.Entry(qcp_frame, width=6)
+    ppm_error_min_entry.insert(0, max_ppm[0])
+    ppm_error_min_entry.grid(row=4, column=0, padx=(10, 10), pady=(5, 10), sticky='e')
+    ToolTip(ppm_error_min_entry, "Insert here the minimum PPM error.\nPress ENTER to apply.")
+    ppm_error_min_entry.bind("<Return>", qcp_enter)
+    
+    ppm_error_hyphen_label = ttk.Label(qcp_frame, text='-', font=("Segoe UI", list_font_size_smaller))
+    ppm_error_hyphen_label.grid(row=4, column=0, columnspan=2, padx=(180, 10), pady=(5, 10), sticky="w")
+    
+    ppm_error_max_entry = ttk.Entry(qcp_frame, width=6)
+    ppm_error_max_entry.insert(0, max_ppm[1])
+    ppm_error_max_entry.grid(row=4, column=1, padx=(5, 10), pady=(5, 10), sticky='e')
+    ToolTip(ppm_error_max_entry, "Insert here the maximum PPM error.\nPress ENTER to apply.")
+    ppm_error_max_entry.bind("<Return>", qcp_enter)
     
     global chromatograms_qc_numbers
     chromatograms_qc_numbers = ttk.Label(main_window, text=f"Compositions Quality Control:\n        Good: {0}    Average: {0}    Bad: {0}", font=("Segoe UI", list_font_size_smaller))
@@ -4392,139 +4656,173 @@ def run_select_files_window(samples_dropdown):
                 try:
                     canvas.mpl_disconnect(on_plot_hover_motion)
                 except:
-                    print("Couldn't disconnect on_plot_hover_motion")
+                    if verbose:
+                        print("Couldn't disconnect on_plot_hover_motion")
                 try:
                     canvas.mpl_disconnect(zoom_selection_key_press)
                 except:
-                    print("Couldn't disconnect zoom_selection_key_press")
+                    if verbose:
+                        print("Couldn't disconnect zoom_selection_key_press")
                 try:
                     canvas.mpl_disconnect(zoom_selection_key_release)
                 except:
-                    print("Couldn't disconnect zoom_selection_key_release")
+                    if verbose:
+                        print("Couldn't disconnect zoom_selection_key_release")
                 try:
                     canvas.mpl_disconnect(zoom_selection_motion_notify)
                 except:
-                    print("Couldn't disconnect zoom_selection_motion_notify")
+                    if verbose:
+                        print("Couldn't disconnect zoom_selection_motion_notify")
                 try:
                     canvas.mpl_disconnect(zoom_selection_button_press)
                 except:
-                    print("Couldn't disconnect zoom_selection_button_press")
+                    if verbose:
+                        print("Couldn't disconnect zoom_selection_button_press")
                 try:
                     canvas.mpl_disconnect(zoom_selection_button_release)
                 except:
-                    print("Couldn't disconnect zoom_selection_button_release")
+                    if verbose:
+                        print("Couldn't disconnect zoom_selection_button_release")
                 try:
                     canvas.mpl_disconnect(on_scroll_event)
                 except:
-                    print("Couldn't disconnect on_scroll_event")
+                    if verbose:
+                        print("Couldn't disconnect on_scroll_event")
                 try:
                     canvas.mpl_disconnect(on_double_click_event)
                 except:
-                    print("Couldn't disconnect on_double_click_event")
+                    if verbose:
+                        print("Couldn't disconnect on_double_click_event")
                 try:
                     canvas.mpl_disconnect(on_pan_press)
                 except:
-                    print("Couldn't disconnect on_pan_press")
+                    if verbose:
+                        print("Couldn't disconnect on_pan_press")
                 try:
                     canvas.mpl_disconnect(on_pan_release)
                 except:
-                    print("Couldn't disconnect on_pan_release")
+                    if verbose:
+                        print("Couldn't disconnect on_pan_release")
                 try:
                     canvas.mpl_disconnect(on_pan_motion)
                 except:
-                    print("Couldn't disconnect on_pan_motion")
+                    if verbose:
+                        print("Couldn't disconnect on_pan_motion")
                 try:
                     canvas.mpl_disconnect(on_click_press)
                 except:
-                    print("Couldn't disconnect on_click_press")
+                    if verbose:
+                        print("Couldn't disconnect on_click_press")
                 try:
                     canvas.mpl_disconnect(on_click_release)
                 except:
-                    print("Couldn't disconnect on_click_release")
+                    if verbose:
+                        print("Couldn't disconnect on_click_release")
                 try:
                     canvas.mpl_disconnect(right_move_spectra)
                 except:
-                    print("Couldn't disconnect right_move_spectra")
+                    if verbose:
+                        print("Couldn't disconnect right_move_spectra")
                 try:
                     canvas.mpl_disconnect(left_move_spectra)
                 except:
-                    print("Couldn't disconnect left_move_spectra")
+                    if verbose:
+                        print("Couldn't disconnect left_move_spectra")
                 try:
                     canvas.mpl_disconnect(on_pan_right_click_press)
                 except:
-                    print("Couldn't disconnect on_pan_right_click_press")
+                    if verbose:
+                        print("Couldn't disconnect on_pan_right_click_press")
                 try:
                     canvas.mpl_disconnect(on_pan_right_click_release)
                 except:
-                    print("Couldn't disconnect on_pan_right_click_release")
+                    if verbose:
+                        print("Couldn't disconnect on_pan_right_click_release")
                 try:
                     canvas.mpl_disconnect(on_pan_right_click_motion)
                 except:
-                    print("Couldn't disconnect on_pan_right_click_motion")
+                    if verbose:
+                        print("Couldn't disconnect on_pan_right_click_motion")
                 try:
                     canvas_spec.mpl_disconnect(on_plot_hover_motion_spec)
                 except:
-                    print("Couldn't disconnect on_plot_hover_motion_spec")
+                    if verbose:
+                        print("Couldn't disconnect on_plot_hover_motion_spec")
                 try:
                     canvas_spec.mpl_disconnect(zoom_selection_key_press_spec)
                 except:
-                    print("Couldn't disconnect zoom_selection_key_press_spec")
+                    if verbose:
+                        print("Couldn't disconnect zoom_selection_key_press_spec")
                 try:
                     canvas_spec.mpl_disconnect(zoom_selection_key_release_spec)
                 except:
-                    print("Couldn't disconnect zoom_selection_key_release_spec")
+                    if verbose:
+                        print("Couldn't disconnect zoom_selection_key_release_spec")
                 try:
                     canvas_spec.mpl_disconnect(zoom_selection_motion_notify_spec)
                 except:
-                    print("Couldn't disconnect zoom_selection_motion_notify_spec")
+                    if verbose:
+                        print("Couldn't disconnect zoom_selection_motion_notify_spec")
                 try:
                     canvas_spec.mpl_disconnect(zoom_selection_button_press_spec)
                 except:
-                    print("Couldn't disconnect zoom_selection_button_press_spec")
+                    if verbose:
+                        print("Couldn't disconnect zoom_selection_button_press_spec")
                 try:
                     canvas_spec.mpl_disconnect(zoom_selection_button_release_spec)
                 except:
-                    print("Couldn't disconnect zoom_selection_button_release_spec")
+                    if verbose:
+                        print("Couldn't disconnect zoom_selection_button_release_spec")
                 try:
                     canvas_spec.mpl_disconnect(on_scroll_event_spec)
                 except:
-                    print("Couldn't disconnect on_scroll_event_spec")
+                    if verbose:
+                        print("Couldn't disconnect on_scroll_event_spec")
                 try:
                     canvas_spec.mpl_disconnect(on_double_click_event_spec)
                 except:
-                    print("Couldn't disconnect on_double_click_event_spec")
+                    if verbose:
+                        print("Couldn't disconnect on_double_click_event_spec")
                 try:
                     canvas_spec.mpl_disconnect(on_pan_press_spec)
                 except:
-                    print("Couldn't disconnect on_pan_press_spec")
+                    if verbose:
+                        print("Couldn't disconnect on_pan_press_spec")
                 try:
                     canvas_spec.mpl_disconnect(on_pan_release_spec)
                 except:
-                    print("Couldn't disconnect on_pan_release_spec")
+                    if verbose:
+                        print("Couldn't disconnect on_pan_release_spec")
                 try:
                     canvas_spec.mpl_disconnect(on_pan_motion_spec)
                 except:
-                    print("Couldn't disconnect on_pan_motion_spec")
+                    if verbose:
+                        print("Couldn't disconnect on_pan_motion_spec")
                 try:
                     canvas_spec.mpl_disconnect(pick_event_spec)
                 except:
-                    print("Couldn't disconnect pick_event_spec")
+                    if verbose:
+                        print("Couldn't disconnect pick_event_spec")
                 try:
                     canvas_spec.mpl_disconnect(hand_hover_spec)
                 except:
-                    print("Couldn't disconnect hand_hover_spec")
+                    if verbose:
+                        print("Couldn't disconnect hand_hover_spec")
                 try:
                     canvas_spec.mpl_disconnect(on_pan_right_click_press_spec)
                 except:
-                    print("Couldn't disconnect on_pan_right_click_press_spec")
+                    if verbose:
+                        print("Couldn't disconnect on_pan_right_click_press_spec")
                 try:
                     canvas_spec.mpl_disconnect(on_pan_right_click_release_spec)
                 except:
-                    print("Couldn't disconnect on_pan_right_click_release_spec")
+                    if verbose:
+                        print("Couldn't disconnect on_pan_right_click_release_spec")
                 try:
                     canvas_spec.mpl_disconnect(on_pan_right_click_motion_spec)
                 except:
-                    print("Couldn't disconnect on_pan_right_click_motion_spec")
+                    if verbose:
+                        print("Couldn't disconnect on_pan_right_click_motion_spec")
             close_lf()
         
         global loading_files
@@ -4553,7 +4851,7 @@ def run_select_files_window(samples_dropdown):
         t.start()
             
     def ok_button_sfw():
-        global reanalysis_path, samples_list, samples_names, samples_dropdown_options, two_d, compare_samples_button
+        global reanalysis_path, samples_list, samples_names, samples_dropdown_options, two_d, compare_samples_button, check_qc_dist_button
         
         two_d.config(state=tk.DISABLED)
         compare_samples_button.config(state=tk.DISABLED)
@@ -4588,10 +4886,12 @@ def run_select_files_window(samples_dropdown):
             run_analysis_button.config(state=tk.DISABLED)
             generate_library.config(state=tk.DISABLED)
             import_library.config(state=tk.DISABLED)
+            check_qc_dist_button.config(state=tk.NORMAL)
         else:
             run_analysis_button.config(state=tk.NORMAL)
             generate_library.config(state=tk.NORMAL)
             import_library.config(state=tk.NORMAL)
+            check_qc_dist_button.config(state=tk.DISABLED)
         # Access each item in the Treeview
         samples_list = []
         for item_id in item_ids:
@@ -4842,6 +5142,8 @@ def run_set_parameters_window():
             reducing_end_tag_entry.config(state=tk.NORMAL)   
             reduced_checkbox.config(state=tk.DISABLED)
         else:
+            reducing_end_tag_entry.delete(0, tk.END)
+            reducing_end_tag_entry.insert(0, '0.0')
             reducing_end_tag_entry.config(state=tk.DISABLED) 
             reduced_checkbox.config(state=tk.NORMAL)
             
@@ -5100,7 +5402,7 @@ def run_set_parameters_window():
                         break
     
     def save_param_to_file():
-        global s_n_entry, curve_fit_entry, ppm_error_entry, iso_fit_entry
+        global s_n_entry, curve_fit_entry, ppm_error_min_entry, ppm_error_max_entry, iso_fit_entry
         file_dialog = tk.Toplevel()
         file_dialog.withdraw()
         file_dialog.grab_set()
@@ -5215,7 +5517,7 @@ def run_set_parameters_window():
             f.write(f"filter_ms2_by_reporter_ions = \n")
             f.write(f"align_chromatograms = True\n")
             f.write(f"auc_percentage_threshold = 1\n")
-            f.write(f"max_ppm_threshold = {int(ppm_error_entry.get())}\n")
+            f.write(f"max_ppm_threshold = ({float(ppm_error_min_entry.get())}, {float(ppm_error_max_entry.get())})\n")
             f.write(f"isotopic_fitting_score_threshold = {float(iso_fit_entry.get())}\n")
             f.write(f"curve_fitting_score_threshold = {float(curve_fit_entry.get())}\n")
             f.write(f"signal_to_noise_threshold = {float(s_n_entry.get())}\n")
@@ -5303,8 +5605,16 @@ def run_set_parameters_window():
             negative_mode_checkbox_state.set(True)
         else:
             negative_mode_checkbox_state.set(False)
-        ppm_error_entry.delete(0, tk.END)
-        ppm_error_entry.insert(0, parameters[1][12])
+        ppm_error_min_entry.delete(0, tk.END)
+        if type(parameters[1][12]) == int:
+            ppm_error_min_entry.insert(0, 0-parameters[1][12])
+        else:
+            ppm_error_min_entry.insert(0, parameters[1][12][0])
+        ppm_error_max_entry.delete(0, tk.END)
+        if type(parameters[1][12]) == int:
+            ppm_error_max_entry.insert(0, parameters[1][12])
+        else:
+            ppm_error_max_entry.insert(0, parameters[1][12][1])
         iso_fit_entry.delete(0, tk.END)
         iso_fit_entry.insert(0, parameters[1][13])
         curve_fit_entry.delete(0, tk.END)
@@ -5503,6 +5813,8 @@ def run_set_parameters_window():
             for i in ocgw_custom_glycans:
                 glycan_comp = General_Functions.form_to_comp(i)
                 for i in glycan_comp:
+                    if i == 'Am' or i == 'E' or i == 'AmG' or i == 'EG':
+                        lac_ee_checkbox_state.set(True)
                     if i not in General_Functions.monosaccharides:
                         error_window(f"Unrecognized monosaccharide in glycan list: {i}\nCheck your custom glycans list.")
                         return
@@ -5515,10 +5827,10 @@ def run_set_parameters_window():
         custom_glycans_window.iconbitmap(current_dir+"/Assets/gg_icon.ico")
         custom_glycans_window.resizable(False, False)
         custom_glycans_window.grab_set()
-        custom_glycans_window.geometry("600x600")
+        custom_glycans_window.geometry("600x610")
         custom_glycans_window.columnconfigure(0, weight=1)
         
-        description_custom_glycans_label = ttk.Label(custom_glycans_window, text="Here you can type in the glycans you wish to insert in the custom glycans list. Use the following nomenclature:\n\n    H: Hexose, N: HexNAc, F: Deoxyhexose, S: Neu5Ac, G: Neu5Gc\n\nand in case of amidation/ethyl-esterification of sialic acids:\n\n    Am: Amidated Neu5Ac (alpha2,3), E: Ethyl-Esterified Neu5Ac (alpha2,6)\n\nExample: H5N4S2F1 refers to a glycan with 5 Hexoses, 4 HexNacs, 2 Neu5Ac and 1 Deoxyhexose", font=("Segoe UI", list_font_size), wraplength=600, justify = "left")
+        description_custom_glycans_label = ttk.Label(custom_glycans_window, text="Here you can type in the glycans you wish to insert in the custom glycans list. Use the following nomenclature:\n\n    H: Hexose, N: HexNAc, F: Deoxyhexose, S: Neu5Ac, G: Neu5Gc\n\nand in case of amidation/ethyl-esterification of sialic acids:\n\n    Am: Amidated Neu5Ac (alpha2,3), E: Ethyl-Esterified Neu5Ac (alpha2,6)\n    AmG: Amidated Neu5Gc (alpha2,3), EG: Ethyl-Esterified Neu5Gc (alpha2,6)\n\nExample: H5N4S2F1 refers to a glycan with 5 Hexoses, 4 HexNacs, 2 Neu5Ac and 1 Deoxyhexose", font=("Segoe UI", list_font_size), wraplength=600, justify = "left")
         description_custom_glycans_label.grid(row=0, column=0, padx=(10, 10), pady=(10, 10), sticky="nsew")
         
         custom_glycans_text = ScrolledText(custom_glycans_window, height=22, width=100)
@@ -6179,7 +6491,7 @@ def save_results_window():
             
             global min_max_monos, min_max_hex, min_max_hexnac, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, force_nglycan, max_adducts, max_charges, tag_mass, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, fast_iso, high_res
             
-            output_filtered_data_args = [float(curve_fit_sr_entry.get()), float(iso_fit_sr_entry.get()), float(s_n_sr_entry.get()), int(ppm_error_sr_entry.get()), float(auc_percentage_sr_entry.get())/100, True, reanalysis_path, save_path, analyze_ms2[0], analyze_ms2[2], reporter_ions, [metaboanalyst_checkbox_state.get(), []], save_composition_checkbox_state.get(), align_chromatograms_sr_checkbox_state.get(), n_glycans_class_checkbox_state.get(), ret_time_interval[2], rt_tolerance_frag, iso_fits_checkbox_state.get(), plot_data_checkbox_state.get(), multithreaded_analysis, number_cores, 0.0, True, metab_groups]
+            output_filtered_data_args = [float(curve_fit_sr_entry.get()), float(iso_fit_sr_entry.get()), float(s_n_sr_entry.get()), (float(ppm_error_min_sr_entry.get()), float(ppm_error_max_sr_entry.get())), float(auc_percentage_sr_entry.get())/100, True, reanalysis_path, save_path, analyze_ms2[0], analyze_ms2[2], reporter_ions, [metaboanalyst_checkbox_state.get(), []], save_composition_checkbox_state.get(), align_chromatograms_sr_checkbox_state.get(), n_glycans_class_checkbox_state.get(), ret_time_interval[2], rt_tolerance_frag, iso_fits_checkbox_state.get(), plot_data_checkbox_state.get(), multithreaded_analysis, number_cores, 0.0, True, metab_groups]
 
             imp_exp_gen_library_args = [custom_glycans_list, min_max_monos, min_max_hex, min_max_hexnac, min_max_sia, min_max_fuc, min_max_ac, min_max_gc, force_nglycan, max_adducts, adducts_exclusion, max_charges, reducing_end_tag, fast_iso, high_res, imp_exp_library, library_path, exp_lib_name, False, save_path, internal_standard, permethylated, lactonized_ethyl_esterified, reduced]
 
@@ -6352,13 +6664,21 @@ def save_results_window():
     s_n_sr_entry.grid(row=2, column=1, padx=(130, 10), pady=(5, 0), sticky='e')
     ToolTip(s_n_sr_entry, "Insert here the minimum amount of signal-to-noise ratio necessary to save a result to the excel file. Values under 1.0 won't make a difference.")
     
-    ppm_error_sr_label = ttk.Label(qcp_sr_frame, text='Maximum PPM Error:', font=("Segoe UI", list_font_size))
+    ppm_error_sr_label = ttk.Label(qcp_sr_frame, text='Min/Max PPM Error:', font=("Segoe UI", list_font_size))
     ppm_error_sr_label.grid(row=3, column=0, padx=(10, 10), pady=(5, 0), sticky="w")
     
-    ppm_error_sr_entry = ttk.Entry(qcp_sr_frame, width=6)
-    ppm_error_sr_entry.insert(0, max_ppm)
-    ppm_error_sr_entry.grid(row=3, column=1, padx=(130, 10), pady=(5, 0), sticky='e')
-    ToolTip(ppm_error_sr_entry, "Insert here the maximum PPM error allowed to save a peak to the result excel file.")
+    ppm_error_min_sr_entry = ttk.Entry(qcp_sr_frame, width=6)
+    ppm_error_min_sr_entry.insert(0, max_ppm[0])
+    ppm_error_min_sr_entry.grid(row=3, column=1, padx=(5, 65), pady=(5, 0), sticky='e')
+    ToolTip(ppm_error_min_sr_entry, "Insert here the minimum PPM error allowed to save a peak to the result excel file.")
+    
+    ppm_error_hyphen_sr_label = ttk.Label(qcp_sr_frame, text='-', font=("Segoe UI", list_font_size))
+    ppm_error_hyphen_sr_label.grid(row=3, column=1, padx=(5, 55), pady=(5, 0), sticky="e")
+    
+    ppm_error_max_sr_entry = ttk.Entry(qcp_sr_frame, width=6)
+    ppm_error_max_sr_entry.insert(0, max_ppm[1])
+    ppm_error_max_sr_entry.grid(row=3, column=1, padx=(130, 10), pady=(5, 0), sticky='e')
+    ToolTip(ppm_error_max_sr_entry, "Insert here the maximum PPM error allowed to save a peak to the result excel file.")
     
     auc_percentage_sr_label = ttk.Label(qcp_sr_frame, text='Minimum AUC % of maximum intensity:', font=("Segoe UI", list_font_size))
     auc_percentage_sr_label.grid(row=4, column=0, padx=(10, 10), pady=(5, 10), sticky="w")
