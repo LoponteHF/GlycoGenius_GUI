@@ -18,7 +18,7 @@
 
 global gg_version, GUI_version
 gg_version = '1.1.21'
-GUI_version = '0.0.12'
+GUI_version = '0.0.13'
 
 from PIL import Image, ImageTk
 import threading
@@ -659,6 +659,28 @@ def pre_process_one_sample(sample, sample_name):
     except:
         error_window(f"Something went wrong when loading the file {sample}. Check if it is an MzML/MzXML file. If it is, it might be corrupted.")
         return 'bad'
+
+def calculate_ambiguities(df1):
+    ambiguity_count = [] #ambiguity indicator
+    for i_i, i in enumerate(df1):
+        ambiguity_count.append(0)
+        i['Ambiguity'] = []
+        for j in i['Glycan']:
+            i['Ambiguity'].append([])
+        for j_j, j in enumerate(i['Glycan']):
+            glycan_j = j+'_'+i['Adduct'][j_j]
+            for k_k, k in enumerate(i['Glycan'][j_j+1:]):
+                k_k = j_j+k_k+1
+                glycan_k = k+'_'+i['Adduct'][k_k]
+                if j != k and i['mz'][j_j] == i['mz'][k_k]:
+                    ambiguity_count[i_i] += 1
+                    i['Ambiguity'][j_j].append(i['Glycan'][k_k]+'_'+i['Adduct'][k_k])
+                    i['Ambiguity'][k_k].append(i['Glycan'][j_j]+'_'+i['Adduct'][j_j])
+        for j_j, j in enumerate(i['Ambiguity']):
+            if len(j) > 0:
+                i['Ambiguity'][j_j] = ', '.join(j)
+            else:
+                i['Ambiguity'][j_j] = 'No'
     
 def load_reanalysis(reanalysis_path):
     global glycans_per_sample, chromatograms, curve_fittings, isotopic_fittings, samples_dropdown_options, df1, df2
@@ -678,6 +700,7 @@ def load_reanalysis(reanalysis_path):
     samples_dropdown_options = df2['File_Name']
     samples_dropdown['values'] = samples_dropdown_options
     glycans_per_sample = {}
+    calculate_ambiguities(df1)
     for i_i, i in enumerate(df1): #sample
         glycans_per_sample[samples_dropdown_options[i_i]] = {} #glycans_per_sample = {'sample_0' : {}}
         last_glycan = ''
@@ -695,6 +718,7 @@ def load_reanalysis(reanalysis_path):
                 glycans_per_sample[samples_dropdown_options[i_i]][k][i['Adduct'][k_k]]['iso'] = i['Iso_Fitting_Score'][k_k]
                 glycans_per_sample[samples_dropdown_options[i_i]][k][i['Adduct'][k_k]]['curve'] = i['Curve_Fitting_Score'][k_k]
                 glycans_per_sample[samples_dropdown_options[i_i]][k][i['Adduct'][k_k]]['sn'] = i["S/N"][k_k]
+                glycans_per_sample[samples_dropdown_options[i_i]][k][i['Adduct'][k_k]]['ambiguity'] = i["Ambiguity"][k_k]
                 if len(file) == 4:
                     glycans_per_sample[samples_dropdown_options[i_i]][k][i['Adduct'][k_k]]['ms2'] = {}
                     last_rt = ''
@@ -758,7 +782,7 @@ def on_closing():
     return
         
 def handle_selection(event):
-    global current_data, ax, canvas, ax_spec, canvas_spec, samples_dropdown, chromatograms_list, selected_item, two_d, compare_samples_button, zoom_selection_key_press, zoom_selection_key_release, zoom_selection_motion_notify, zoom_selection_button_press, zoom_selection_button_release, on_scroll_event, on_double_click_event, on_pan_press, on_pan_release, on_pan_motion, on_plot_hover_motion, on_click_press, on_click_release, right_move_spectra, left_move_spectra, on_pan_right_click_motion, on_pan_right_click_press, on_pan_right_click_release, zoom_selection_key_press_spec, zoom_selection_key_release_spec, zoom_selection_motion_notify_spec, zoom_selection_button_press_spec, zoom_selection_button_release_spec, on_scroll_event_spec, on_double_click_event_spec, on_pan_press_spec, on_pan_release_spec, on_pan_motion_spec, on_plot_hover_motion_spec, on_pan_right_click_motion_spec, on_pan_right_click_press_spec, on_pan_right_click_release_spec, pick_event_spec, hand_hover_spec, loading_files
+    global current_data, ax, canvas, ax_spec, canvas_spec, samples_dropdown, chromatograms_list, selected_item, two_d, compare_samples_button, zoom_selection_key_press, zoom_selection_key_release, zoom_selection_motion_notify, zoom_selection_button_press, zoom_selection_button_release, on_scroll_event, on_double_click_event, on_pan_press, on_pan_release, on_pan_motion, on_plot_hover_motion, on_click_press, on_click_release, right_move_spectra, left_move_spectra, on_pan_right_click_motion, on_pan_right_click_press, on_pan_right_click_release, zoom_selection_key_press_spec, zoom_selection_key_release_spec, zoom_selection_motion_notify_spec, zoom_selection_button_press_spec, zoom_selection_button_release_spec, on_scroll_event_spec, on_double_click_event_spec, on_pan_press_spec, on_pan_release_spec, on_pan_motion_spec, on_plot_hover_motion_spec, on_pan_right_click_motion_spec, on_pan_right_click_press_spec, on_pan_right_click_release_spec, pick_event_spec, hand_hover_spec, loading_files, filter_list
     
     try:
         canvas.mpl_disconnect(on_plot_hover_motion)
@@ -934,7 +958,6 @@ def handle_selection(event):
     two_d.config(state=tk.DISABLED)
     compare_samples_button.config(state=tk.DISABLED)
     selected_item = samples_dropdown.get()
-    chromatograms_list.delete(*chromatograms_list.get_children())
     if len(samples_list) > 0:
         if processed_data == 'bad':
             loading_files.destroy()
@@ -945,18 +968,26 @@ def handle_selection(event):
             if selected_item in processed_data:
                 current_data = processed_data[selected_item]
                 chromatograms_list.insert("", "end", text="Base Peak Chromatogram")
-    if len(reanalysis_path) > 0: #populate treeview with glycans
-        for i in glycans_per_sample[selected_item]:
-            if len(glycans_per_sample[selected_item][i]) > 0:
-                parent_item = chromatograms_list.insert("", "end", text=i)
-                for k in glycans_per_sample[selected_item][i]:
-                    first_child = chromatograms_list.insert(parent_item, "end", text=f"{str(k)} - {str(glycans_per_sample[selected_item][i][k]['mz'])}")
-                    for l in glycans_per_sample[selected_item][i][k]['peaks']:
-                        chromatograms_list.insert(first_child, "end", text=l)
+    filter_list.delete(0, tk.END)
+    populate_treeview()
     color_treeview()
     clear_plot(ax, canvas)
     clear_plot(ax_spec, canvas_spec)
     #here add all the glycans found after analysis
+    
+def populate_treeview():
+    global selected_item, chromatograms_list, filter_list
+    chromatograms_list.delete(*chromatograms_list.get_children())
+    if len(reanalysis_path) > 0: #populate treeview with glycans
+        search_input = filter_list.get()
+        for i in glycans_per_sample[selected_item]:
+            if len(glycans_per_sample[selected_item][i]) > 0:
+                if search_input in i:
+                    parent_item = chromatograms_list.insert("", "end", text=i, value=("♦") if glycans_per_sample[selected_item][i][list(glycans_per_sample[selected_item][i].keys())[0]]['ambiguity'] != "No" else ("")) #value is the symbol for the ambiguity
+                    for k in glycans_per_sample[selected_item][i]:
+                        first_child = chromatograms_list.insert(parent_item, "end", text=f"{str(k)} - {str(glycans_per_sample[selected_item][i][k]['mz'])}")
+                        for l in glycans_per_sample[selected_item][i][k]['peaks']:
+                            chromatograms_list.insert(first_child, "end", text=l)
     
 def color_treeview():
     def get_all_items(tree, parent=""):
@@ -3172,11 +3203,14 @@ def run_main_window():
         
         auc_for_label = f"{glycans_per_sample[selected_item][grand_parent_text][parent_text.split(" ")[0]]['auc'][glycans_per_sample[selected_item][chromatograms_list.item(grand_parent_item, "text")][chromatograms_list.item(parent_item, "text").split(" ")[0]]['peaks'].index(chromatograms_list.item(selected_item_chromatograms, "text"))]:.1e}"
         
+        ambiguities = f"{glycans_per_sample[selected_item][grand_parent_text][parent_text.split(" ")[0]]['ambiguity']}"
+        
         peak_info = [("Isotopic Fitting Score:", iso_fitting_score),
                      ("Curve Fitting Score:", curve_fitting_score),
                      ("Signal-to-Noise ratio:", s_to_n_score),
                      ("Average PPM error:", ppm_score),
-                     ("Area Under Curve (AUC):", auc_for_label)]
+                     ("Area Under Curve (AUC):", auc_for_label),
+                     ("Ambiguities:", ambiguities)]
         
         if 'ms2' in glycans_per_sample[selected_item][grand_parent_text][parent_text.split(" ")[0]]:
             highest_tic_explained = 0
@@ -4327,6 +4361,12 @@ def run_main_window():
             pass
         color_treeview()
         
+    def on_key_release_filter(event, entry):
+        # Get the current content of the entry widget
+        current_text = entry.get()
+        populate_treeview()
+        color_treeview()
+        
     # Create the main window
     global main_window
     main_window = tk.Tk()
@@ -4468,14 +4508,22 @@ def run_main_window():
     samples_dropdown = ttk.Combobox(main_window, state="readonly", values=samples_dropdown_options)
     samples_dropdown.grid(row=1, column=0, padx = 10, sticky='new')
     samples_dropdown.bind("<<ComboboxSelected>>", handle_selection)
+    
+    global filter_list
+    filter_list = ttk.Entry(main_window, width=6)
+    filter_list.grid(row=1, column=0, padx=10, pady=(23, 0), sticky='new')
+    filter_list.bind("<KeyRelease>", lambda event: on_key_release_filter(event, filter_list))
+    ToolTip(filter_list, "Type here to filter the glycans list.")
 
     chromatograms_list_scrollbar = tk.Scrollbar(main_window, orient=tk.VERTICAL)
     chromatograms_list = ttk.Treeview(main_window, height=25, style="chromatograms_list.Treeview", yscrollcommand=chromatograms_list_scrollbar.set)
     chromatograms_list["show"] = "tree" #removes the header
-    chromatograms_list.column("#0", width=250)
+    chromatograms_list["columns"] = ("#1")
+    chromatograms_list.column("#0", width=230)
+    chromatograms_list.column("#1", width=20) #this column is for showing ambiguities
     chromatograms_list_scrollbar.config(command=chromatograms_list.yview, width=10)
-    chromatograms_list.grid(row=1, rowspan=2, column=0, padx=(10,10), pady=(23, 260), sticky="nsew")
-    chromatograms_list_scrollbar.grid(row=1, rowspan=2, column=0, pady=(23, 260), sticky="nse")
+    chromatograms_list.grid(row=1, rowspan=2, column=0, padx=(10,10), pady=(43, 260), sticky="nsew")
+    chromatograms_list_scrollbar.grid(row=1, rowspan=2, column=0, pady=(43, 260), sticky="nse")
     chromatograms_list.bind("<KeyRelease-Up>", handle_treeview_select)
     chromatograms_list.bind("<KeyRelease-Down>", handle_treeview_select)
     chromatograms_list.bind("<ButtonRelease-1>", click_treeview)
