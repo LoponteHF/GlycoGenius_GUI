@@ -17,8 +17,8 @@
 # by typing 'glycogenius'. If not, see <https://www.gnu.org/licenses/>.
 
 global gg_version, GUI_version
-gg_version = '1.1.20'
-GUI_version = '0.0.11'
+gg_version = '1.1.21'
+GUI_version = '0.0.12'
 
 from PIL import Image, ImageTk
 import threading
@@ -4335,7 +4335,7 @@ def run_main_window():
     # Configure window properties
     main_window.title("GlycoGenius")
     main_window.iconbitmap(current_dir+"/Assets/gg_icon.ico")
-    main_window.minsize(1000, 720)
+    main_window.minsize(1025, 720)
     main_window.bind("<Configure>", on_resize)
     main_window.bind("<Control_L>", on_ctrl_key_press)
     main_window.bind("<KeyRelease-Control_L>", on_ctrl_key_release)
