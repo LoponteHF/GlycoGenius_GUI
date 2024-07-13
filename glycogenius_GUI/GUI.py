@@ -18,7 +18,7 @@
 
 global gg_version, GUI_version
 gg_version = '1.1.21'
-GUI_version = '0.0.13'
+GUI_version = '0.0.14'
 
 from PIL import Image, ImageTk
 import threading
@@ -184,6 +184,9 @@ gg_file_name = ""
 
 global which_progress_bar
 which_progress_bar = 'ms1'
+
+global former_alignments
+former_alignments = [[], []]
 
 suppressed_prints = ["remaining parameters.", "set 'only_gen_lib' to False and input", "If you wish to analyze files,", "Press Enter to exit.", "Close the window or press CTRL+C to exit.", "File name is"]
 
@@ -967,27 +970,45 @@ def handle_selection(event):
         else:
             if selected_item in processed_data:
                 current_data = processed_data[selected_item]
-                chromatograms_list.insert("", "end", text="Base Peak Chromatogram")
-    filter_list.delete(0, tk.END)
     populate_treeview()
     color_treeview()
     clear_plot(ax, canvas)
     clear_plot(ax_spec, canvas_spec)
     #here add all the glycans found after analysis
     
+def add_bpc_treeview():
+    global selected_item, processed_data, chromatograms_list, filter_list
+    bpc_keywords = ["Base Peak Chromatogram", "BPC"]
+    if len(samples_list) > 0:
+        if selected_item in processed_data:
+            search_input = filter_list.get()
+            for i in bpc_keywords:
+                if search_input.lower() in i.lower():
+                    chromatograms_list.insert("", "end", text="Base Peak Chromatogram")
+                    break
+    
 def populate_treeview():
     global selected_item, chromatograms_list, filter_list
     chromatograms_list.delete(*chromatograms_list.get_children())
+    add_bpc_treeview()
     if len(reanalysis_path) > 0: #populate treeview with glycans
         search_input = filter_list.get()
         for i in glycans_per_sample[selected_item]:
             if len(glycans_per_sample[selected_item][i]) > 0:
-                if search_input in i:
-                    parent_item = chromatograms_list.insert("", "end", text=i, value=("♦") if glycans_per_sample[selected_item][i][list(glycans_per_sample[selected_item][i].keys())[0]]['ambiguity'] != "No" else ("")) #value is the symbol for the ambiguity
+                if search_input.lower() in i.lower():
+                    parent_item = chromatograms_list.insert("", "end", text=i, value=("   ♦") if glycans_per_sample[selected_item][i][list(glycans_per_sample[selected_item][i].keys())[0]]['ambiguity'] != "No" else "") #value is the symbol for the ambiguity
                     for k in glycans_per_sample[selected_item][i]:
                         first_child = chromatograms_list.insert(parent_item, "end", text=f"{str(k)} - {str(glycans_per_sample[selected_item][i][k]['mz'])}")
                         for l in glycans_per_sample[selected_item][i][k]['peaks']:
-                            chromatograms_list.insert(first_child, "end", text=l)
+                            found = False
+                            if 'ms2' in glycans_per_sample[selected_item][i][k]:
+                                for m in list(glycans_per_sample[selected_item][i][k]['ms2'].keys()):
+                                    if abs(float(m)-float(l)) < 1:
+                                        chromatograms_list.insert(first_child, "end", text=l, value=("MS2"))
+                                        found = True
+                                        break
+                            if not found:
+                                chromatograms_list.insert(first_child, "end", text=l, value=(""))
     
 def color_treeview():
     def get_all_items(tree, parent=""):
@@ -3060,7 +3081,7 @@ def run_main_window():
     
     def handle_double_left_click(event): #peak visualizer
         selected_item_pv = chromatograms_list.selection()
-        if len(selected_item_pv) == 0:
+        if len(selected_item_pv) == 0 or len(selected_item_pv) > 1:
             return
         else:
             level = 0
@@ -3225,7 +3246,8 @@ def run_main_window():
                              ("Signal-to-Noise ratio:", s_to_n_score),
                              ("Average PPM error:", ppm_score),
                              ("Area Under Curve (AUC):", auc_for_label),
-                             ("MS2 TIC explained:", f"{float("%.1f" % round(highest_tic_explained, 1))}%")]
+                             ("MS2 TIC explained:", f"{float("%.1f" % round(highest_tic_explained, 1))}%"),
+                             ("Ambiguities:", ambiguities)]
         
         for i, (left_text, right_text) in enumerate(peak_info):
             left_label = ttk.Label(info_area, text=left_text, anchor="w", font=("Segoe UI", 10))
@@ -3261,12 +3283,61 @@ def run_main_window():
             ctrl_pressed = False
 
     def click_treeview(event):
-        global ctrl_pressed
-        if ctrl_pressed:
-            handle_treeview_select(event, False)
-            canvas.draw()
+        global ctrl_pressed, chromatograms_list, selected_item, selected_item_chromatograms, samples_list
+        region = chromatograms_list.identify_region(event.x, event.y)
+        column = chromatograms_list.identify_column(event.x)
+        item = chromatograms_list.identify_row(event.y)
+        
+        if region == "cell" and column == "#1" and item and len(samples_list) > 0 and selected_item in processed_data:
+            values = chromatograms_list.item(item, "values")
+            # Change the cursor only if the cell value is "Value 5"
+            if "MS2" in values:
+                handle_treeview_select(event)
+                parent_item = chromatograms_list.parent(selected_item_chromatograms)
+                parent_text = chromatograms_list.item(parent_item, "text").split(" ") #adduct
+                grand_parent_item = chromatograms_list.parent(parent_item)
+                grand_parent_text = chromatograms_list.item(grand_parent_item, "text")
+                distance = 99999
+                rt_closest = 0
+                rt = float(chromatograms_list.item(selected_item_chromatograms, "text"))
+                for i in glycans_per_sample[selected_item][grand_parent_text][parent_text[0]]['ms2']:
+                    if abs(float(i)-rt) < distance:
+                        distance = abs(float(i)-rt)
+                        rt_closest = float(i)
+                if rt_closest != 0:
+                    if current_data['time_unit'] == 'seconds':
+                        rt_seconds = float("%.4f" % round(rt_closest*60, 4))
+                    else:
+                        rt_seconds = float("%.4f" % round(rt_closest, 4))
+                    spectra_info = (float(parent_text[-1]), rt_seconds)
+                    run_ms2_window(spectra_info)
+            else:
+                if ctrl_pressed:
+                    handle_treeview_select(event, False)
+                    canvas.draw()
+                else:
+                    handle_treeview_select(event)
         else:
-            handle_treeview_select(event)
+            if ctrl_pressed:
+                handle_treeview_select(event, False)
+                canvas.draw()
+            else:
+                handle_treeview_select(event)
+            
+    def on_treeview_motion(event):
+        region = chromatograms_list.identify_region(event.x, event.y)
+        column = chromatograms_list.identify_column(event.x)
+        item = chromatograms_list.identify_row(event.y)
+        
+        if region == "cell" and column == "#1" and item and len(samples_list) > 0 and selected_item in processed_data:
+            values = chromatograms_list.item(item, "values")
+            # Change the cursor only if the cell value is "Value 5"
+            if "MS2" in values:
+                chromatograms_list.config(cursor="hand2")
+            else:
+                chromatograms_list.config(cursor="")
+        else:
+            chromatograms_list.config(cursor="")
             
     def run_ms2_window(spectra_info):
         global canvas_ms2, level
@@ -3793,8 +3864,37 @@ def run_main_window():
         canvas_two_d.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_two_d, canvas_two_d) if event.button == 3 else None)
         canvas_two_d.mpl_connect('motion_notify_event', lambda event: on_plot_hover_two_d(event, ax_two_d, canvas_two_d, rt_map_cursor, mz_map_cursor, int_map_cursor, coordinate_label_two_d, horizontal_line, vertical_line))
         
+    def aligning_samples_window():
+        def wait_thread():
+            compare_samples_window()
+        
+        global aligning_samples
+        aligning_samples = tk.Toplevel()
+        aligning_samples.withdraw()
+        aligning_samples.title("Aligning Samples")
+        aligning_samples.iconbitmap(current_dir+"/Assets/gg_icon.ico")
+        aligning_samples.resizable(False, False)
+        aligning_samples.grab_set()
+        aligning_samples.protocol("WM_DELETE_WINDOW", on_closing)
+        
+        aligning_samples_label = ttk.Label(aligning_samples, text="Aligning sample files, please wait.", font=("Segoe UI", list_font_size))
+        aligning_samples_label.pack(pady=35, padx=70)
+        
+        aligning_samples.update_idletasks()
+        aligning_samples.deiconify()
+        window_width = aligning_samples.winfo_width()
+        window_height = aligning_samples.winfo_height()
+        screen_width = aligning_samples.winfo_screenwidth()
+        screen_height = aligning_samples.winfo_screenheight()
+        x_position = (screen_width - window_width) // 2
+        y_position = (screen_height - window_height) // 2
+        aligning_samples.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
+        
+        t = threading.Thread(target=wait_thread)
+        t.start()
+        
     def compare_samples_window():
-        global selected_item_chromatograms, samples_dropdown_options, level, ret_time_interval, df1, df2
+        global selected_item_chromatograms, samples_dropdown_options, level, ret_time_interval, df1, df2, aligning_samples
         
         def on_checkbox_click(event):
             """Check or uncheck box when clicked."""
@@ -3961,12 +4061,20 @@ def run_main_window():
             
             canvas_comp.draw_idle()
         
-        total_glycans_df = make_total_glycans_df(df1, df2)
-        if len(total_glycans_df[0]['Glycan']) != 0:
-            chromatograms_delta = Execution_Functions.align_assignments(total_glycans_df, "total_glycans", multithreaded_analysis, number_cores, rt_tol = ret_time_interval[2])
-            chromatograms_aligned = Execution_Functions.align_assignments(chromatograms, 'chromatograms', multithreaded_analysis, number_cores, chromatograms_delta[1])
+        global former_alignments
+        if f"{iso_fit_score}{curve_fit_score}{max_ppm}{s_to_n}" not in former_alignments[0]:
+            total_glycans_df = make_total_glycans_df(df1, df2)
+            if len(total_glycans_df[0]['Glycan']) != 0:
+                chromatograms_delta = Execution_Functions.align_assignments(total_glycans_df, "total_glycans", multithreaded_analysis, number_cores, rt_tol = ret_time_interval[2])
+                chromatograms_aligned = Execution_Functions.align_assignments(chromatograms, 'chromatograms', multithreaded_analysis, number_cores, chromatograms_delta[1])
+            else:
+                chromatograms_aligned = chromatograms
+            former_alignments[0].append(f"{iso_fit_score}{curve_fit_score}{max_ppm}{s_to_n}")
+            former_alignments[1].append(chromatograms_aligned)
         else:
-            chromatograms_aligned = chromatograms
+            chromatograms_aligned = former_alignments[1][former_alignments[0].index(f"{iso_fit_score}{curve_fit_score}{max_ppm}{s_to_n}")]
+        
+        aligning_samples.destroy()
         
         if level == 1:
             item_text = chromatograms_list.item(selected_item_chromatograms, "text")
@@ -4363,7 +4471,6 @@ def run_main_window():
         
     def on_key_release_filter(event, entry):
         # Get the current content of the entry widget
-        current_text = entry.get()
         populate_treeview()
         color_treeview()
         
@@ -4519,8 +4626,8 @@ def run_main_window():
     chromatograms_list = ttk.Treeview(main_window, height=25, style="chromatograms_list.Treeview", yscrollcommand=chromatograms_list_scrollbar.set)
     chromatograms_list["show"] = "tree" #removes the header
     chromatograms_list["columns"] = ("#1")
-    chromatograms_list.column("#0", width=230)
-    chromatograms_list.column("#1", width=20) #this column is for showing ambiguities
+    chromatograms_list.column("#0", width=215)
+    chromatograms_list.column("#1", width=35) #this column is for showing ambiguities
     chromatograms_list_scrollbar.config(command=chromatograms_list.yview, width=10)
     chromatograms_list.grid(row=1, rowspan=2, column=0, padx=(10,10), pady=(43, 260), sticky="nsew")
     chromatograms_list_scrollbar.grid(row=1, rowspan=2, column=0, pady=(43, 260), sticky="nse")
@@ -4528,11 +4635,12 @@ def run_main_window():
     chromatograms_list.bind("<KeyRelease-Down>", handle_treeview_select)
     chromatograms_list.bind("<ButtonRelease-1>", click_treeview)
     chromatograms_list.bind("<Double-Button-1>", handle_double_left_click)
+    chromatograms_list.bind("<Motion>", on_treeview_motion)
     
     global compare_samples_button
-    compare_samples_button = ttk.Button(main_window, text="Compare samples", style="small_button_style1.TButton", command=compare_samples_window, state=tk.DISABLED)
+    compare_samples_button = ttk.Button(main_window, text="Compare samples", style="small_button_style1.TButton", command=aligning_samples_window, state=tk.DISABLED)
     compare_samples_button.grid(row=1, rowspan=2, column=0, padx=10, pady=(10, 220), sticky="sew")
-    ToolTip(compare_samples_button, "Opens a window for comparing the chromatograms for the selected compound on different samples. It features an option for alignment of the chromatograms and, due to that, and depending on the number of samples you have, this may take a while to load.")
+    ToolTip(compare_samples_button, "Opens a window for comparing the chromatograms for the selected compound on different samples. It features an option for alignment of the chromatograms and, due to that, and depending on the number of samples you have, this may take a while to load the first time with a given set of QC parameters.")
     
     global s_n_entry, curve_fit_entry, ppm_error_min_entry, ppm_error_max_entry, iso_fit_entry
     qcp_frame = ttk.Labelframe(main_window, text="Quality Control Parameters:", style="qcp_frame.TLabelframe")
@@ -4899,8 +5007,9 @@ def run_select_files_window(samples_dropdown):
         t.start()
             
     def ok_button_sfw():
-        global reanalysis_path, samples_list, samples_names, samples_dropdown_options, two_d, compare_samples_button, check_qc_dist_button
+        global reanalysis_path, samples_list, samples_names, samples_dropdown_options, two_d, compare_samples_button, check_qc_dist_button, filter_list, former_alignments
         
+        filter_list.delete(0, tk.END)
         two_d.config(state=tk.DISABLED)
         compare_samples_button.config(state=tk.DISABLED)
         # Get the list of item identifiers (IDs) in the Treeview
@@ -4962,6 +5071,7 @@ def run_select_files_window(samples_dropdown):
         if len(samples_list) == 0 and len(reanalysis_path) == 0:
             samples_dropdown['values'] = []
         loading_files()
+        former_alignments = [[], []]
         close_sf_window()
         
     def get_gg_parameters():
@@ -5878,7 +5988,7 @@ def run_set_parameters_window():
         custom_glycans_window.geometry("600x610")
         custom_glycans_window.columnconfigure(0, weight=1)
         
-        description_custom_glycans_label = ttk.Label(custom_glycans_window, text="Here you can type in the glycans you wish to insert in the custom glycans list. Use the following nomenclature:\n\n    H: Hexose, N: HexNAc, F: Deoxyhexose, S: Neu5Ac, G: Neu5Gc\n\nand in case of amidation/ethyl-esterification of sialic acids:\n\n    Am: Amidated Neu5Ac (alpha2,3), E: Ethyl-Esterified Neu5Ac (alpha2,6)\n    AmG: Amidated Neu5Gc (alpha2,3), EG: Ethyl-Esterified Neu5Gc (alpha2,6)\n\nExample: H5N4S2F1 refers to a glycan with 5 Hexoses, 4 HexNacs, 2 Neu5Ac and 1 Deoxyhexose", font=("Segoe UI", list_font_size), wraplength=600, justify = "left")
+        description_custom_glycans_label = ttk.Label(custom_glycans_window, text="Here you can type in the glycans you wish to insert in the custom glycans list. Use the following nomenclature:\n\n    H: Hexose, N: HexNAc, X: Xylose, F: Deoxyhexose, S: Neu5Ac, G: Neu5Gc\n\nand in case of amidation/ethyl-esterification of sialic acids:\n\n    Am: Amidated Neu5Ac (alpha2,3), E: Ethyl-Esterified Neu5Ac (alpha2,6)\n    AmG: Amidated Neu5Gc (alpha2,3), EG: Ethyl-Esterified Neu5Gc (alpha2,6)\n\nExample: H5N4S2F1 refers to a glycan with 5 Hexoses, 4 HexNacs, 2 Neu5Ac and 1 Deoxyhexose", font=("Segoe UI", list_font_size), wraplength=600, justify = "left")
         description_custom_glycans_label.grid(row=0, column=0, padx=(10, 10), pady=(10, 10), sticky="nsew")
         
         custom_glycans_text = ScrolledText(custom_glycans_window, height=22, width=100)
