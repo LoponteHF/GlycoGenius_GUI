@@ -17,8 +17,8 @@
 # by typing 'glycogenius'. If not, see <https://www.gnu.org/licenses/>.
 
 global gg_version, GUI_version
-gg_version = '1.1.21'
-GUI_version = '0.0.14'
+gg_version = '1.1.22'
+GUI_version = '0.0.15'
 
 from PIL import Image, ImageTk
 import threading
@@ -699,7 +699,6 @@ def load_reanalysis(reanalysis_path):
     except:
         error_window(f"Something went wrong when loading the reanalysis file. Check if it is a .gg file. If it is, it might be corrupted.")
         return
-        
     samples_dropdown_options = df2['File_Name']
     samples_dropdown['values'] = samples_dropdown_options
     glycans_per_sample = {}
@@ -1832,14 +1831,16 @@ def run_main_window():
                 force_nglycan = library_metadata[7]
                 max_adducts = library_metadata[8]
                 max_charges = library_metadata[9]
-                tag_mass = library_metadata[10]
+                reducing_end_tag = library_metadata[10]
                 internal_standard = library_metadata[11]
                 permethylated = library_metadata[12]
                 lactonized_ethyl_esterified = library_metadata[13]
                 reduced = library_metadata[14]
                 fast_iso = library_metadata[15]
                 high_res = library_metadata[16]
-            
+                if len(library_metadata) > 18:
+                    min_max_xyl = library_metadata[18]
+                    
             output_filtered_data_args = [curve_fit_score, iso_fit_score, s_to_n, max_ppm, percentage_auc, reanalysis, reanalysis_path, save_path, analyze_ms2[0], analyze_ms2[2], reporter_ions, plot_metaboanalyst, compositions, align_chromatograms, force_nglycan, ret_time_interval[2], rt_tolerance_frag, iso_fittings, output_plot_data, multithreaded_analysis, number_cores, 0.0]
                         
             imp_exp_gen_library_args = [custom_glycans_list, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_sia, min_max_fuc, min_max_ac, min_max_gc, force_nglycan, max_adducts, adducts_exclusion, max_charges, reducing_end_tag, fast_iso, high_res, [True, True], library_path, exp_lib_name, False, save_path, internal_standard, permethylated, lactonized_ethyl_esterified, reduced]
