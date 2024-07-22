@@ -17,8 +17,8 @@
 # by typing 'glycogenius'. If not, see <https://www.gnu.org/licenses/>.
 
 global gg_version, GUI_version
-gg_version = '1.1.22'
-GUI_version = '0.0.15'
+gg_version = '1.1.23'
+GUI_version = '0.0.16'
 
 from PIL import Image, ImageTk
 import threading
@@ -144,7 +144,7 @@ multithreaded_analysis = True
 number_cores = 'all'
 analyze_ms2 = [False, False, False]
 reporter_ions = []
-tolerance = ['ppm', 10]
+tolerance = ['ppm', 20]
 ret_time_interval = [0.0, 999.0, 0.2]
 rt_tolerance_frag = 0.2
 min_isotopologue_peaks = 2
@@ -247,6 +247,7 @@ class ToolTip:
                 x += self.widget.winfo_rootx() + 25
                 y += self.widget.winfo_rooty() + 20
                 self.tip_window = tk.Toplevel(self.widget)
+                self.tip_window.attributes("-topmost", True)
                 self.tip_window.wm_overrideredirect(True)
                 self.tip_window.wm_geometry(f"+{x}+{y}")
                 label = tk.Label(self.tip_window, text=self.text, justify=tk.LEFT,
@@ -664,6 +665,7 @@ def pre_process_one_sample(sample, sample_name):
         return 'bad'
 
 def calculate_ambiguities(df1):
+    global ambiguity_count
     ambiguity_count = [] #ambiguity indicator
     for i_i, i in enumerate(df1):
         ambiguity_count.append(0)
@@ -1112,7 +1114,7 @@ def color_treeview():
                 chromatograms_list.item(i, tags=('warning', ))
                 final_warning+=1
                 
-    chromatograms_qc_numbers.config(text=f"Compositions Quality Control:\n        Good: {final_good}    Average: {final_warning}    Bad: {final_bad}")
+    chromatograms_qc_numbers.config(text=f"Compositions Quality Control:\n        Good: {final_good}    Average: {final_warning}    Bad: {final_bad}\n        Ambiguities: {ambiguity_count[list(glycans_per_sample.keys()).index(selected_item)]}")
         
     chromatograms_list.tag_configure('bad', background='#FED5CD')
     chromatograms_list.tag_configure('warning', background='#FEFACD')
@@ -1148,6 +1150,7 @@ def on_right_click_plot(event, ax_here, canvas_here):
 def save_image(event, canvas_here):
     # Open a save dialog window
     file_dialog = tk.Toplevel()
+    file_dialog.attributes("-topmost", True)
     file_dialog.withdraw()
     file_dialog.grab_set()
     
@@ -1371,6 +1374,7 @@ def run_main_window():
     def open_file_dialog_import_button():
         global imp_exp_library
         file_dialog = tk.Toplevel()
+        file_dialog.attributes("-topmost", True)
         file_dialog.withdraw()
         file_dialog.grab_set()
         
@@ -1392,6 +1396,7 @@ def run_main_window():
         
     def get_lib_info():
         lib_info_window = tk.Toplevel()
+        lib_info_window.attributes("-topmost", True)
         lib_info_window.withdraw()
         lib_info_window.title("Library Information")
         lib_info_window.iconbitmap(current_dir+"/Assets/gg_icon.ico")
@@ -1479,6 +1484,7 @@ def run_main_window():
             error_window("You must select a working directory in the 'Set Parameters' window before generating a library!")
         else:
             progress_gen_lib = tk.Toplevel(main_window)
+            #progress_gen_lib.attributes("-topmost", True)
             progress_gen_lib.withdraw()
             progress_gen_lib.title("Generating Library")
             progress_gen_lib.iconbitmap(current_dir+"/Assets/gg_icon.ico")
@@ -1716,6 +1722,7 @@ def run_main_window():
                 close_lf()
                 
             loading_files = tk.Toplevel()
+            loading_files.attributes("-topmost", True)
             loading_files.withdraw()
             loading_files.title("Loading Files")
             loading_files.iconbitmap(current_dir+"/Assets/gg_icon.ico")
@@ -1767,6 +1774,7 @@ def run_main_window():
         else:
             global run_analysis
             run_analysis = tk.Toplevel()
+            # run_analysis.attributes("-topmost", True)
             run_analysis.withdraw()
             run_analysis.title("Running Analysis")
             run_analysis.iconbitmap(current_dir+"/Assets/gg_icon.ico")
@@ -1873,6 +1881,7 @@ def run_main_window():
             about_window.destroy()
             
         about_window = tk.Toplevel(main_window)
+        about_window.attributes("-topmost", True)
         about_window.withdraw()
         about_window.title("About")
         about_window.iconbitmap(current_dir+"/Assets/gg_icon.ico")
@@ -3048,12 +3057,16 @@ def run_main_window():
             except:
                 pass
             main_window.destroy()
-            sys.exit()
+            try:
+                sys.exit()
+            except:
+                print("GlycoGenius has closed.")
         
         def close_exit_window():
             exit_window.destroy()
             
         exit_window = tk.Toplevel()
+        exit_window.attributes("-topmost", True)
         exit_window.withdraw()
         exit_window.title("Exit")
         exit_window.iconbitmap(current_dir+"/Assets/gg_icon.ico")
@@ -3146,6 +3159,7 @@ def run_main_window():
             event.canvas.get_tk_widget().configure(cursor="")        
     
         peak_visualizer = tk.Toplevel()
+        peak_visualizer.attributes("-topmost", True)
         peak_visualizer.geometry("700x700")
         peak_visualizer.grid_columnconfigure(0, weight=1)
         peak_visualizer.grid_columnconfigure(1, weight=1)
@@ -3161,10 +3175,10 @@ def run_main_window():
         peak_area.grid(row=0, rowspan=2, column=0, columnspan=2, padx=10, pady=(10, 300), sticky="nsew")
         
         isofit_area = ttk.Labelframe(peak_visualizer, text="Isotopic Peaks", style="chromatogram.TLabelframe")
-        isofit_area.grid(row=1, column=0, columnspan=2, padx=(10, 280), pady=(280, 10), sticky="nsew")
+        isofit_area.grid(row=1, column=0, columnspan=2, padx=(10, 280), pady=(310, 10), sticky="nsew")
         
         info_area = ttk.Labelframe(peak_visualizer, text="Peak Information", style="chromatogram.TLabelframe")
-        info_area.grid(row=1, column=0, columnspan=2, padx=(430, 10), pady=(280, 40), sticky="nsew")
+        info_area.grid(row=1, column=0, columnspan=2, padx=(430, 10), pady=(310, 40), sticky="nsew")
         info_area.propagate(0)
         
         close_peak_visualizer_button = ttk.Button(peak_visualizer, text="Close", style="small_button_sfw_style1.TButton", command=close_peak_visualizer)
@@ -3232,6 +3246,7 @@ def run_main_window():
                      ("Signal-to-Noise ratio:", s_to_n_score),
                      ("Average PPM error:", ppm_score),
                      ("Area Under Curve (AUC):", auc_for_label),
+                     ("MS2 TIC explained:", f"No MS2 Data"),
                      ("Ambiguities:", ambiguities)]
         
         if 'ms2' in glycans_per_sample[selected_item][grand_parent_text][parent_text.split(" ")[0]]:
@@ -3291,7 +3306,6 @@ def run_main_window():
         
         if region == "cell" and column == "#1" and item and len(samples_list) > 0 and selected_item in processed_data:
             values = chromatograms_list.item(item, "values")
-            # Change the cursor only if the cell value is "Value 5"
             if "MS2" in values:
                 handle_treeview_select(event)
                 parent_item = chromatograms_list.parent(selected_item_chromatograms)
@@ -3448,6 +3462,7 @@ def run_main_window():
             panning_enabled = False
             
         ms2_visualizer = tk.Toplevel()
+        ms2_visualizer.attributes("-topmost", True)
         ms2_visualizer.iconbitmap(current_dir+"/Assets/gg_icon.ico")
         ms2_visualizer.withdraw()
         ms2_visualizer.minsize(500, 400)
@@ -3871,6 +3886,7 @@ def run_main_window():
         
         global aligning_samples
         aligning_samples = tk.Toplevel()
+        aligning_samples.attributes("-topmost", True)
         aligning_samples.withdraw()
         aligning_samples.title("Aligning Samples")
         aligning_samples.iconbitmap(current_dir+"/Assets/gg_icon.ico")
@@ -4085,6 +4101,7 @@ def run_main_window():
             grand_parent_text = chromatograms_list.item(grand_parent_item, "text")
     
         compare_samples = tk.Toplevel()
+        compare_samples.attributes("-topmost", True)
         compare_samples.iconbitmap(current_dir+"/Assets/gg_icon.ico")
         compare_samples.withdraw()
         compare_samples.minsize(720, 480)
@@ -4478,7 +4495,9 @@ def run_main_window():
     # Create the main window
     global main_window
     main_window = tk.Tk()
+    main_window.attributes("-topmost", True)
     main_window.withdraw()
+    main_window.grab_set()
 
     # Configure window properties
     main_window.title("GlycoGenius")
@@ -4630,8 +4649,8 @@ def run_main_window():
     chromatograms_list.column("#0", width=215)
     chromatograms_list.column("#1", width=35) #this column is for showing ambiguities
     chromatograms_list_scrollbar.config(command=chromatograms_list.yview, width=10)
-    chromatograms_list.grid(row=1, rowspan=2, column=0, padx=(10,10), pady=(43, 260), sticky="nsew")
-    chromatograms_list_scrollbar.grid(row=1, rowspan=2, column=0, pady=(43, 260), sticky="nse")
+    chromatograms_list.grid(row=1, rowspan=2, column=0, padx=(10,10), pady=(43, 275), sticky="nsew")
+    chromatograms_list_scrollbar.grid(row=1, rowspan=2, column=0, pady=(43, 275), sticky="nse")
     chromatograms_list.bind("<KeyRelease-Up>", handle_treeview_select)
     chromatograms_list.bind("<KeyRelease-Down>", handle_treeview_select)
     chromatograms_list.bind("<ButtonRelease-1>", click_treeview)
@@ -4640,12 +4659,12 @@ def run_main_window():
     
     global compare_samples_button
     compare_samples_button = ttk.Button(main_window, text="Compare samples", style="small_button_style1.TButton", command=aligning_samples_window, state=tk.DISABLED)
-    compare_samples_button.grid(row=1, rowspan=2, column=0, padx=10, pady=(10, 220), sticky="sew")
+    compare_samples_button.grid(row=1, rowspan=2, column=0, padx=10, pady=(10, 235), sticky="sew")
     ToolTip(compare_samples_button, "Opens a window for comparing the chromatograms for the selected compound on different samples. It features an option for alignment of the chromatograms and, due to that, and depending on the number of samples you have, this may take a while to load the first time with a given set of QC parameters.")
     
     global s_n_entry, curve_fit_entry, ppm_error_min_entry, ppm_error_max_entry, iso_fit_entry
     qcp_frame = ttk.Labelframe(main_window, text="Quality Control Parameters:", style="qcp_frame.TLabelframe")
-    qcp_frame.grid(row=1, rowspan=2, column=0, padx=10, pady=(10, 40), sticky="sew")
+    qcp_frame.grid(row=1, rowspan=2, column=0, padx=10, pady=(10, 55), sticky="sew")
     
     global check_qc_dist_button
     check_qc_dist_button = ttk.Button(qcp_frame, text="Check QC Distribution", style="small_button_style1.TButton", command=check_qc_dist, state=tk.DISABLED)
@@ -4698,7 +4717,7 @@ def run_main_window():
     ppm_error_max_entry.bind("<Return>", qcp_enter)
     
     global chromatograms_qc_numbers
-    chromatograms_qc_numbers = ttk.Label(main_window, text=f"Compositions Quality Control:\n        Good: {0}    Average: {0}    Bad: {0}", font=("Segoe UI", list_font_size_smaller))
+    chromatograms_qc_numbers = ttk.Label(main_window, text=f"Compositions Quality Control:\n        Good: {0}    Average: {0}    Bad: {0}\n        Ambiguities: {0}", font=("Segoe UI", list_font_size_smaller))
     chromatograms_qc_numbers.grid(row=1, rowspan=2, column=0, padx=10, pady=10, sticky="sew")
     ToolTip(chromatograms_qc_numbers, "Good compositions have at least one peak that matches all quality criteria set above; Average have at least one peak that fails only one criteria; Bad have all peaks failing at least two criterias.")
 
@@ -4742,7 +4761,7 @@ def run_main_window():
     canvas_spec.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_spec, canvas_spec) if event.button == 3 else None)
     
     main_window.deiconify()
-    main_window.grab_set()
+    main_window.attributes("-topmost", False)
     
     # Start the event loop
     main_window.mainloop()
@@ -4756,6 +4775,7 @@ def run_select_files_window(samples_dropdown):
         
     def open_file_dialog_sfw():
         file_dialog = tk.Toplevel()
+        file_dialog.attributes("-topmost", True)
         file_dialog.withdraw()
         file_dialog.grab_set()
         
@@ -4774,6 +4794,7 @@ def run_select_files_window(samples_dropdown):
             
     def open_file_dialog_sfw_reanalysis():
         file_dialog = tk.Toplevel()
+        file_dialog.attributes("-topmost", True)
         file_dialog.withdraw()
         file_dialog.grab_set()
         
@@ -4984,6 +5005,7 @@ def run_select_files_window(samples_dropdown):
         
         global loading_files
         loading_files = tk.Toplevel()
+        loading_files.attributes("-topmost", True)
         loading_files.withdraw()
         loading_files.title("Loading Files")
         loading_files.iconbitmap(current_dir+"/Assets/gg_icon.ico")
@@ -5083,6 +5105,7 @@ def run_select_files_window(samples_dropdown):
             return
         
         analysis_info_window = tk.Toplevel()
+        analysis_info_window.attributes("-topmost", True)
         analysis_info_window.withdraw()
         analysis_info_window.title("Analysis Information")
         analysis_info_window.iconbitmap(current_dir+"/Assets/gg_icon.ico")
@@ -5151,6 +5174,7 @@ def run_select_files_window(samples_dropdown):
         
     # Create a new top-level window
     select_files_window = tk.Toplevel()
+    #select_files_window.attributes("-topmost", True)
     select_files_window.withdraw()
     select_files_window.title("Select Files")
     select_files_window.iconbitmap(current_dir+"/Assets/gg_icon.ico")
@@ -5243,6 +5267,7 @@ def run_set_parameters_window():
         
     def select_working_dir_button():
         file_dialog = tk.Toplevel()
+        file_dialog.attributes("-topmost", True)
         file_dialog.withdraw()
         file_dialog.grab_set()
         
@@ -5563,6 +5588,7 @@ def run_set_parameters_window():
     def save_param_to_file():
         global s_n_entry, curve_fit_entry, ppm_error_min_entry, ppm_error_max_entry, iso_fit_entry
         file_dialog = tk.Toplevel()
+        file_dialog.attributes("-topmost", True)
         file_dialog.withdraw()
         file_dialog.grab_set()
         
@@ -5691,6 +5717,7 @@ def run_set_parameters_window():
         
     def load_param_from_file():
         file_dialog = tk.Toplevel()
+        file_dialog.attributes("-topmost", True)
         file_dialog.withdraw()
         file_dialog.grab_set()
         
@@ -5920,6 +5947,7 @@ def run_set_parameters_window():
     def open_file_dialog_spw_custom_glycan():
         global custom_glycans_text, custom_glycans_window
         file_dialog = tk.Toplevel()
+        file_dialog.attributes("-topmost", True)
         file_dialog.withdraw()
         file_dialog.grab_set()
         
@@ -5962,13 +5990,21 @@ def run_set_parameters_window():
             if len(ocgw_custom_glycans) == 1:
                 ocgw_custom_glycans = ocgw_custom_glycans[0].split("\n")
             to_remove = []
-            if len(ocgw_custom_glycans) > 1:
+            to_add = []
+            if len(ocgw_custom_glycans) >= 1:
                 for i_i, i in enumerate(ocgw_custom_glycans):
                     ocgw_custom_glycans[i_i] = i.strip()
-                    if len(i) == 0:
+                    if len(ocgw_custom_glycans[i_i]) == 0:
                         to_remove.append(i_i)
+                        continue
+                    if len(ocgw_custom_glycans[i_i].split("/")) > 1:
+                        splitted_glycan = ocgw_custom_glycans[i_i].split("/")
+                        ocgw_custom_glycans[i_i] = splitted_glycan[0]
+                        to_add.append(splitted_glycan[1])
             for i in sorted(to_remove, reverse = True):
                 del ocgw_custom_glycans[i]
+            for i in to_add:
+                ocgw_custom_glycans.append(i)
             for i in ocgw_custom_glycans:
                 glycan_comp = General_Functions.form_to_comp(i)
                 for i in glycan_comp:
@@ -5979,8 +6015,10 @@ def run_set_parameters_window():
                         return
             local_custom_glycans_list[1] = ocgw_custom_glycans
             custom_glycans_window.destroy()
+            set_parameters_window.grab_set()
         
         custom_glycans_window = tk.Toplevel()
+        #custom_glycans_window.attributes("-topmost", True)
         custom_glycans_window.withdraw()
         custom_glycans_window.title("Custom Glycans List")
         custom_glycans_window.iconbitmap(current_dir+"/Assets/gg_icon.ico")
@@ -6018,6 +6056,7 @@ def run_set_parameters_window():
         
     # Create a new top-level window
     set_parameters_window = tk.Toplevel()
+    #set_parameters_window.attributes("-topmost", True)
     set_parameters_window.withdraw()
     set_parameters_window.title("Set Parameters")
     set_parameters_window.iconbitmap(current_dir+"/Assets/gg_icon.ico")
@@ -6611,6 +6650,7 @@ def save_results_window():
             error_window("You must set the groups to output a Metaboanalyst compatible file.")
         else:
             progress_save_result = tk.Toplevel()
+            progress_save_result.attributes("-topmost", True)
             progress_save_result.withdraw()
             progress_save_result.title("Saving Results")
             progress_save_result.iconbitmap(current_dir+"/Assets/gg_icon.ico")
@@ -6682,8 +6722,10 @@ def save_results_window():
             metab_groups = dict(zip(labels, entries))
             select_groups_button_frame.config(bg='lightgreen')
             groups_window.destroy()
+            sr_window.grab_set()
             
         groups_window = tk.Toplevel()
+        groups_window.attributes("-topmost", True)
         groups_window.withdraw()
         groups_window.title("Sample Groups")
         groups_window.iconbitmap(current_dir+"/Assets/gg_icon.ico")
@@ -6749,6 +6791,7 @@ def save_results_window():
         groups_window.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")        
         
     sr_window = tk.Toplevel()
+    #sr_window.attributes("-topmost", True)
     sr_window.withdraw()
     sr_window.title("Save Results")
     sr_window.iconbitmap(current_dir+"/Assets/gg_icon.ico")
