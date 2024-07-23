@@ -17,8 +17,8 @@
 # by typing 'glycogenius'. If not, see <https://www.gnu.org/licenses/>.
 
 global gg_version, GUI_version
-gg_version = '1.1.23'
-GUI_version = '0.0.16'
+gg_version = '1.1.24'
+GUI_version = '0.0.17'
 
 from PIL import Image, ImageTk
 import threading
@@ -962,6 +962,10 @@ def handle_selection(event):
     two_d.config(state=tk.DISABLED)
     compare_samples_button.config(state=tk.DISABLED)
     selected_item = samples_dropdown.get()
+    if len(reanalysis_path) > 0 and len(glycans_per_sample[selected_item]) > 0:
+        check_qc_dist_button.config(state=tk.NORMAL)
+    else:
+        check_qc_dist_button.config(state=tk.DISABLED)
     if len(samples_list) > 0:
         if processed_data == 'bad':
             loading_files.destroy()
@@ -990,28 +994,48 @@ def add_bpc_treeview():
     
 def populate_treeview():
     global selected_item, chromatograms_list, filter_list
+    
+    def get_treeview_list(tree, parent=""):
+        all_items = []
+        children = tree.get_children(parent)
+        for child in children:
+            item_info = tree.item(child)
+            all_items.append(item_info.get('text'))
+        return all_items
+                
     chromatograms_list.delete(*chromatograms_list.get_children())
     add_bpc_treeview()
     if len(reanalysis_path) > 0: #populate treeview with glycans
-        search_input = filter_list.get()
+        search_input = []
+        has_glycan = False
+        for i in filter_list.get().split("+"):
+            if i.lower() != "":
+                search_input.append(i.lower())
+                if i.lower() != "good" and i.lower() != "bad" and i.lower() != "average":
+                    has_glycan = True
+        if len(search_input) == 0 or (("good" in search_input or "average" in search_input or "bad" in search_input) and not has_glycan):
+            search_input.append("all")
         for i in glycans_per_sample[selected_item]:
             if len(glycans_per_sample[selected_item][i]) > 0:
-                if search_input.lower() in i.lower():
-                    parent_item = chromatograms_list.insert("", "end", text=i, value=("   ♦") if glycans_per_sample[selected_item][i][list(glycans_per_sample[selected_item][i].keys())[0]]['ambiguity'] != "No" else "") #value is the symbol for the ambiguity
-                    for k in glycans_per_sample[selected_item][i]:
-                        first_child = chromatograms_list.insert(parent_item, "end", text=f"{str(k)} - {str(glycans_per_sample[selected_item][i][k]['mz'])}")
-                        for l in glycans_per_sample[selected_item][i][k]['peaks']:
-                            found = False
-                            if 'ms2' in glycans_per_sample[selected_item][i][k]:
-                                for m in list(glycans_per_sample[selected_item][i][k]['ms2'].keys()):
-                                    if abs(float(m)-float(l)) < 1:
-                                        chromatograms_list.insert(first_child, "end", text=l, value=("MS2"))
-                                        found = True
-                                        break
-                            if not found:
-                                chromatograms_list.insert(first_child, "end", text=l, value=(""))
+                for j in search_input:
+                    if ((j in i.lower() and has_glycan) or "all" in search_input) and i not in get_treeview_list(chromatograms_list):
+                        parent_item = chromatograms_list.insert("", "end", text=i, value=("   ♦") if glycans_per_sample[selected_item][i][list(glycans_per_sample[selected_item][i].keys())[0]]['ambiguity'] != "No" else "") #value is the symbol for the ambiguity
+                        for k in glycans_per_sample[selected_item][i]:
+                            first_child = chromatograms_list.insert(parent_item, "end", text=f"{str(k)} - {str(glycans_per_sample[selected_item][i][k]['mz'])}")
+                            for l in glycans_per_sample[selected_item][i][k]['peaks']:
+                                found = False
+                                if 'ms2' in glycans_per_sample[selected_item][i][k]:
+                                    for m in list(glycans_per_sample[selected_item][i][k]['ms2'].keys()):
+                                        if abs(float(m)-float(l)) < 1:
+                                            chromatograms_list.insert(first_child, "end", text=l, value=("MS2"))
+                                            found = True
+                                            break
+                                if not found:
+                                    chromatograms_list.insert(first_child, "end", text=l, value=(""))
     
 def color_treeview():
+    global filter_list
+    
     def get_all_items(tree, parent=""):
         all_items = []
         children = tree.get_children(parent)
@@ -1020,7 +1044,18 @@ def color_treeview():
             all_items.extend(get_all_items(tree, child))
         return all_items
     
+    def remove_item_with_children(tree, item):
+        def _remove_children(item_id):
+            children = tree.get_children(item_id)
+            for child in children:
+                _remove_children(child)
+                tree.delete(child)
+        _remove_children(item)  # Remove all children recursively
+        tree.delete(item)  # Remove the item itself
+    
     all_items = get_all_items(chromatograms_list)
+    
+    search_input = filter_list.get().lower()
     
     for i in all_items:
         level = 0
@@ -1113,12 +1148,58 @@ def color_treeview():
             else:
                 chromatograms_list.item(i, tags=('warning', ))
                 final_warning+=1
-                
-    chromatograms_qc_numbers.config(text=f"Compositions Quality Control:\n        Good: {final_good}    Average: {final_warning}    Bad: {final_bad}\n        Ambiguities: {ambiguity_count[list(glycans_per_sample.keys()).index(selected_item)]}")
+    
+    if len(all_items) > 1:
+        chromatograms_qc_numbers.config(text=f"Compositions Quality Control:\n        Good: {final_good}    Average: {final_warning}    Bad: {final_bad}\n        Ambiguities: {ambiguity_count[list(glycans_per_sample.keys()).index(selected_item)]}")
+    else:
+        chromatograms_qc_numbers.config(text=f"Compositions Quality Control:\n        Good: {0}    Average: {0}    Bad: {0}\n        Ambiguities: {0}")
         
     chromatograms_list.tag_configure('bad', background='#FED5CD')
     chromatograms_list.tag_configure('warning', background='#FEFACD')
     chromatograms_list.tag_configure('good', background='#E3FECD')
+    
+    #combinations of quality to filter list
+    if "good" in search_input and "average" in search_input:
+        for i in chromatograms_list.get_children():
+            item_info = chromatograms_list.item(i)
+            tag = item_info.get('tags', ())
+            if tag[0] != 'good' and tag[0] != 'warning':
+                remove_item_with_children(chromatograms_list, i)
+                
+    elif "average" in search_input and "bad" in search_input:
+        for i in chromatograms_list.get_children():
+            item_info = chromatograms_list.item(i)
+            tag = item_info.get('tags', ())
+            if tag[0] != 'warning' and tag[0] != 'bad':
+                remove_item_with_children(chromatograms_list, i)
+                
+    elif "good" in search_input and "bad" in search_input:
+        for i in chromatograms_list.get_children():
+            item_info = chromatograms_list.item(i)
+            tag = item_info.get('tags', ())
+            if tag[0] != 'good' and tag[0] != 'bad':
+                remove_item_with_children(chromatograms_list, i)
+                
+    elif "good" in search_input:
+        for i in chromatograms_list.get_children():
+            item_info = chromatograms_list.item(i)
+            tag = item_info.get('tags', ())
+            if tag[0] != 'good':
+                remove_item_with_children(chromatograms_list, i)
+                
+    elif "average" in search_input:
+        for i in chromatograms_list.get_children():
+            item_info = chromatograms_list.item(i)
+            tag = item_info.get('tags', ())
+            if tag[0] != 'warning':
+                remove_item_with_children(chromatograms_list, i)
+                
+    elif "bad" in search_input:
+        for i in chromatograms_list.get_children():
+            item_info = chromatograms_list.item(i)
+            tag = item_info.get('tags', ())
+            if tag[0] != 'bad':
+                remove_item_with_children(chromatograms_list, i)
     
 def clear_plot(ax_here, canvas_here):
     ax_here.clear()
@@ -3535,7 +3616,7 @@ def run_main_window():
             
         custom_font_annotation = {'family': 'sans-serif', 'color': 'black', 'size': 9}
         
-        if len(reanalysis_path) > 0:
+        if len(reanalysis_path) > 0 and chromatograms_list.item(selected_item_chromatograms, "text") != 'Base Peak Chromatogram':
             if level == 2:
                 parent_text = chromatograms_list.item(selected_item_chromatograms, "text").split(" ") #adduct
                 grand_parent_item = chromatograms_list.parent(selected_item_chromatograms)
@@ -4328,6 +4409,7 @@ def run_main_window():
         tooltip_ppmplot = ax_ppmplot.annotate('', xy=(0, 0), xytext=(10, -20), textcoords='offset points', bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.9), arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'))
         
         canvas_ppmplot.mpl_connect('motion_notify_event', lambda event: on_hover_qc_plot(event, canvas_ppmplot, ax_ppmplot, ppm_scatter, range(len(ppm_list)), ppm_list, tooltip_ppmplot))
+        canvas_ppmplot.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_ppmplot, canvas_ppmplot) if event.button == 3 else None)
         
         
         # Isotopic Fittings plot
@@ -4360,6 +4442,7 @@ def run_main_window():
         tooltip_isofitplot = ax_isofitplot.annotate('', xy=(0, 0), xytext=(10, -20), textcoords='offset points', bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.9), arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'))
         
         canvas_isofitplot.mpl_connect('motion_notify_event', lambda event: on_hover_qc_plot(event, canvas_isofitplot, ax_isofitplot, isofitplot_scatter, range(len(iso_fit_list)), iso_fit_list, tooltip_isofitplot))
+        canvas_isofitplot.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_isofitplot, canvas_isofitplot) if event.button == 3 else None)
         
         
         #Signal-to-Noise ratio plot
@@ -4396,6 +4479,7 @@ def run_main_window():
         tooltip_snplot = ax_snplot.annotate('', xy=(0, 0), xytext=(10, -20), textcoords='offset points', bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.9), arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'))
         
         canvas_snplot.mpl_connect('motion_notify_event', lambda event: on_hover_qc_plot(event, canvas_snplot, ax_snplot, snplot_scatter, range(len(sn_list)), sn_list, tooltip_snplot))
+        canvas_snplot.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_snplot, canvas_snplot) if event.button == 3 else None)
         
         #Curve Fittings plot
         curvefit_plot_frame = ttk.Labelframe(qc_dist, text="Curve Fittings:", style="qcp_frame.TLabelframe")
@@ -4427,6 +4511,7 @@ def run_main_window():
         tooltip_curvefitplot = ax_curvefitplot.annotate('', xy=(0, 0), xytext=(10, -20), textcoords='offset points', bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.9), arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'))
         
         canvas_curvefitplot.mpl_connect('motion_notify_event', lambda event: on_hover_qc_plot(event, canvas_curvefitplot, ax_curvefitplot, curvefitplot_scatter, range(len(curve_fit_list)), curve_fit_list, tooltip_curvefitplot))
+        canvas_curvefitplot.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_curvefitplot, canvas_curvefitplot) if event.button == 3 else None)
         
         qc_dist.update_idletasks()
         qc_dist.deiconify()
@@ -4659,8 +4744,13 @@ def run_main_window():
     
     global compare_samples_button
     compare_samples_button = ttk.Button(main_window, text="Compare samples", style="small_button_style1.TButton", command=aligning_samples_window, state=tk.DISABLED)
-    compare_samples_button.grid(row=1, rowspan=2, column=0, padx=10, pady=(10, 235), sticky="sew")
+    compare_samples_button.grid(row=1, rowspan=2, column=0, padx=(10, 115), pady=(10, 235), sticky="sew")
     ToolTip(compare_samples_button, "Opens a window for comparing the chromatograms for the selected compound on different samples. It features an option for alignment of the chromatograms and, due to that, and depending on the number of samples you have, this may take a while to load the first time with a given set of QC parameters.")
+    
+    global plot_graph_button
+    plot_graph_button = ttk.Button(main_window, text="Plot Graph", style="small_button_style1.TButton", command=aligning_samples_window, state=tk.DISABLED)
+    plot_graph_button.grid(row=1, rowspan=2, column=0, padx=(160, 10), pady=(10, 235), sticky="sew")
+    ToolTip(plot_graph_button, "Plots graphs of the selected glycans' abundance. If one glycan is selected and more than one sample is loaded, plots comparison between samples. If more than one glycan is selected, plots comparison between selected glycans within the same sample.")
     
     global s_n_entry, curve_fit_entry, ppm_error_min_entry, ppm_error_max_entry, iso_fit_entry
     qcp_frame = ttk.Labelframe(main_window, text="Quality Control Parameters:", style="qcp_frame.TLabelframe")
