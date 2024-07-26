@@ -17,8 +17,8 @@
 # by typing 'glycogenius'. If not, see <https://www.gnu.org/licenses/>.
 
 global gg_version, GUI_version
-gg_version = '1.1.24'
-GUI_version = '0.0.17'
+gg_version = '1.1.25'
+GUI_version = '0.0.18'
 
 from PIL import Image, ImageTk
 import threading
@@ -1847,6 +1847,7 @@ def run_main_window():
             reanalysis_file.start()
             loading_files_after_analysis()
             check_qc_dist_button.config(state=tk.NORMAL)
+            plot_graph_button.config(state=tk.NORMAL)
                     
         if len(samples_list) == 0:
             error_window("You must select files for analysis on 'Select Files' menu!")
@@ -1993,13 +1994,15 @@ def run_main_window():
         new_height = event.height
         
     def handle_treeview_select(event, clear = True):
-        global ax, canvas, ax_spec, canvas_spec, selected_item_chromatograms, colors, color_number, level, two_d, compare_samples_button, samples_dropdown_options, last_xlims_chrom, last_ylims_chrom
+        global ax, canvas, ax_spec, canvas_spec, selected_item_chromatograms, colors, color_number, level, two_d, compare_samples_button, samples_dropdown_options, last_xlims_chrom, last_ylims_chrom, plot_graph_button
         two_d.config(state=tk.DISABLED)
         compare_samples_button.config(state=tk.DISABLED)
+        plot_graph_button.config(state=tk.DISABLED)
         if len(chromatograms_list.get_children()) == 0:
             return
         selected_item_chromatograms = chromatograms_list.focus() # Get the ID of the selected item
         if len(chromatograms_list.selection()) > 1:
+            plot_graph_button.config(state=tk.NORMAL)
             if ax.get_xlim()[0] != 0 and ax.get_xlim()[1] != 1:
                 last_xlims_chrom = ax.get_xlim()
                 last_ylims_chrom = ax.get_ylim()
@@ -2045,11 +2048,13 @@ def run_main_window():
             if level == 1:
                 if len(samples_dropdown_options) > 1:
                     compare_samples_button.config(state=tk.NORMAL)
+                    plot_graph_button.config(state=tk.NORMAL)
                 # clear_plot(ax_spec, canvas_spec)
                 show_graph(f"{item_text}", clear, 1)
             if level == 2:
                 if len(samples_dropdown_options) > 1:
                     compare_samples_button.config(state=tk.NORMAL)
+                    plot_graph_button.config(state=tk.NORMAL)
                 parent_item = chromatograms_list.parent(selected_item_chromatograms)
                 parent_text = chromatograms_list.item(parent_item, "text")
                 # clear_plot(ax_spec, canvas_spec)
@@ -3366,21 +3371,32 @@ def run_main_window():
         y_position = (screen_height - window_height) // 2
         peak_visualizer.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
     
-    global ctrl_pressed
+    global ctrl_pressed, shift_pressed
     ctrl_pressed = False
+    shift_pressed = False
 
     def on_ctrl_key_press(event):
         global ctrl_pressed
-        if event.keysym == 'Control_L':
+        if event.keysym == 'Control_L' or event.keysym == 'Control_R':
             ctrl_pressed = True
 
     def on_ctrl_key_release(event):
         global ctrl_pressed
-        if event.keysym == 'Control_L':
+        if event.keysym == 'Control_L' or event.keysym == 'Control_R':
             ctrl_pressed = False
 
+    def on_shift_key_press(event):
+        global shift_pressed
+        if event.keysym == 'Shift_L' or event.keysym == 'Shift_R':
+            shift_pressed = True
+
+    def on_shift_key_release(event):
+        global shift_pressed
+        if event.keysym == 'Shift_L' or event.keysym == 'Shift_R':
+            shift_pressed = False
+
     def click_treeview(event):
-        global ctrl_pressed, chromatograms_list, selected_item, selected_item_chromatograms, samples_list
+        global ctrl_pressed, shift_pressed, chromatograms_list, selected_item, selected_item_chromatograms, samples_list
         region = chromatograms_list.identify_region(event.x, event.y)
         column = chromatograms_list.identify_column(event.x)
         item = chromatograms_list.identify_row(event.y)
@@ -3408,13 +3424,13 @@ def run_main_window():
                     spectra_info = (float(parent_text[-1]), rt_seconds)
                     run_ms2_window(spectra_info)
             else:
-                if ctrl_pressed:
+                if ctrl_pressed or shift_pressed:
                     handle_treeview_select(event, False)
                     canvas.draw()
                 else:
                     handle_treeview_select(event)
         else:
-            if ctrl_pressed:
+            if ctrl_pressed or shift_pressed:
                 handle_treeview_select(event, False)
                 canvas.draw()
             else:
@@ -4576,6 +4592,279 @@ def run_main_window():
         # Get the current content of the entry widget
         populate_treeview()
         color_treeview()
+            
+    def clear_treeview_selection(event):
+        global plot_graph_button
+        plot_graph_button.config(state=tk.NORMAL)
+        selected_items = chromatograms_list.selection()
+        chromatograms_list.selection_remove(selected_items)
+        
+    def plot_graph_window():
+        global selected_item_chromatograms
+        
+        def exit_plot_window():
+            plot_window.destroy()
+            
+        def copy_graph_data_clipboard():
+            glycans_list = []
+            abundance_list = []
+            sn_list = []
+            for i in glycans:
+                glycans_list.append(i)
+                abundance_list.append(str(glycans[i]['abundance']))
+                sn_list.append(str(glycans[i]['sn']))
+            plot_window.clipboard_clear()
+            if mode == 'compare_samples':
+                plot_window.clipboard_append(f"Sample\tAbundance\tS/N\n")
+            else:
+                plot_window.clipboard_append(f"Glycan\tAbundance\tS/N\n")
+            for i_i, i in enumerate(glycans_list):
+                plot_window.clipboard_append(f"{i}\t{abundance_list[i_i]}\t{sn_list[i_i]}\n")
+            
+        def on_hover_column_graph(event, canvas, ax, bars, labels, tooltip):
+            if event.inaxes == ax:
+                for bar, label in zip(bars, labels):
+                    if bar.contains(event)[0]:
+                        y = bar.get_height()
+                        tooltip.set_text(f'{label}\n{y:.1e}')
+                        tooltip.xy = (event.xdata, event.ydata)
+                        tooltip.set_visible(True)
+                        canvas.draw_idle()
+                        break
+                else:
+                    tooltip.set_visible(False)
+                    canvas.draw_idle()
+        
+        def determine_treeview_level(treeview, selected_item):
+            level = 0
+            parent_item = selected_item
+            while parent_item:
+                level += 1
+                parent_item = treeview.parent(parent_item)
+            return level
+            
+        def adjust_subplot_size_plot_window(event, ax1, ax2):
+            # Get the current size of the graph frame
+            frame_width = event.width
+            if frame_width < 900:
+                return
+            
+            # Define margin sizes (in pixels)
+            left_margin = 85
+            right_margin = 10
+            
+            # Calculate the position of the subplot relative to the frame size
+            subplot_width = (frame_width - left_margin - right_margin) / frame_width
+            subplot_left = left_margin / frame_width
+            
+            # Set the position of the subplot
+            ax1.set_position([subplot_left, 0.1209, subplot_width, 0.8252])
+            ax2.set_position([subplot_left, 0.1209, subplot_width, 0.8252])
+                    
+        if len(chromatograms_list.selection()) == 0:
+            mode = 'good'
+        elif len(chromatograms_list.selection()) == 1:
+            mode = 'compare_samples'
+        elif len(chromatograms_list.selection()) > 1:
+            mode = 'compare_glycans'
+        
+        if mode == 'good' or mode == 'compare_glycans':
+            glycans = {}
+            if mode == 'good':
+                chromatogram_children = chromatograms_list.get_children()
+                for i in chromatogram_children:
+                    if chromatograms_list.item(i).get('text', ()) != "Base Peak Chromatogram" and "good" in chromatograms_list.item(i).get('tags', ()):
+                        glycans[chromatograms_list.item(i).get('text', ())] = {'abundance': 0, 'sn': 0}
+            else:
+                selected_chromatograms_list = chromatograms_list.selection()
+                treeview_levels = []
+                for i in selected_chromatograms_list:
+                    treeview_levels.append(determine_treeview_level(chromatograms_list, i))
+                glycans = {}
+                for i_i, i in enumerate(selected_chromatograms_list):
+                    if treeview_levels[i_i] == 3:
+                        rt_text = chromatograms_list.item(i, "text")
+                        adduct = chromatograms_list.parent(i)
+                        adduct_text = chromatograms_list.item(adduct, "text")
+                        glycan = chromatograms_list.parent(adduct)
+                        glycan_text = chromatograms_list.item(glycan, "text")
+                        if min(treeview_levels) == 1:
+                            if glycan_text not in glycans.keys():
+                                glycans[glycan_text] = {'abundance': 0, 'sn': 0}
+                        elif min(treeview_levels) == 2:
+                            if glycan_text+'_'+adduct_text.split(' ')[0] not in glycans.keys():
+                                glycans[glycan_text+'_'+adduct_text.split(' ')[0]] = {'abundance': 0, 'sn': 0}
+                        else:
+                            glycans[glycan_text+'_'+adduct_text.split(' ')[0]+'_'+str(rt_text)] = {'abundance': 0, 'sn': 0}
+                        continue
+                    if treeview_levels[i_i] == 2:
+                        adduct_text = chromatograms_list.item(i, "text")
+                        glycan = chromatograms_list.parent(i)
+                        glycan_text = chromatograms_list.item(glycan, "text")
+                        if min(treeview_levels) == 1:
+                            if glycan_text not in glycans.keys():
+                                glycans[glycan_text] = {'abundance': 0, 'sn': 0}
+                        else:
+                            if glycan_text+'_'+adduct_text.split(' ')[0] not in glycans.keys():
+                                glycans[glycan_text+'_'+adduct_text.split(' ')[0]] = {'abundance': 0, 'sn': 0}
+                        continue
+                    if treeview_levels[i_i] == 1:
+                        glycan_text = chromatograms_list.item(i, "text")
+                        if glycan_text not in glycans.keys():
+                            glycans[glycan_text] = {'abundance': 0, 'sn': 0}
+                        continue
+            
+            for i in glycans:
+                if mode == 'good' or (mode == 'compare_glycans' and min(treeview_levels) == 1):
+                    temp_sn = []
+                    for j in glycans_per_sample[selected_item][i]:
+                        for k in glycans_per_sample[selected_item][i][j]:
+                            for l_l, l in enumerate(glycans_per_sample[selected_item][i][j]['auc']):
+                                glycans[i]['abundance'] += l
+                                temp_sn.append(glycans_per_sample[selected_item][i][j]['sn'][l_l])
+                        if len(temp_sn) != 0:
+                            glycans[i]['sn'] = max(temp_sn)
+                elif mode == 'compare_glycans' and min(treeview_levels) == 2:
+                    temp_sn = []
+                    for j_j, j in enumerate(glycans_per_sample[selected_item][i.split('_')[0]][i.split('_')[1]]['auc']):
+                        glycans[i]['abundance'] += j
+                        temp_sn.append(glycans_per_sample[selected_item][i.split('_')[0]][i.split('_')[1]]['sn'][j_j])
+                    if len(temp_sn) != 0:
+                        glycans[i]['sn'] = max(temp_sn)
+                else:
+                    for j_j, j in enumerate(glycans_per_sample[selected_item][i.split('_')[0]][i.split('_')[1]]['peaks']):
+                        if float(i.split('_')[2]) == j:
+                            glycans[i]['abundance'] = glycans_per_sample[selected_item][i.split('_')[0]][i.split('_')[1]]['auc'][j_j]
+                            glycans[i]['sn'] = glycans_per_sample[selected_item][i.split('_')[0]][i.split('_')[1]]['sn'][j_j]
+        
+        elif mode == 'compare_samples':
+            glycans = {}
+            glycan = ''
+            treeview_level = determine_treeview_level(chromatograms_list, selected_item_chromatograms)
+            if treeview_level == 3:
+                rt_text = chromatograms_list.item(selected_item_chromatograms, "text")
+                adduct = chromatograms_list.parent(selected_item_chromatograms)
+                adduct_text = chromatograms_list.item(adduct, "text")
+                glycan = chromatograms_list.parent(adduct)
+                glycan_text = chromatograms_list.item(glycan, "text")
+                glycan = glycan_text+'_'+adduct_text.split(' ')[0]+'_'+str(rt_text)
+            if treeview_level == 2:
+                adduct_text = chromatograms_list.item(selected_item_chromatograms, "text")
+                glycan = chromatograms_list.parent(selected_item_chromatograms)
+                glycan_text = chromatograms_list.item(glycan, "text")
+                glycan = glycan_text+'_'+adduct_text.split(' ')[0]
+            if treeview_level == 1:
+                glycan_text = chromatograms_list.item(selected_item_chromatograms, "text")
+                glycan = glycan_text
+            
+            for i in glycans_per_sample:
+                if treeview_level == 1:
+                    temp_abundance = 0
+                    temp_sn = []
+                    if glycan in glycans_per_sample[i].keys():
+                        for j in glycans_per_sample[i][glycan]:
+                            for k_k, k in enumerate(glycans_per_sample[i][glycan][j]['auc']):
+                                temp_abundance += k
+                                temp_sn.append(glycans_per_sample[i][glycan][j]['sn'][k_k])
+                    glycans[i] = {'abundance': temp_abundance, 'sn': max(temp_sn) if len(temp_sn) > 0 else 0}
+                if treeview_level == 2:
+                    temp_abundance = 0
+                    temp_sn = []
+                    if glycan.split('_')[0] in glycans_per_sample[i].keys():
+                        if glycan.split('_')[1] in glycans_per_sample[i][glycan.split('_')[0]].keys():
+                            for j_j, j in enumerate(glycans_per_sample[i][glycan.split('_')[0]][glycan.split('_')[1]]['auc']):
+                                temp_abundance += j
+                                temp_sn.append(glycans_per_sample[i][glycan.split('_')[0]][glycan.split('_')[1]]['sn'][j_j])
+                    glycans[i] = {'abundance': temp_abundance, 'sn': max(temp_sn) if len(temp_sn) > 0 else 0}
+                if treeview_level == 3:
+                    error_window('Select a glycan or adduct. Per peak comparison between samples graph plotting implementation is still work in progress.')
+                    return
+                    
+        plot_window = tk.Toplevel()
+        plot_window.iconbitmap(current_dir+"/Assets/gg_icon.ico")
+        plot_window.minsize(900, 900)
+        plot_window.withdraw()
+        plot_window.bind("<Configure>", on_resize)
+        plot_window.title(f"Plot Graph - {glycan if mode == "compare_samples" else selected_item}")
+        plot_window.resizable(True, True)
+        plot_window.protocol("WM_DELETE_WINDOW", exit_plot_window)
+        
+        #abundance plot
+        fig_plot_window = plt.figure(figsize=(0, 0))
+        ax_plot_window = fig_plot_window.add_subplot(111)
+        canvas_plot_window = FigureCanvasTkAgg(fig_plot_window, master=plot_window)
+        canvas_plot_window.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        
+        fontsize = 100/len(glycans) if len(glycans) > 10 else 10
+        
+        glycans_keys = list(glycans.keys())
+        for i_i, i in enumerate(glycans_keys):
+            if len(i) > 10:
+                glycans_keys[i_i] = i[:len(i)//2]+"\n"+i[len(i)//2:]
+        
+        diagonal = False
+        if fontsize < 5:
+            fontsize = 5
+            diagonal = True
+        
+        bar_graph = ax_plot_window.bar(glycans_keys, [glycans[i]['abundance'] for i in glycans], color = 'black')
+        ax_plot_window.set_xlabel(f"{"Samples" if mode == "compare_samples" else "Glycans"}")
+        ax_plot_window.set_ylabel('Abundance (AUC)')
+        ax_plot_window.set_yscale('log')
+        ax_plot_window.set_xticks(range(len(glycans)))
+        ax_plot_window.set_xticklabels(glycans_keys, fontdict={'fontsize': fontsize})
+        ax_plot_window.set_title(f"{glycan if mode == "compare_samples" else selected_item}")
+        
+        if diagonal:
+            plt.setp(ax_plot_window.get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor")
+        
+        tooltip_plot_window = ax_plot_window.annotate('', xy=(0, 0), xytext=(10, -20), textcoords='offset points', bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.9))
+        
+        canvas_plot_window.mpl_connect('motion_notify_event', lambda event: on_hover_column_graph(event, canvas_plot_window, ax_plot_window, bar_graph, glycans_keys, tooltip_plot_window))
+        canvas_plot_window.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_plot_window, canvas_plot_window) if event.button == 3 else None)
+        
+        #signal-to-noise plot
+        fig_plot_window1 = plt.figure(figsize=(0, 0))
+        ax_plot_window1 = fig_plot_window1.add_subplot(111)
+        canvas_plot_window1 = FigureCanvasTkAgg(fig_plot_window1, master=plot_window)
+        canvas_plot_window1.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        
+        bar_graph1 = ax_plot_window1.bar(glycans_keys, [glycans[i]['sn'] for i in glycans], color = 'blue')
+        ax_plot_window1.set_xlabel(f"{"Samples" if mode == "compare_samples" else "Glycans"}")
+        ax_plot_window1.set_ylabel('Signal-to-Noise Ratio')
+        ax_plot_window1.set_yscale('log')
+        ax_plot_window1.set_xticks(range(len(glycans)))
+        ax_plot_window1.set_xticklabels(glycans_keys, fontdict={'fontsize': fontsize})
+        
+        if diagonal:
+            plt.setp(ax_plot_window1.get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor")
+        
+        tooltip_plot_window1 = ax_plot_window1.annotate('', xy=(0, 0), xytext=(10, -20), textcoords='offset points', bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.9))
+        
+        ax_plot_window.set_position([0.0944, 0.1209, 0.8909, 0.8252])
+        ax_plot_window1.set_position([0.0944, 0.1209, 0.8909, 0.8252])
+        
+        canvas_plot_window1.mpl_connect('motion_notify_event', lambda event: on_hover_column_graph(event, canvas_plot_window1, ax_plot_window1, bar_graph1, glycans_keys, tooltip_plot_window1))
+        canvas_plot_window1.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_plot_window1, canvas_plot_window1) if event.button == 3 else None)
+        
+        plot_window.bind("<Configure>", lambda event: adjust_subplot_size_plot_window(event, ax_plot_window, ax_plot_window1))
+        
+        canvas_plot_window.draw()
+        canvas_plot_window1.draw()
+        
+        copy_data_to_clipboard = ttk.Button(plot_window, text="Copy Data to Clipboard", style="small_button_style1.TButton", command=copy_graph_data_clipboard, state=tk.NORMAL)
+        copy_data_to_clipboard.pack()
+        ToolTip(copy_data_to_clipboard, "Copies the values used in this graph to the clipboard. You can paste somewhere else (for example, on Excel) to use your data as you wish.")
+        
+        plot_window.update_idletasks()
+        plot_window.deiconify()
+        window_width = plot_window.winfo_width()
+        window_height = plot_window.winfo_height()
+        screen_width = plot_window.winfo_screenwidth()
+        screen_height = plot_window.winfo_screenheight()
+        x_position = (screen_width - window_width) // 2
+        y_position = (screen_height - window_height) // 2
+        plot_window.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
         
     # Create the main window
     global main_window
@@ -4591,6 +4880,13 @@ def run_main_window():
     main_window.bind("<Configure>", on_resize)
     main_window.bind("<Control_L>", on_ctrl_key_press)
     main_window.bind("<KeyRelease-Control_L>", on_ctrl_key_release)
+    main_window.bind("<Control_R>", on_ctrl_key_press)
+    main_window.bind("<KeyRelease-Control_R>", on_ctrl_key_release)
+    main_window.bind("<Shift_L>", on_shift_key_press)
+    main_window.bind("<KeyRelease-Shift_L>", on_shift_key_release)
+    main_window.bind("<Shift_R>", on_shift_key_press)
+    main_window.bind("<KeyRelease-Shift_R>", on_shift_key_release)
+    main_window.bind("<KeyRelease-Escape>", clear_treeview_selection)
     main_window.grid_columnconfigure(0, weight=0)
     main_window.grid_columnconfigure(10, weight=1)
     main_window.grid_rowconfigure(0, weight=0)
@@ -4748,9 +5044,9 @@ def run_main_window():
     ToolTip(compare_samples_button, "Opens a window for comparing the chromatograms for the selected compound on different samples. It features an option for alignment of the chromatograms and, due to that, and depending on the number of samples you have, this may take a while to load the first time with a given set of QC parameters.")
     
     global plot_graph_button
-    plot_graph_button = ttk.Button(main_window, text="Plot Graph", style="small_button_style1.TButton", command=aligning_samples_window, state=tk.DISABLED)
+    plot_graph_button = ttk.Button(main_window, text="Plot Graph", style="small_button_style1.TButton", command=plot_graph_window, state=tk.DISABLED)
     plot_graph_button.grid(row=1, rowspan=2, column=0, padx=(160, 10), pady=(10, 235), sticky="sew")
-    ToolTip(plot_graph_button, "Plots graphs of the selected glycans' abundance. If one glycan is selected and more than one sample is loaded, plots comparison between samples. If more than one glycan is selected, plots comparison between selected glycans within the same sample.")
+    ToolTip(plot_graph_button, "Plots graphs of the selected glycans' abundance. If one glycan is selected and more than one sample is loaded, plots comparison between samples. If more than one glycan is selected, plots comparison between selected glycans within the same sample. If no glycans are selected, plots all the 'good' glycans for the current sample.")
     
     global s_n_entry, curve_fit_entry, ppm_error_min_entry, ppm_error_max_entry, iso_fit_entry
     qcp_frame = ttk.Labelframe(main_window, text="Quality Control Parameters:", style="qcp_frame.TLabelframe")
@@ -5120,7 +5416,7 @@ def run_select_files_window(samples_dropdown):
         t.start()
             
     def ok_button_sfw():
-        global reanalysis_path, samples_list, samples_names, samples_dropdown_options, two_d, compare_samples_button, check_qc_dist_button, filter_list, former_alignments
+        global reanalysis_path, samples_list, samples_names, samples_dropdown_options, two_d, compare_samples_button, check_qc_dist_button, filter_list, former_alignments, plot_graph_button
         
         filter_list.delete(0, tk.END)
         two_d.config(state=tk.DISABLED)
@@ -5157,11 +5453,13 @@ def run_select_files_window(samples_dropdown):
             generate_library.config(state=tk.DISABLED)
             import_library.config(state=tk.DISABLED)
             check_qc_dist_button.config(state=tk.NORMAL)
+            plot_graph_button.config(state=tk.NORMAL)
         else:
             run_analysis_button.config(state=tk.NORMAL)
             generate_library.config(state=tk.NORMAL)
             import_library.config(state=tk.NORMAL)
             check_qc_dist_button.config(state=tk.DISABLED)
+            plot_graph_button.config(state=tk.DISABLED)
         # Access each item in the Treeview
         samples_list = []
         for item_id in item_ids:
