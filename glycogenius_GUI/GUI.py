@@ -17,8 +17,8 @@
 # by typing 'glycogenius'. If not, see <https://www.gnu.org/licenses/>.
 
 global gg_version, GUI_version
-gg_version = '1.1.25'
-GUI_version = '0.0.18'
+gg_version = '1.1.26'
+GUI_version = '0.0.19'
 
 from PIL import Image, ImageTk
 import threading
@@ -95,6 +95,7 @@ from scipy.stats import gaussian_kde
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.patches import Rectangle, Ellipse
 from matplotlib.colors import LogNorm, PowerNorm
+from matplotlib.ticker import ScalarFormatter
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
@@ -579,7 +580,7 @@ def pre_process(samples_list):
     
     results = []
     bad = False
-    with concurrent.futures.ProcessPoolExecutor(max_workers = (os.cpu_count())-2) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers = (os.cpu_count())-2 if os.cpu_count() < 60 else 60) as executor:
         for i_i, i in enumerate(samples_list):
             result = executor.submit(pre_process_one_sample, i, samples_names[i_i])
             results.append(result)
@@ -722,7 +723,7 @@ def load_reanalysis(reanalysis_path):
                 glycans_per_sample[samples_dropdown_options[i_i]][k][i['Adduct'][k_k]]['iso'] = i['Iso_Fitting_Score'][k_k]
                 glycans_per_sample[samples_dropdown_options[i_i]][k][i['Adduct'][k_k]]['curve'] = i['Curve_Fitting_Score'][k_k]
                 glycans_per_sample[samples_dropdown_options[i_i]][k][i['Adduct'][k_k]]['sn'] = i["S/N"][k_k]
-                glycans_per_sample[samples_dropdown_options[i_i]][k][i['Adduct'][k_k]]['ambiguity'] = i["Ambiguity"][k_k]
+                glycans_per_sample[samples_dropdown_options[i_i]][k][i['Adduct'][k_k]]['ambiguity'] = i["Ambiguity"][k_k]                
                 if len(file) == 4:
                     glycans_per_sample[samples_dropdown_options[i_i]][k][i['Adduct'][k_k]]['ms2'] = {}
                     last_rt = ''
@@ -971,6 +972,7 @@ def handle_selection(event):
             loading_files.destroy()
             samples_dropdown['values'] = []
             samples_dropdown.set('')
+            chromatograms_list.delete(*chromatograms_list.get_children())
             return
         else:
             if selected_item in processed_data:
@@ -1205,7 +1207,7 @@ def clear_plot(ax_here, canvas_here):
     ax_here.clear()
     canvas_here.draw()
     
-def on_right_click_plot(event, ax_here, canvas_here):
+def on_right_click_plot(event, ax_here, canvas_here, clean_plot):
     over_x = event.y > ax_here.bbox.y1 or event.y < ax_here.bbox.y0
     over_y = event.x > ax_here.bbox.x1 or event.x < ax_here.bbox.x0
     
@@ -1219,8 +1221,10 @@ def on_right_click_plot(event, ax_here, canvas_here):
         artists = ax_here.get_children()
         for artist in artists:
             if isinstance(artist, matplotlib.lines.Line2D) and (artist.get_markersize() == 4 or artist.get_linestyle() == '--'):
-                artist.remove()
-    remove_marker()
+                artist.remove() #evaluate less destructive alternatives to this command
+                
+    if clean_plot:
+        remove_marker()
     canvas_here.draw()
     if not over_x and not over_y:  # Right mouse button
         # Open a context menu
@@ -1238,9 +1242,9 @@ def save_image(event, canvas_here):
     file_path = filedialog.asksaveasfilename(defaultextension=".svg", filetypes=[("SVG files", "*.svg"), ("PNG files", "*.png"), ("JPEG files", "*.jpg"), ("All files", "*.*")])
     if file_path:
         if file_path.lower().endswith('.svg'):
-            canvas_here.figure.savefig(file_path, format='svg', dpi=300)
+            canvas_here.figure.savefig(file_path, format='svg', dpi=600)
         else:
-            canvas_here.figure.savefig(file_path, dpi=300)
+            canvas_here.figure.savefig(file_path, dpi=600)
         
     file_dialog.destroy()
         
@@ -1803,7 +1807,7 @@ def run_main_window():
                 close_lf()
                 
             loading_files = tk.Toplevel()
-            loading_files.attributes("-topmost", True)
+            # loading_files.attributes("-topmost", True)
             loading_files.withdraw()
             loading_files.title("Loading Files")
             loading_files.iconbitmap(current_dir+"/Assets/gg_icon.ico")
@@ -3295,7 +3299,7 @@ def run_main_window():
         
         canvas_pv.mpl_connect('pick_event', on_pick_pv)
         canvas_pv.mpl_connect('motion_notify_event', on_hover_pv)
-        canvas_pv.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_pv, canvas_pv) if event.button == 3 else None)
+        canvas_pv.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_pv, canvas_pv, False) if event.button == 3 else None)
         
         canvas_pv.draw()
             
@@ -3311,7 +3315,7 @@ def run_main_window():
         info_label.place(relx=1.0, rely=0, anchor='ne')
         info_label.lift()
         
-        canvas_if.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_if, canvas_if) if event.button == 3 else None)
+        canvas_if.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_if, canvas_if, False) if event.button == 3 else None)
         
         canvas_if.draw()
         
@@ -3665,7 +3669,7 @@ def run_main_window():
         canvas_ms2.draw()
         
         ms2_visualizer.bind("<Configure>", lambda event, ax_ms2=ax_ms2: adjust_subplot_size_ms2(event, ax_ms2, canvas_ms2))
-        canvas_ms2.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_ms2, canvas_ms2) if event.button == 3 else None)
+        canvas_ms2.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_ms2, canvas_ms2, True) if event.button == 3 else None)
         canvas_ms2.mpl_connect('key_press_event', lambda event: zoom_selection_ms2(event, ax_ms2, canvas_ms2, type_coordinate_spec))
         canvas_ms2.mpl_connect('key_release_event', lambda event: zoom_selection_ms2(event, ax_ms2, canvas_ms2, type_coordinate_spec))
         canvas_ms2.mpl_connect('motion_notify_event', lambda event: zoom_selection_ms2(event, ax_ms2, canvas_ms2, type_coordinate_spec))
@@ -3974,7 +3978,7 @@ def run_main_window():
         two_d_plot.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
         
         two_d_plot.bind("<Configure>", lambda event, ax_two_d=ax_two_d: adjust_subplot_size_two_d(event, ax_two_d, canvas_two_d, scatter_collection, circle_collection, lines_collection))
-        canvas_two_d.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_two_d, canvas_two_d) if event.button == 3 else None)
+        canvas_two_d.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_two_d, canvas_two_d, True) if event.button == 3 else None)
         canvas_two_d.mpl_connect('motion_notify_event', lambda event: on_plot_hover_two_d(event, ax_two_d, canvas_two_d, rt_map_cursor, mz_map_cursor, int_map_cursor, coordinate_label_two_d, horizontal_line, vertical_line))
         
     def aligning_samples_window():
@@ -4323,7 +4327,7 @@ def run_main_window():
         
         chromatograms_checkboxes.bind("<Button-1>", on_checkbox_click)
         chromatogram_plots_compare_frame.bind("<Configure>", lambda event, ax=ax_comp: adjust_subplot_size(event, ax_comp, canvas_comp))
-        canvas_comp.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_comp, canvas_comp) if event.button == 3 else None) 
+        canvas_comp.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_comp, canvas_comp, True) if event.button == 3 else None) 
         zoom_selection_key_press_comp = canvas_comp.mpl_connect('key_press_event', lambda event: zoom_selection_compare(event, ax_comp, canvas_comp, type_coordinate_comp))
         zoom_selection_key_release_comp = canvas_comp.mpl_connect('key_release_event', lambda event: zoom_selection_compare(event, ax_comp, canvas_comp, type_coordinate_comp))
         zoom_selection_motion_notify_comp = canvas_comp.mpl_connect('motion_notify_event', lambda event: zoom_selection_compare(event, ax_comp, canvas_comp, type_coordinate_comp))
@@ -4360,7 +4364,7 @@ def run_main_window():
                     ind = ind['ind'][0]
                     name = names[ind]
                     x, y = x_values[ind], y_values[ind]
-                    tooltip.set_text(f'{name}\nX: {x}\nY: {y}')
+                    tooltip.set_text(f'{name}\nY: {y}')
                     tooltip.xy = (x, y)
                     tooltip.set_visible(True)
                     canvas.draw_idle()
@@ -4368,15 +4372,229 @@ def run_main_window():
                     tooltip.set_visible(False)
                     canvas.draw_idle()
                     
+        def model_electro_migrations():
+            def exit_check_electro_mig():
+                electro_migrations.destroy()
+                
+            def on_hover_electro_mig(event, canvas, ax, scatter, x_values, y_values, tooltip):
+                if event.inaxes == ax:
+                    cont, ind = scatter.contains(event)
+                    if cont:
+                        ind = ind['ind'][0]
+                        name = names[ind]
+                        x, y = x_values[ind], y_values[ind]
+                        tooltip.set_text(f'{name}\nX: {x:.1e}\nY: {y}')
+                        tooltip.xy = (x, y)
+                        tooltip.set_visible(True)
+                        canvas.draw_idle()
+                    else:
+                        tooltip.set_visible(False)
+                        canvas.draw_idle()
+                        
+            def ph_enter(event, hover_connect, tooltip, eq_r2, ax, canvas, scatter, trendline_base, trendline_plus20, trendline_minus20):
+                try:
+                    float(ph_entry.get())
+                except:
+                    error_window("Input a float in the pH entry field.")
+                    return
+                
+                glycans_list, quality_colors, q_list, mass_list, me_list, rt_list = calculate_electrophoretic_migrations()
+                
+                # Calculate the trendline (linear regression)
+                coefficients = np.polyfit(me_list, rt_list, 1)
+                polynomial = np.poly1d(coefficients)
+                trendline = polynomial(me_list)
+                    
+                # Calculate the trendline equation and R squared
+                trendline_equation = f"y = {coefficients[0]:2f}x + {coefficients[1]:.2f}"
+                y_mean = np.mean(rt_list)
+                ss_tot = np.sum((rt_list - y_mean) ** 2)
+                ss_res = np.sum((rt_list - trendline) ** 2)
+                r_squared = f"R² = {1 - (ss_res / ss_tot):.2f}"
+                
+                fig_elec_mig = plt.figure(figsize=(0, 0))
+                ax_elec_mig = fig_elec_mig.add_subplot(111)
+                ax_elec_mig.set_xlabel(r'$q / M^{\alpha}$')
+                ax_elec_mig.set_ylabel("t'")
+                
+                eq_r2.set_text(f"{trendline_equation}\n{r_squared}")
+                                     
+                scatter.set_offsets(np.c_[me_list, rt_list])
+                trendline_base[0].set_data(me_list, trendline)
+                trendline_plus20[0].set_data(me_list, [i*1.2 for i in trendline])
+                trendline_minus20[0].set_data(me_list, [i*0.8 for i in trendline])
+            
+                ax.set_ylim(min(rt_list)-0.1, max(rt_list)+0.1)
+                ax.set_xlim(min(me_list)-0.0001, max(me_list)+0.0001)
+                
+                canvas.draw()
+                
+                canvas.mpl_disconnect(hover_connect)
+                
+                hover_tooltip = canvas.mpl_connect('motion_notify_event', lambda event: on_hover_electro_mig(event, canvas, ax, scatter, me_list, rt_list, tooltip))
+            
+            def adjust_subplot_size_electro_mig(event, ax1):
+                # Get the current size of the graph frame
+                frame_width = event.width
+                frame_height = event.height
+                
+                # Define margin sizes (in pixels)
+                left_margin = 65
+                right_margin = 10
+                top_margin = 20
+                bottom_margin = 45
+                
+                # Calculate the position of the subplot relative to the frame size
+                subplot_width = (frame_width - left_margin - right_margin) / frame_width
+                subplot_height = (frame_height - top_margin - bottom_margin) / frame_height
+                subplot_left = left_margin / frame_width
+                subplot_bottom = bottom_margin / frame_height
+                
+                # Set the position of the subplot
+                ax1.set_position([subplot_left, subplot_bottom, subplot_width, subplot_height])
+            
+            def calculate_electrophoretic_migrations():
+                glycans_list = []
+                quality_colors = []
+                q_list = []
+                mass_list = []
+                me_list = []
+                rt_list = []
+                for i in glycans_per_sample[selected_item]:
+                    for j in glycans_per_sample[selected_item][i]:
+                        for k_k, k in enumerate(glycans_per_sample[selected_item][i][j]['peaks']):
+                            glycans_list.append(f"{i}_{j}_{k}")
+                            
+                            fails = 0
+                            if glycans_per_sample[selected_item][i][j]['ppm'][k_k] < max_ppm[0] or glycans_per_sample[selected_item][i][j]['ppm'][k_k] > max_ppm[1]:
+                                fails += 1
+                            if glycans_per_sample[selected_item][i][j]['iso'][k_k] < iso_fit_score:
+                                fails += 1
+                            if glycans_per_sample[selected_item][i][j]['curve'][k_k] < curve_fit_score:
+                                fails += 1
+                            if glycans_per_sample[selected_item][i][j]['sn'][k_k] < s_to_n:
+                                fails += 1
+                            if fails == 0:
+                                quality_colors.append('green')
+                            elif fails == 1:
+                                quality_colors.append('yellow')
+                            else:
+                                quality_colors.append('red')
+                                
+                            q = 1
+                            composition = General_Functions.form_to_comp(i)
+                            charge = General_Functions.form_to_charge(j)
+                            if 'S' in composition.keys():
+                                q -= (composition['S']*(1/(1+10**(2.6-float(ph_entry.get())))))
+                            if 'G' in composition.keys():
+                                q -= (composition['G']*(1/(1+10**(2.92-float(ph_entry.get())))))
+                            q_list.append(q)
+                            mass_list.append(float(glycans_per_sample[selected_item][i][j]['mz'])*charge)
+                            me_list.append(q_list[-1]/(mass_list[-1]**1/2))
+                            rt_list.append(k)
+                reference_rt_id = mass_list.index(max(mass_list))
+                reference_rt = rt_list[reference_rt_id]
+                for i_i, i in enumerate(rt_list):
+                    rt_list[i_i] = float("%.2f" % round(i/reference_rt, 2))
+                    
+                return glycans_list, quality_colors, q_list, mass_list, me_list, rt_list
+                    
+            electro_migrations = tk.Toplevel()
+            electro_migrations.iconbitmap(current_dir+"/Assets/gg_icon.ico")
+            electro_migrations.withdraw()
+            electro_migrations.minsize(500, 500)
+            electro_migrations.bind("<Configure>", on_resize)
+            electro_migrations.title(f"Electrophoretic Migration Modelling - {selected_item}")
+            electro_migrations.resizable(True, True)
+            electro_migrations.protocol("WM_DELETE_WINDOW", exit_check_electro_mig)
+            
+            electro_migrations.grid_rowconfigure(0, weight=0)
+            electro_migrations.grid_rowconfigure(1, weight=1)
+            electro_migrations.grid_columnconfigure(0, weight=1)
+            
+            ph_label = ttk.Label(electro_migrations, text='Background Electrolyte pH: ', font=("Segoe UI", list_font_size))
+            ph_label.grid(row=0, column=0, padx=10, pady=(10, 10), sticky="nsw")
+            
+            ph_entry = ttk.Entry(electro_migrations, width=10)
+            ph_entry.insert(0, "2.3")
+            ph_entry.grid(row=0, column=0, padx=(180, 10), pady=(10, 10), sticky="nsw")
+    
+            glycans_list, quality_colors, q_list, mass_list, me_list, rt_list = calculate_electrophoretic_migrations()
+            
+            # Calculate the trendline (linear regression)
+            coefficients = np.polyfit(me_list, rt_list, 1)
+            polynomial = np.poly1d(coefficients)
+            trendline = polynomial(me_list)
+            
+            # Calculate the trendline equation and R squared
+            trendline_equation = f"y = {coefficients[0]:2f}x + {coefficients[1]:.2f}"
+            y_mean = np.mean(rt_list)
+            ss_tot = np.sum((rt_list - y_mean) ** 2)
+            ss_res = np.sum((rt_list - trendline) ** 2)
+            r_squared = f"R² = {1 - (ss_res / ss_tot):.2f}"
+            
+            fig_elec_mig = plt.figure(figsize=(0, 0))
+            ax_elec_mig = fig_elec_mig.add_subplot(111)
+            ax_elec_mig.set_xlabel(r'$q / M^{\alpha}$')
+            ax_elec_mig.set_ylabel("t'")
+            
+            eq_r2 = ax_elec_mig.text(0.95, 0.95, f"{trendline_equation}\n{r_squared}",
+                                     horizontalalignment='right',
+                                     verticalalignment='top',
+                                     transform=plt.gca().transAxes)
+            
+            global elec_mig_scatter, canvas_elec_mig
+            elec_mig_scatter = ax_elec_mig.scatter(me_list, rt_list, s=1, c=quality_colors)
+            trendline_base = ax_elec_mig.plot(me_list, trendline, color='red', label='Trendline')
+            trendline_plus20 = ax_elec_mig.plot(me_list, [i*1.2 for i in trendline], color='red', linestyle = ":", label='Trendline')
+            trendline_minus20 = ax_elec_mig.plot(me_list, [i*0.8 for i in trendline], color='red', linestyle = ":", label='Trendline')
+            
+            ax_elec_mig.xaxis.set_major_formatter(ScalarFormatter(useMathText=True))
+            ax_elec_mig.ticklabel_format(style='sci', axis='x', scilimits=(0,0))
+            
+            ax_elec_mig.set_ylim(min(rt_list)-0.1, max(rt_list)+0.1)
+            ax_elec_mig.set_xlim(min(me_list)-0.0001, max(me_list)+0.0001)
+            
+            canvas_elec_mig = FigureCanvasTkAgg(fig_elec_mig, master=electro_migrations)
+            canvas_elec_mig.draw()
+            canvas_elec_mig.get_tk_widget().grid(row=1, column=0, padx=(10, 10), pady=(10, 10), sticky="nswe")
+        
+            tooltip_elec_mig = ax_elec_mig.annotate('', xy=(0, 0), xytext=(10, -20), textcoords='offset points', bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.9), arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'))
+        
+            hover_tooltip = canvas_elec_mig.mpl_connect('motion_notify_event', lambda event: on_hover_electro_mig(event, canvas_elec_mig, ax_elec_mig, elec_mig_scatter, me_list, rt_list, tooltip_elec_mig))
+            canvas_elec_mig.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_elec_mig, canvas_elec_mig, False) if event.button == 3 else None)
+            
+            ph_entry.bind("<Return>", lambda event: ph_enter(event, hover_tooltip, tooltip_elec_mig, eq_r2, ax_elec_mig, canvas_elec_mig, elec_mig_scatter, trendline_base, trendline_plus20, trendline_minus20))
+        
+            electro_migrations.bind("<Configure>", lambda event: adjust_subplot_size_electro_mig(event, ax_elec_mig))
+        
+            electro_migrations.update_idletasks()
+            electro_migrations.deiconify()
+            window_width = electro_migrations.winfo_width()
+            window_height = electro_migrations.winfo_height()
+            screen_width = electro_migrations.winfo_screenwidth()
+            screen_height = electro_migrations.winfo_screenheight()
+            x_position = (screen_width - window_width) // 2
+            y_position = (screen_height - window_height) // 2
+            electro_migrations.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
+                    
         qc_dist = tk.Toplevel()
         qc_dist.iconbitmap(current_dir+"/Assets/gg_icon.ico")
         qc_dist.withdraw()
+        qc_dist.minsize(300, 300)
         qc_dist.bind("<Configure>", on_resize)
         qc_dist.title(f"QC Scores Distribution - {selected_item}")
-        qc_dist.resizable(False, False)
+        qc_dist.resizable(True, True)
         qc_dist.protocol("WM_DELETE_WINDOW", exit_check_qc_dist)
         
+        qc_dist.grid_rowconfigure(0, weight=1)
+        qc_dist.grid_rowconfigure(1, weight=1)
+        qc_dist.grid_rowconfigure(2, weight=0)
+        qc_dist.grid_columnconfigure(0, weight=1)
+        qc_dist.grid_columnconfigure(1, weight=1)
+            
         names = []
+        quality_colors = []
         
         ppm_list = []
         iso_fit_list = []
@@ -4385,14 +4603,29 @@ def run_main_window():
         
         for i in glycans_per_sample[selected_item]: #going through glycans
             for k in glycans_per_sample[selected_item][i]: #going through adducts
-                for j in glycans_per_sample[selected_item][i][k]['peaks']:
+                for j_j, j in enumerate(glycans_per_sample[selected_item][i][k]['peaks']):
                     names.append(f"{i}_{k}_{j}")
+                    fails = 0
+                    if glycans_per_sample[selected_item][i][k]['ppm'][j_j] < max_ppm[0] or glycans_per_sample[selected_item][i][k]['ppm'][j_j] > max_ppm[1]:
+                        fails += 1
+                    if glycans_per_sample[selected_item][i][k]['iso'][j_j] < iso_fit_score:
+                        fails += 1
+                    if glycans_per_sample[selected_item][i][k]['curve'][j_j] < curve_fit_score:
+                        fails += 1
+                    if glycans_per_sample[selected_item][i][k]['sn'][j_j] < s_to_n:
+                        fails += 1
+                    if fails == 0:
+                        quality_colors.append('green')
+                    elif fails == 1:
+                        quality_colors.append('yellow')
+                    else:
+                        quality_colors.append('red')
                 ppm_list+=glycans_per_sample[selected_item][i][k]['ppm']
                 iso_fit_list+=glycans_per_sample[selected_item][i][k]['iso']
                 curve_fit_list+=glycans_per_sample[selected_item][i][k]['curve']
                 sn_list+=glycans_per_sample[selected_item][i][k]['sn']
         
-        global qc_ppm_line1, qc_ppm_line2, qc_curvefit_line, qc_sn_line, qc_isofit_line, canvas_ppmplot, canvas_curvefitplot, canvas_isofitplot, canvas_snplot
+        global qc_ppm_line1, qc_ppm_line2, qc_curvefit_line, qc_sn_line, qc_isofit_line, canvas_ppmplot, canvas_curvefitplot, canvas_isofitplot, canvas_snplot, ppm_scatter, isofitplot_scatter, curvefitplot_scatter, snplot_scatter
         #PPM plot
         ppm_plot_frame = ttk.Labelframe(qc_dist, text="PPM:", style="qcp_frame.TLabelframe")
         ppm_plot_frame.grid(row=0, column=0, padx=10, pady=(10, 10), sticky="nsew")
@@ -4403,7 +4636,7 @@ def run_main_window():
         ax_ppmplot = fig_ppmplot.add_subplot(gs_ppmplot[0])
         ax_ppmplot_kde = fig_ppmplot.add_subplot(gs_ppmplot[1], sharey=ax_ppmplot)
         
-        ppm_scatter = ax_ppmplot.scatter(range(len(ppm_list)), ppm_list, s=1)
+        ppm_scatter = ax_ppmplot.scatter(range(len(ppm_list)), ppm_list, s=1, c=quality_colors)
         qc_ppm_line1 = ax_ppmplot.axhline(max_ppm[0], linestyle='--', linewidth=1, color='blue')
         qc_ppm_line2 = ax_ppmplot.axhline(max_ppm[1], linestyle='--', linewidth=1, color='blue')
         ax_ppmplot.axhline(0, linestyle='--', linewidth=1, color='black')
@@ -4425,7 +4658,7 @@ def run_main_window():
         tooltip_ppmplot = ax_ppmplot.annotate('', xy=(0, 0), xytext=(10, -20), textcoords='offset points', bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.9), arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'))
         
         canvas_ppmplot.mpl_connect('motion_notify_event', lambda event: on_hover_qc_plot(event, canvas_ppmplot, ax_ppmplot, ppm_scatter, range(len(ppm_list)), ppm_list, tooltip_ppmplot))
-        canvas_ppmplot.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_ppmplot, canvas_ppmplot) if event.button == 3 else None)
+        canvas_ppmplot.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_ppmplot, canvas_ppmplot, False) if event.button == 3 else None)
         
         
         # Isotopic Fittings plot
@@ -4438,7 +4671,7 @@ def run_main_window():
         ax_isofitplot = fig_isofitplot.add_subplot(gs_isofitplot[0])
         ax_isofitplot_kde = fig_isofitplot.add_subplot(gs_isofitplot[1], sharey=ax_isofitplot)
         
-        isofitplot_scatter = ax_isofitplot.scatter(range(len(iso_fit_list)), iso_fit_list, s=1)
+        isofitplot_scatter = ax_isofitplot.scatter(range(len(iso_fit_list)), iso_fit_list, s=1, c=quality_colors)
         qc_isofit_line = ax_isofitplot.axhline(iso_fit_score, linestyle='--', linewidth=1, color='blue')
         
         values_isofit = np.array(iso_fit_list)
@@ -4458,7 +4691,7 @@ def run_main_window():
         tooltip_isofitplot = ax_isofitplot.annotate('', xy=(0, 0), xytext=(10, -20), textcoords='offset points', bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.9), arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'))
         
         canvas_isofitplot.mpl_connect('motion_notify_event', lambda event: on_hover_qc_plot(event, canvas_isofitplot, ax_isofitplot, isofitplot_scatter, range(len(iso_fit_list)), iso_fit_list, tooltip_isofitplot))
-        canvas_isofitplot.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_isofitplot, canvas_isofitplot) if event.button == 3 else None)
+        canvas_isofitplot.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_isofitplot, canvas_isofitplot, False) if event.button == 3 else None)
         
         
         #Signal-to-Noise ratio plot
@@ -4473,7 +4706,7 @@ def run_main_window():
         
         ax_snplot.set_yscale('log')
         
-        snplot_scatter = ax_snplot.scatter(range(len(sn_list)), sn_list, s=1)
+        snplot_scatter = ax_snplot.scatter(range(len(sn_list)), sn_list, s=1, c=quality_colors)
         qc_sn_line = ax_snplot.axhline(s_to_n, linestyle='--', linewidth=1, color='blue')
         ax_snplot.axhline(3, linestyle='--', linewidth=1, color='red')
         ax_snplot.axhline(10, linestyle='--', linewidth=1, color='green')
@@ -4495,7 +4728,7 @@ def run_main_window():
         tooltip_snplot = ax_snplot.annotate('', xy=(0, 0), xytext=(10, -20), textcoords='offset points', bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.9), arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'))
         
         canvas_snplot.mpl_connect('motion_notify_event', lambda event: on_hover_qc_plot(event, canvas_snplot, ax_snplot, snplot_scatter, range(len(sn_list)), sn_list, tooltip_snplot))
-        canvas_snplot.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_snplot, canvas_snplot) if event.button == 3 else None)
+        canvas_snplot.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_snplot, canvas_snplot, False) if event.button == 3 else None)
         
         #Curve Fittings plot
         curvefit_plot_frame = ttk.Labelframe(qc_dist, text="Curve Fittings:", style="qcp_frame.TLabelframe")
@@ -4507,7 +4740,7 @@ def run_main_window():
         ax_curvefitplot = fig_curvefitplot.add_subplot(gs_curvefitplot[0])
         ax_curvefitplot_kde = fig_curvefitplot.add_subplot(gs_curvefitplot[1], sharey=ax_curvefitplot)
         
-        curvefitplot_scatter = ax_curvefitplot.scatter(range(len(curve_fit_list)), curve_fit_list, s=1)
+        curvefitplot_scatter = ax_curvefitplot.scatter(range(len(curve_fit_list)), curve_fit_list, s=1, c=quality_colors)
         qc_curvefit_line = ax_curvefitplot.axhline(curve_fit_score, linestyle='--', linewidth=1, color='blue')
         
         values_curve = np.array(curve_fit_list)
@@ -4527,7 +4760,14 @@ def run_main_window():
         tooltip_curvefitplot = ax_curvefitplot.annotate('', xy=(0, 0), xytext=(10, -20), textcoords='offset points', bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.9), arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'))
         
         canvas_curvefitplot.mpl_connect('motion_notify_event', lambda event: on_hover_qc_plot(event, canvas_curvefitplot, ax_curvefitplot, curvefitplot_scatter, range(len(curve_fit_list)), curve_fit_list, tooltip_curvefitplot))
-        canvas_curvefitplot.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_curvefitplot, canvas_curvefitplot) if event.button == 3 else None)
+        canvas_curvefitplot.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_curvefitplot, canvas_curvefitplot, False) if event.button == 3 else None)
+        
+        
+        # Important discussion necessary for this button: The sialic acids are anionic, so it should be decreasing the charge value, instead of summing... but to do that reliably, you first need to also calculate the cationic charges, otherwise values are negative. How to deal with that? I managed to model PKa values of molecules using Python, but it needs the smiles structure... expect user to input that? Make a list of tags for that? What's the default charges for neutral glycans with reduced end? And without reducing end? Currently defaulting glycans without sialic acids to q=1, independent of tag charges and such...
+        
+        model_electro_button = ttk.Button(qc_dist, text="Model Electrophoretic Migrations", style="small_button_style1.TButton", command=model_electro_migrations, state=tk.NORMAL)
+        model_electro_button.grid(row=2, column=0, columnspan=2, padx=10, pady=(10, 10), sticky="nsw")
+        ToolTip(model_electro_button, "Allows you to plot modelled electrophoretic migrations based on the Classical Polymer Model, as described in Barroso A et al., 2015 (Analytica Chimica Acta, Elsevier). EXPERIMENTAL.")
         
         qc_dist.update_idletasks()
         qc_dist.deiconify()
@@ -4541,7 +4781,7 @@ def run_main_window():
         
         
     def qcp_enter(event):
-        global max_ppm, iso_fit_score, curve_fit_score, s_to_n
+        global max_ppm, iso_fit_score, curve_fit_score, s_to_n, ppm_scatter, isofitplot_scatter, curvefitplot_scatter, snplot_scatter, elec_mig_scatter, canvas_elec_mig
         try:
             min_ppm_range = float(ppm_error_min_entry.get())
         except:
@@ -4580,10 +4820,41 @@ def run_main_window():
             qc_isofit_line.set_ydata([iso_fit_score])
             qc_curvefit_line.set_ydata([curve_fit_score])
             qc_sn_line.set_ydata([s_to_n])
+            
+            new_colors = []
+            for i in glycans_per_sample[selected_item]: #going through glycans
+                for k in glycans_per_sample[selected_item][i]: #going through adducts
+                    for j_j, j in enumerate(glycans_per_sample[selected_item][i][k]['peaks']):
+                        fails = 0
+                        if glycans_per_sample[selected_item][i][k]['ppm'][j_j] < max_ppm[0] or glycans_per_sample[selected_item][i][k]['ppm'][j_j] > max_ppm[1]:
+                            fails += 1
+                        if glycans_per_sample[selected_item][i][k]['iso'][j_j] < iso_fit_score:
+                            fails += 1
+                        if glycans_per_sample[selected_item][i][k]['curve'][j_j] < curve_fit_score:
+                            fails += 1
+                        if glycans_per_sample[selected_item][i][k]['sn'][j_j] < s_to_n:
+                            fails += 1
+                        if fails == 0:
+                            new_colors.append('green')
+                        elif fails == 1:
+                            new_colors.append('yellow')
+                        else:
+                            new_colors.append('red')
+            
+            ppm_scatter.set_color(new_colors)
+            isofitplot_scatter.set_color(new_colors)
+            curvefitplot_scatter.set_color(new_colors)
+            snplot_scatter.set_color(new_colors)
+            
             canvas_ppmplot.draw_idle()
             canvas_curvefitplot.draw_idle()
             canvas_isofitplot.draw_idle()
             canvas_snplot.draw_idle()
+        except:
+            pass
+        try:
+            elec_mig_scatter.set_color(new_colors)
+            canvas_elec_mig.draw_idle()
         except:
             pass
         color_treeview()
@@ -4821,7 +5092,7 @@ def run_main_window():
         tooltip_plot_window = ax_plot_window.annotate('', xy=(0, 0), xytext=(10, -20), textcoords='offset points', bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.9))
         
         canvas_plot_window.mpl_connect('motion_notify_event', lambda event: on_hover_column_graph(event, canvas_plot_window, ax_plot_window, bar_graph, glycans_keys, tooltip_plot_window))
-        canvas_plot_window.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_plot_window, canvas_plot_window) if event.button == 3 else None)
+        canvas_plot_window.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_plot_window, canvas_plot_window, False) if event.button == 3 else None)
         
         #signal-to-noise plot
         fig_plot_window1 = plt.figure(figsize=(0, 0))
@@ -4845,7 +5116,7 @@ def run_main_window():
         ax_plot_window1.set_position([0.0944, 0.1209, 0.8909, 0.8252])
         
         canvas_plot_window1.mpl_connect('motion_notify_event', lambda event: on_hover_column_graph(event, canvas_plot_window1, ax_plot_window1, bar_graph1, glycans_keys, tooltip_plot_window1))
-        canvas_plot_window1.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_plot_window1, canvas_plot_window1) if event.button == 3 else None)
+        canvas_plot_window1.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_plot_window1, canvas_plot_window1, False) if event.button == 3 else None)
         
         plot_window.bind("<Configure>", lambda event: adjust_subplot_size_plot_window(event, ax_plot_window, ax_plot_window1))
         
@@ -5123,7 +5394,7 @@ def run_main_window():
     
     ax.set_position([0.0944, 0.1209, 0.8909, 0.8252])
     chromatogram_plot_frame.bind("<Configure>", lambda event, ax=ax: adjust_subplot_size(event, ax, canvas))
-    canvas.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax, canvas) if event.button == 3 else None)
+    canvas.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax, canvas, True) if event.button == 3 else None)
 
     spectra_plot_frame = ttk.Labelframe(main_window, text="Spectra Viewer", style="chromatogram.TLabelframe")
     spectra_plot_frame.grid(row=2, column=1, columnspan=11, padx=20, pady=(0, 10), sticky="nsew")
@@ -5144,7 +5415,7 @@ def run_main_window():
         
     ax_spec.set_position([0.0944, 0.1209, 0.8909, 0.8252])
     spectra_plot_frame.bind("<Configure>", lambda event, ax_spec=ax_spec: adjust_subplot_size(event, ax_spec, canvas_spec))
-    canvas_spec.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_spec, canvas_spec) if event.button == 3 else None)
+    canvas_spec.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_spec, canvas_spec, True) if event.button == 3 else None)
     
     main_window.deiconify()
     main_window.attributes("-topmost", False)
@@ -5391,7 +5662,7 @@ def run_select_files_window(samples_dropdown):
         
         global loading_files
         loading_files = tk.Toplevel()
-        loading_files.attributes("-topmost", True)
+        # loading_files.attributes("-topmost", True)
         loading_files.withdraw()
         loading_files.title("Loading Files")
         loading_files.iconbitmap(current_dir+"/Assets/gg_icon.ico")
