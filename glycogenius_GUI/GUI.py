@@ -17,8 +17,8 @@
 # by typing 'glycogenius'. If not, see <https://www.gnu.org/licenses/>.
 
 global gg_version, GUI_version
-gg_version = '1.1.27'
-GUI_version = '0.0.20'
+gg_version = '1.1.28'
+GUI_version = '0.0.21'
 
 from PIL import Image, ImageTk
 import threading
@@ -1990,7 +1990,7 @@ def run_main_window():
             about_window.destroy()
             
         about_window = tk.Toplevel(main_window)
-        about_window.attributes("-topmost", True)
+        # about_window.attributes("-topmost", True)
         about_window.withdraw()
         about_window.title("About")
         about_window.iconbitmap(current_dir+"/Assets/gg_icon.ico")
@@ -3274,7 +3274,7 @@ def run_main_window():
             event.canvas.get_tk_widget().configure(cursor="")        
     
         peak_visualizer = tk.Toplevel()
-        peak_visualizer.attributes("-topmost", True)
+        # peak_visualizer.attributes("-topmost", True)
         peak_visualizer.geometry("700x700")
         peak_visualizer.grid_columnconfigure(0, weight=1)
         peak_visualizer.grid_columnconfigure(1, weight=1)
@@ -3588,7 +3588,7 @@ def run_main_window():
             panning_enabled = False
             
         ms2_visualizer = tk.Toplevel()
-        ms2_visualizer.attributes("-topmost", True)
+        # ms2_visualizer.attributes("-topmost", True)
         ms2_visualizer.iconbitmap(current_dir+"/Assets/gg_icon.ico")
         ms2_visualizer.withdraw()
         ms2_visualizer.minsize(500, 400)
@@ -4014,7 +4014,7 @@ def run_main_window():
         
         global aligning_samples
         aligning_samples = tk.Toplevel()
-        aligning_samples.attributes("-topmost", True)
+        # aligning_samples.attributes("-topmost", True)
         aligning_samples.withdraw()
         aligning_samples.title("Aligning Samples")
         aligning_samples.iconbitmap(current_dir+"/Assets/gg_icon.ico")
@@ -4229,7 +4229,7 @@ def run_main_window():
             grand_parent_text = chromatograms_list.item(grand_parent_item, "text")
     
         compare_samples = tk.Toplevel()
-        compare_samples.attributes("-topmost", True)
+        # compare_samples.attributes("-topmost", True)
         compare_samples.iconbitmap(current_dir+"/Assets/gg_icon.ico")
         compare_samples.withdraw()
         compare_samples.minsize(720, 480)
@@ -5170,7 +5170,7 @@ def run_main_window():
         
         global processing_max_spectrum
         processing_max_spectrum = tk.Toplevel()
-        processing_max_spectrum.attributes("-topmost", True)
+        # processing_max_spectrum.attributes("-topmost", True)
         processing_max_spectrum.withdraw()
         processing_max_spectrum.title("Processing Maximum Intensity Spectrum")
         processing_max_spectrum.iconbitmap(current_dir+"/Assets/gg_icon.ico")
@@ -5197,9 +5197,66 @@ def run_main_window():
     def quick_check_window():
         global maximum_spectra, current_data, selected_item
         
+        def glycans_list_sort(tv, col, reverse):
+            # Get the data in the specified column
+            data = [(tv.set(k, col), k) for k in tv.get_children('')]
+            
+            # Try to convert data to float if possible for numerical sorting
+            try:
+                data = [(float(item[0]), item[1]) for item in data]
+            except ValueError:
+                pass
+            
+            # Sort data
+            data.sort(reverse=reverse)
+            
+            # Rearrange items in sorted positions
+            for index, (val, k) in enumerate(data):
+                tv.move(k, '', index)
+            
+            # Reverse sort next time
+            tv.heading(col, command=lambda: glycans_list_sort(tv, col, not reverse))
+            
+        def copy_selected_rows(event):
+            selected_items = glycans_list.selection()
+            if len(selected_items) == 0:
+                return
+                
+            rows_data = []
+
+            # Retrieve the data from selected rows
+            for item in selected_items:
+                row_values = glycans_list.item(item, "values")
+                rows_data.append('\t'.join(row_values))
+            
+            # Join the rows with newline character
+            clipboard_data = '\n'.join(rows_data)
+            
+            # Copy to clipboard
+            main_window.clipboard_clear()
+            main_window.clipboard_append(clipboard_data)
+        
         def click_glycans_list(event):
             global glycans_list_quickcheck, rectangles
-            selected_glycan_list = glycans_list.focus()
+            key = event.keysym
+            
+            if key == "Escape": #removes selection and clears zoom and rectangles
+                selected_items = glycans_list.selection()
+                glycans_list.selection_remove(selected_items)
+                ax_mis.set_xlim(og_x_range_mis)
+                ax_mis.set_ylim(og_y_range_mis)
+                selected_glycan_list = ''
+                canvas_mis.draw_idle()
+            else:
+                selected_glycan_list = glycans_list.focus()
+            
+            for rect in rectangles:
+                rect.remove()
+            rectangles.clear()
+            
+            if selected_glycan_list == '':
+                return
+                
             selected_glycan_list_content = glycans_list.item(selected_glycan_list, "values")
             selected_glycan_list_content = (selected_glycan_list_content[0], selected_glycan_list_content[1], float(selected_glycan_list_content[2]), float(selected_glycan_list_content[3]), float(selected_glycan_list_content[4]))
             
@@ -5207,21 +5264,13 @@ def run_main_window():
             for i in glycans_list_quickcheck[f"{selected_item}_{tolerance}_{library_path.split("/")[-1]}"]:
                 if i[0] == selected_glycan_list_content:
                     mz_list = i[1]
+                    max_int = i[2]
                     break
-            
-            for rect in rectangles:
-                rect.remove()
-            rectangles.clear()
             
             mz_array = list(maximum_spectrum.keys())
             int_array = list(maximum_spectrum.values())
             
             ax_mis.set_xlim(mz_list[0]-2, mz_list[-1]+2)
-            max_int = 0
-            for i_i, i in enumerate(mz_array):
-                if i >= mz_list[0] and i <= mz_list[-1]:
-                    if int_array[i_i] > max_int:
-                        max_int = int_array[i_i]
             ax_mis.set_ylim(0, max_int*1.1)
             
             for i in mz_list:
@@ -5277,6 +5326,7 @@ def run_main_window():
                 iso_actual = [1]
                 bad = False
                 margin = 0.0
+                max_int = int_array[mz_id]
                 temp_id = General_Functions.binary_search_with_tolerance(mz_array, int_array, found_mz+(General_Functions.h_mass/abs(adduct_charge)), mz_id, mz_array_len, General_Functions.tolerance_calc(tolerance[0], tolerance[1], found_mz+(General_Functions.h_mass/abs(adduct_charge))))
                 
                 if temp_id == -1:
@@ -5309,6 +5359,8 @@ def run_main_window():
                             isos_found += 1
                             mz_isos.append(mz_array[temp_id])
                             iso_actual.append(int_array[temp_id]/mono_int)
+                            if isos_found < 3:
+                                max_int = max(max_int, int_array[temp_id])
                         else:
                             if isos_found == 0: #a compound needs at least 2 identifiable peaks (monoisotopic + 1 from isotopic envelope)
                                 bad = True
@@ -5349,7 +5401,7 @@ def run_main_window():
                     if len(iso_actual) == 2:
                         iso_quali = (iso_quali*0.8)
                             
-                    return [float("%.2f" % round(target_mz,2))]+mz_isos, iso_quali, ppm_error
+                    return [float("%.2f" % round(target_mz,2))]+mz_isos, iso_quali, ppm_error, max_int
             else:
                 return "bad"
                 
@@ -5364,7 +5416,36 @@ def run_main_window():
             if f"{selected_item}_{tolerance}_{library_path.split("/")[-1]}" in glycans_list_quickcheck.keys():
                 glycans_list_temp = glycans_list_quickcheck[f"{selected_item}_{tolerance}_{library_path.split("/")[-1]}"]
             else:
-                library = Execution_Functions.imp_exp_gen_library(custom_glycans_list, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_sia, min_max_fuc, min_max_ac, min_max_gc, force_nglycan, max_adducts, adducts_exclusion, max_charges, reducing_end_tag, fast_iso, high_res, [True, True], library_path, exp_lib_name, False, temp_folder, internal_standard, permethylated, lactonized_ethyl_esterified, reduced)
+                shutil.copy(library_path, os.path.join(temp_folder, 'glycans_library.py'))
+                spec = importlib.util.spec_from_file_location("glycans_library", temp_folder+"/glycans_library.py")
+                lib_module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(lib_module)
+                library = lib_module.full_library
+                try:
+                    library_metadata = lib_module.metadata
+                except:
+                    library_metadata = []
+                if len(library_metadata) > 0:
+                    min_max_monos = library_metadata[0]
+                    min_max_hex = library_metadata[1]
+                    min_max_hexnac = library_metadata[2]
+                    min_max_xyl = library_metadata[18]
+                    min_max_fuc = library_metadata[3]
+                    min_max_sia = library_metadata[4]
+                    min_max_ac = library_metadata[5]
+                    min_max_gc = library_metadata[6]
+                    force_nglycan = library_metadata[7]
+                    max_adducts = library_metadata[8]
+                    max_charges = library_metadata[9]
+                    reducing_end_tag = library_metadata[10]
+                    internal_standard = library_metadata[11]
+                    permethylated = library_metadata[12]
+                    lactonized_ethyl_esterified = library_metadata[13]
+                    reduced = library_metadata[14]
+                    fast_iso = library_metadata[15]
+                    high_res = library_metadata[16]
+                    if len(library_metadata) > 18:
+                        min_max_xyl = library_metadata[18]
                 
                 glycans_list_temp = []
                 
@@ -5375,7 +5456,7 @@ def run_main_window():
                     for j in library[i]['Adducts_mz']:
                         result = analyze_glycan(mz_array, int_array, library[i], library[i]['Adducts_mz'][j], tolerance, max_charges, General_Functions.form_to_charge(j))
                         if result != 'bad':
-                            glycans_list_temp.append([(i, j, float("%.4f" % round(library[i]['Adducts_mz'][j], 4)), float("%.2f" % round(result[1], 2)), float("%.1f" % round(result[2], 1))), result[0]])
+                            glycans_list_temp.append([(i, j, float("%.4f" % round(library[i]['Adducts_mz'][j], 4)), float("%.2f" % round(result[1], 2)), float("%.1f" % round(result[2], 1))), result[0], result[3]])
                 
                 glycans_list_quickcheck[f"{selected_item}_{tolerance}_{library_path.split("/")[-1]}"] = glycans_list_temp
                     
@@ -5419,11 +5500,11 @@ def run_main_window():
         
         glycans_list_scrollbar = tk.Scrollbar(max_spectrum_window, orient=tk.VERTICAL)
         glycans_list = ttk.Treeview(max_spectrum_window, columns=("Glycan", "Adduct", "m/z", "Iso. Fit. Score", "PPM error"), height=25, yscrollcommand=glycans_list_scrollbar.set, show='headings')
-        glycans_list.heading("Glycan", text="Glycan")
-        glycans_list.heading("Adduct", text="Adduct")
-        glycans_list.heading("m/z", text="m/z")
-        glycans_list.heading("Iso. Fit. Score", text="Iso. Fit. Score")
-        glycans_list.heading("PPM error", text="PPM error")
+        
+        glycans_list_columns = ["Glycan", "Adduct", "m/z", "Iso. Fit. Score", "PPM error"]
+        for col in glycans_list_columns:
+            glycans_list.heading(col, text=col, command=lambda _col=col: glycans_list_sort(glycans_list, _col, False))
+        
         glycans_list.column("Glycan", width=75)
         glycans_list.column("Adduct", width=50)
         glycans_list.column("m/z", width=70)
@@ -5434,6 +5515,10 @@ def run_main_window():
         glycans_list_scrollbar.grid(row=1, column=0, padx=10, pady=10, sticky="nse")
         
         glycans_list.bind("<ButtonRelease-1>", click_glycans_list)
+        glycans_list.bind("<KeyRelease-Up>", click_glycans_list)
+        glycans_list.bind("<KeyRelease-Down>", click_glycans_list)
+        max_spectrum_window.bind("<Control-c>", copy_selected_rows)
+        max_spectrum_window.bind("<KeyRelease-Escape>", click_glycans_list)
     
         max_spectrum_plot_frame = ttk.Labelframe(max_spectrum_window, text="Maximum Intensity Spectrum", style="chromatogram.TLabelframe")
         max_spectrum_plot_frame.grid(row=1, column=1, padx=10, pady=10, sticky="nsew")
@@ -5446,6 +5531,8 @@ def run_main_window():
         ax_mis.set_xlabel('m/z')
         ax_mis.set_ylabel('Intensity (AU)')
         ax_mis.plot(x_data_mis, y_data_mis, marker='None', linewidth=1, color='black')
+        
+        annotate_top_y_values(ax_mis, canvas_mis)
         
         global rectangles
         rectangles = []
@@ -5532,7 +5619,6 @@ def run_main_window():
     main_window.grid_rowconfigure(0, weight=0)
     main_window.grid_rowconfigure(1, weight=1)
     main_window.grid_rowconfigure(2, weight=1)
-    #main_window.attributes("-topmost", False)
     main_window.protocol("WM_DELETE_WINDOW", exit_window)
     
     global background_color
@@ -7719,7 +7805,7 @@ def save_results_window():
             error_window("You must set the groups to output a Metaboanalyst compatible file.")
         else:
             progress_save_result = tk.Toplevel()
-            progress_save_result.attributes("-topmost", True)
+            # progress_save_result.attributes("-topmost", True)
             progress_save_result.withdraw()
             progress_save_result.title("Saving Results")
             progress_save_result.iconbitmap(current_dir+"/Assets/gg_icon.ico")
@@ -7794,7 +7880,7 @@ def save_results_window():
             sr_window.grab_set()
             
         groups_window = tk.Toplevel()
-        groups_window.attributes("-topmost", True)
+        # groups_window.attributes("-topmost", True)
         groups_window.withdraw()
         groups_window.title("Sample Groups")
         groups_window.iconbitmap(current_dir+"/Assets/gg_icon.ico")
