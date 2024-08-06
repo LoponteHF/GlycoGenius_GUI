@@ -17,8 +17,8 @@
 # by typing 'glycogenius'. If not, see <https://www.gnu.org/licenses/>.
 
 global gg_version, GUI_version
-gg_version = '1.1.28'
-GUI_version = '0.0.21'
+gg_version = '1.1.29'
+GUI_version = '0.0.22'
 
 from PIL import Image, ImageTk
 import threading
@@ -3281,7 +3281,6 @@ def run_main_window():
         peak_visualizer.grid_rowconfigure(0, weight=1)
         peak_visualizer.grid_rowconfigure(1, weight=1)
         peak_visualizer.withdraw()
-        peak_visualizer.title("Peak Visualizer")
         peak_visualizer.iconbitmap(current_dir+"/Assets/gg_icon.ico")
         peak_visualizer.resizable(False, False)
         peak_visualizer.grab_set()
@@ -3316,6 +3315,7 @@ def run_main_window():
             y_values_ideal = curve_fittings[sample_index][f"{grand_parent_text}+{parent_text.split(" ")[0]}_{chromatograms_list.item(selected_item_chromatograms, "text")}_Ideal_ints"]
             y_values_found = curve_fittings[sample_index][f"{grand_parent_text}+{parent_text.split(" ")[0]}_{chromatograms_list.item(selected_item_chromatograms, "text")}_Found_ints"]
             x_values_pv = curve_fittings[sample_index][f"{grand_parent_text}+{parent_text.split(" ")[0]}_{chromatograms_list.item(selected_item_chromatograms, "text")}_RTs"]
+        peak_visualizer.title(f"Peak Visualizer - {grand_parent_text}-{parent_text}")
             
         ax_pv.plot(x_values_pv, y_values_ideal, marker="o", color="red", label = 'Ideal', picker=5)
         ax_pv.plot(x_values_pv, y_values_found, marker="o", color="blue", label = 'Found', picker=5)
@@ -3681,12 +3681,12 @@ def run_main_window():
                                 number_annotations = len(glycans_per_sample[selected_item][grand_parent_text][parent_text[0]]['ms2'][spectra_time_minutes][2])+1
                                 interval_annotations = ((ax_ms2.get_xlim()[1]-ax_ms2.get_xlim()[0])/number_annotations)
                                 for i_i, i in enumerate(glycans_per_sample[selected_item][grand_parent_text][parent_text[0]]['ms2'][spectra_time_minutes][2]):
-                                    frag_label = ""
-                                    label_split = i.split("/")
-                                    for k_k, k in enumerate(label_split):
-                                        if k_k != 0:
-                                            frag_label += "/"
-                                        frag_label+=f"{k.split("_")[0]}[{k.split("_")[1][0]}]{"+" if k.split("_")[1][1] == "1" else k.split("_")[1][1]+"+"}"
+                                    frag_label = i
+                                    # label_split = i.split("/")
+                                    # for k_k, k in enumerate(label_split):
+                                        # if k_k != 0:
+                                            # frag_label += "/"
+                                        # frag_label+=f"{k.split("_")[0]}[{k.split("_")[1][0]}]{"+" if k.split("_")[1][1] == "1" else k.split("_")[1][1]+"+"}"
                                     ms2_marker = ax_ms2.plot(glycans_per_sample[selected_item][grand_parent_text][parent_text[0]]['ms2'][spectra_time_minutes][0][i_i], glycans_per_sample[selected_item][grand_parent_text][parent_text[0]]['ms2'][spectra_time_minutes][1][i_i], marker='*', markersize=4.5, label = f"{frag_label}\n{glycans_per_sample[selected_item][grand_parent_text][parent_text[0]]['ms2'][spectra_time_minutes][0][i_i]}", color="red")
 
         annotate_top_y_values(ax_ms2, canvas_ms2)
