@@ -18,7 +18,7 @@
 
 global gg_version, GUI_version
 gg_version = '1.1.29'
-GUI_version = '0.0.22'
+GUI_version = '0.0.23'
 
 from PIL import Image, ImageTk
 import threading
@@ -101,7 +101,6 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
 import matplotlib
-import builtins
 import psutil
 import shutil
 import importlib
@@ -5316,7 +5315,7 @@ def run_main_window():
             if target_mz > mz_array[-1]:
                 mz_id = -1
             else:
-                mz_id = General_Functions.binary_search_with_tolerance(mz_array, int_array, target_mz, 0, mz_array_len, General_Functions.tolerance_calc(tolerance[0], tolerance[1], target_mz))
+                mz_id = General_Functions.binary_search_with_tolerance(mz_array, target_mz, 0, mz_array_len, General_Functions.tolerance_calc(tolerance[0], tolerance[1], target_mz), int_array)
                 
             if mz_id != -1:
                 found_mz = mz_array[mz_id]
@@ -5327,14 +5326,14 @@ def run_main_window():
                 bad = False
                 margin = 0.0
                 max_int = int_array[mz_id]
-                temp_id = General_Functions.binary_search_with_tolerance(mz_array, int_array, found_mz+(General_Functions.h_mass/abs(adduct_charge)), mz_id, mz_array_len, General_Functions.tolerance_calc(tolerance[0], tolerance[1], found_mz+(General_Functions.h_mass/abs(adduct_charge))))
+                temp_id = General_Functions.binary_search_with_tolerance(mz_array, found_mz+(General_Functions.h_mass/abs(adduct_charge)), mz_id, mz_array_len, General_Functions.tolerance_calc(tolerance[0], tolerance[1], found_mz+(General_Functions.h_mass/abs(adduct_charge))), int_array)
                 
                 if temp_id == -1:
                     bad = True
                 
                 if not bad:
                     for i in charge_range: #check if it's monoisotopic and correct charge
-                        temp_id = General_Functions.binary_search_with_tolerance(mz_array, int_array, found_mz-(General_Functions.h_mass/i), 0, mz_id, General_Functions.tolerance_calc(tolerance[0], tolerance[1], found_mz-(General_Functions.h_mass/i))) #check monoisotopic
+                        temp_id = General_Functions.binary_search_with_tolerance(mz_array, found_mz-(General_Functions.h_mass/i), 0, mz_id, General_Functions.tolerance_calc(tolerance[0], tolerance[1], found_mz-(General_Functions.h_mass/i)), int_array) #check monoisotopic
                         if temp_id != -1 and int_array[temp_id] > 0:
                             expected_value = (mz_array[temp_id]*i*0.0006)+0.1401
                             if (mono_int/int_array[temp_id] < expected_value*(1+(margin*2))):
@@ -5342,7 +5341,7 @@ def run_main_window():
                                 break                   
                         if i == 1 or i == abs(adduct_charge) or (i == 2 and abs(adduct_charge) == 4) or (i == 3 and abs(adduct_charge) == 6): #ignores charge 1 due to the fact that any charge distribution will find a hit on that one
                             continue
-                        temp_id = General_Functions.binary_search_with_tolerance(mz_array, int_array, found_mz+(General_Functions.h_mass/i), mz_id, mz_array_len, General_Functions.tolerance_calc(tolerance[0], tolerance[1], found_mz+(General_Functions.h_mass/i))) #check for correct charge
+                        temp_id = General_Functions.binary_search_with_tolerance(mz_array, found_mz+(General_Functions.h_mass/i), mz_id, mz_array_len, General_Functions.tolerance_calc(tolerance[0], tolerance[1], found_mz+(General_Functions.h_mass/i)), int_array) #check for correct charge
                         if temp_id != -1:
                             expected_value = (target_mz*i*0.0006)+0.1401
                             if (int_array[temp_id]/mono_int > expected_value*(1-margin)):
@@ -5354,7 +5353,7 @@ def run_main_window():
                     for i_i, i in enumerate(glycan_info['Isotopic_Distribution_Masses']): #check isotopic peaks and add to the intensity
                         if i_i == 0: #ignores monoisotopic this time around
                             continue
-                        temp_id = General_Functions.binary_search_with_tolerance(mz_array, int_array, found_mz+(i_i*(General_Functions.h_mass/abs(adduct_charge))), mz_id, mz_array_len, General_Functions.tolerance_calc(tolerance[0], tolerance[1], found_mz+(i_i*(General_Functions.h_mass/abs(adduct_charge)))))
+                        temp_id = General_Functions.binary_search_with_tolerance(mz_array, found_mz+(i_i*(General_Functions.h_mass/abs(adduct_charge))), mz_id, mz_array_len, General_Functions.tolerance_calc(tolerance[0], tolerance[1], found_mz+(i_i*(General_Functions.h_mass/abs(adduct_charge)))), int_array)
                         if temp_id != -1 and int_array[temp_id] > 0:
                             isos_found += 1
                             mz_isos.append(mz_array[temp_id])
