@@ -17,8 +17,8 @@
 # by typing 'glycogenius'. If not, see <https://www.gnu.org/licenses/>.
 
 global gg_version, GUI_version
-gg_version = '1.1.29'
-GUI_version = '0.0.23'
+gg_version = '1.1.30'
+GUI_version = '0.0.24'
 
 from PIL import Image, ImageTk
 import threading
@@ -86,7 +86,7 @@ if __name__ == "__main__":
 
 from glycogenius.Modules.core import main as run_glycogenius
 from glycogenius.Modules import Execution_Functions, General_Functions, Config_Handler
-from tkinter import Menu, ttk, filedialog, messagebox
+from tkinter import Menu, ttk, filedialog, messagebox, colorchooser
 from tkinter.scrolledtext import ScrolledText
 from ttkwidgets import CheckboxTreeview
 from pyteomics import mass, mzxml, mzml
@@ -112,6 +112,7 @@ import concurrent.futures
 import copy
 import datetime
 import dill
+import random
 
 #all the settings necessary to make a Glycogenius run
 global min_max_monos, min_max_hex, min_max_hexnac, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, force_nglycan, max_adducts, max_charges, tag_mass, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, fast_iso, high_res, number_cores, multithreaded_analysis
@@ -192,6 +193,12 @@ former_alignments = [[], []]
 global maximum_spectra, glycans_list_quickcheck
 maximum_spectra = {}
 glycans_list_quickcheck = {}
+glycans_list_quickcheck_save = {}
+
+global quick_trace_opened, quick_traces_all, quick_traces_list_save
+quick_trace_opened = False
+quick_traces_all = {}
+quick_traces_list_save = []
 
 suppressed_prints = ["remaining parameters.", "set 'only_gen_lib' to False and input", "If you wish to analyze files,", "Press Enter to exit.", "Close the window or press CTRL+C to exit.", "File name is"]
 
@@ -607,6 +614,7 @@ def pre_process_one_sample(sample, sample_name):
     data['ms2'] = {}
     bpc = []
     rt_array = []
+    ms1_array = []
     time_unit = ''
     file_type = ''
     if sample.split('.')[-1].lower() == 'mzml':
@@ -623,13 +631,14 @@ def pre_process_one_sample(sample, sample_name):
     last_ms1 = ''
     max_mz = 0
     try:
-        for i in access:
+        for i_i, i in enumerate(access):
             if file_type == 'mzml':
                 if i['ms level'] == 2:
                     data['ms2'][last_ms1][float(i['scanList']['scan'][0]['scan start time'])] = []
                     for k in i['precursorList']['precursor'][0]['selectedIonList']['selectedIon']:
                         data['ms2'][last_ms1][float(i['scanList']['scan'][0]['scan start time'])].append(k['selected ion m/z'])
                 if i['ms level'] == 1:
+                    ms1_array.append(i_i)
                     current_rt = float(i['scanList']['scan'][0]['scan start time'])
                     rt_array.append(current_rt)
                     if current_rt != last_ms1:
@@ -647,6 +656,7 @@ def pre_process_one_sample(sample, sample_name):
                     for k in i['precursorMz']:
                         data['ms2'][last_ms1][float(i['retentionTime'])].append(k['precursorMz'])
                 if i['msLevel'] == 1:
+                    ms1_array.append(i_i)
                     current_rt = float(i['retentionTime'])
                     rt_array.append(current_rt)
                     if current_rt != last_ms1:
@@ -669,6 +679,7 @@ def pre_process_one_sample(sample, sample_name):
         data['access'] = access
         data['file_path'] = sample
         data['max_mz'] = max_mz
+        data['ms1_array'] = ms1_array
         return data, sample_name
     except:
         error_window(f"Something went wrong when loading the file {sample}. Check if it is an MzML/MzXML file. If it is, it might be corrupted.")
@@ -1007,13 +1018,13 @@ def handle_selection(event):
     
 def add_bpc_treeview():
     global selected_item, processed_data, chromatograms_list, filter_list
-    bpc_keywords = ["Base Peak Chromatogram", "BPC"]
+    bpc_keywords = ["Base Peak Chromatogram/Electropherogram", "BPC", "BPE"]
     if len(samples_list) > 0:
         if selected_item in processed_data:
             search_input = filter_list.get()
             for i in bpc_keywords:
                 if search_input.lower() in i.lower():
-                    chromatograms_list.insert("", "end", text="Base Peak Chromatogram")
+                    chromatograms_list.insert("", "end", text="Base Peak Chromatogram/Electropherogram")
                     break
     
 def populate_treeview():
@@ -1144,7 +1155,7 @@ def color_treeview():
     final_warning = 0
     final_bad = 0
     for i in all_items:
-        if chromatograms_list.item(i, "text") == "Base Peak Chromatogram":
+        if chromatograms_list.item(i, "text") == "Base Peak Chromatogram/Electropherogram":
             continue
         level = 0
         parent_item = i
@@ -2193,50 +2204,62 @@ def run_main_window():
         except:
             if verbose:
                 print("Couldn't disconnect on_pan_right_click_motion")
-        
-        if item_text == "Base Peak Chromatogram":
-            x_values = [i/60 for i in current_data['rt_array']] if current_data['time_unit'] == 'seconds' else current_data['rt_array']
-            y_values = current_data['bpc']
-            label_show_graph = 'Base Peak Chromatogram'
-        elif level == 1 or level == 2 or level == 3:
-            sample_index = list(glycans_per_sample.keys()).index(selected_item)
-            if level == 1:
-                x_values = chromatograms[sample_index][f"RTs_{sample_index}"]
-                y_values = []
-                counter = 0
-                for i in chromatograms[sample_index]:
-                    if i.split("+")[0] == item_text:
-                        if counter == 0:
-                            y_values = chromatograms[sample_index][i]
-                            counter+= 1
-                        else:
-                            y_values = [x + y for x, y in zip(y_values, chromatograms[sample_index][i])]
-            elif level == 2 or level == 3:
-                x_values = chromatograms[sample_index][f"RTs_{sample_index}"]
-                y_values = chromatograms[sample_index][item_text]
-            if level == 1:
-                label_show_graph = f"{item_text}"
-            if level == 2:
-                parent_item = chromatograms_list.parent(selected_item_chromatograms)
-                parent_text = chromatograms_list.item(parent_item, "text")
-                label_show_graph = f"{item_text.split(" ")[0]}"
-            if level == 3:
-                parent_item = chromatograms_list.parent(selected_item_chromatograms)
-                parent_text = chromatograms_list.item(parent_item, "text")
-                grand_parent_item = chromatograms_list.parent(parent_item)
-                grand_parent_text = chromatograms_list.item(grand_parent_item, "text")
-                label_show_graph = f"{grand_parent_text} - {parent_text.split(" ")[0]}"
+                
+        if type(item_text) == list:
+            x_values = item_text[0]
+            y_values = item_text[1]
+            label_show_graph = item_text[3]
         else:
-            return
+            if item_text == "Base Peak Chromatogram/Electropherogram":
+                x_values = [i/60 for i in current_data['rt_array']] if current_data['time_unit'] == 'seconds' else current_data['rt_array']
+                y_values = current_data['bpc']
+                label_show_graph = 'Base Peak Chromatogram'
+            elif level == 1 or level == 2 or level == 3:
+                sample_index = list(glycans_per_sample.keys()).index(selected_item)
+                if level == 1:
+                    x_values = chromatograms[sample_index][f"RTs_{sample_index}"]
+                    y_values = []
+                    counter = 0
+                    for i in chromatograms[sample_index]:
+                        if i.split("+")[0] == item_text:
+                            if counter == 0:
+                                y_values = chromatograms[sample_index][i]
+                                counter+= 1
+                            else:
+                                y_values = [x + y for x, y in zip(y_values, chromatograms[sample_index][i])]
+                elif level == 2 or level == 3:
+                    x_values = chromatograms[sample_index][f"RTs_{sample_index}"]
+                    y_values = chromatograms[sample_index][item_text]
+                if level == 1:
+                    label_show_graph = f"{item_text}"
+                if level == 2:
+                    parent_item = chromatograms_list.parent(selected_item_chromatograms)
+                    parent_text = chromatograms_list.item(parent_item, "text")
+                    label_show_graph = f"{item_text.split(" ")[0]}"
+                if level == 3:
+                    parent_item = chromatograms_list.parent(selected_item_chromatograms)
+                    parent_text = chromatograms_list.item(parent_item, "text")
+                    grand_parent_item = chromatograms_list.parent(parent_item)
+                    grand_parent_text = chromatograms_list.item(grand_parent_item, "text")
+                    label_show_graph = f"{grand_parent_text} - {parent_text.split(" ")[0]}"
+            else:
+                return
         
-        color = 'red'
-        if not clear:
+        if type(item_text) == list:
+            color = item_text[2]
+            if not clear:
+                ax.fill_between(x_values, y_values, color=color, alpha=0.25)
+        else:
+            color = 'red'
+        if not clear and type(item_text) != list:
             color = colors[color_number]
             ax.fill_between(x_values, y_values, color=color, alpha=0.25)
            
         ax.plot(x_values, y_values, linewidth=1, color=color, label = label_show_graph)
-        ax.set_xlabel('Retention Time (min)')
+        ax.set_xlabel('Retention/Migration Time (min)')
         ax.set_ylabel('Intensity (AU)')
+        if type(item_text) == list and not clear:
+            ax.legend(fontsize=9)
         
         vertical_line = ax.axvline(x=-10000, color='black', linestyle='--', linewidth=1)
         
@@ -2510,7 +2533,7 @@ def run_main_window():
         
         canvas_spec.draw()
         
-        rt_label = tk.Label(spectra_plot_frame, text=f"Retention Time: {"%.2f" % round(rt_minutes, 2)}", font=("Segoe UI", 8), bg="white")
+        rt_label = tk.Label(spectra_plot_frame, text=f"Retention/Migration Time: {"%.2f" % round(rt_minutes, 2)}", font=("Segoe UI", 8), bg="white")
         rt_label.place(relx=0.5, rely=0, anchor='n')
         
         spec_frame_width = spectra_plot_frame.winfo_width()
@@ -3302,7 +3325,7 @@ def run_main_window():
         canvas_pv = FigureCanvasTkAgg(fig_pv, master=peak_area)
         canvas_pv.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         ax_pv.set_position([0.12, 0.12, 0.86, 0.82])
-        ax_pv.set_xlabel('Retention Time (min)')
+        ax_pv.set_xlabel('Retention/Migration Time (min)')
         ax_pv.set_ylabel('Intensity (AU)')
         
         sample_index = list(glycans_per_sample.keys()).index(selected_item)
@@ -3398,30 +3421,6 @@ def run_main_window():
         x_position = (screen_width - window_width) // 2
         y_position = (screen_height - window_height) // 2
         peak_visualizer.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
-    
-    global ctrl_pressed, shift_pressed
-    ctrl_pressed = False
-    shift_pressed = False
-
-    def on_ctrl_key_press(event):
-        global ctrl_pressed
-        if event.keysym == 'Control_L' or event.keysym == 'Control_R':
-            ctrl_pressed = True
-
-    def on_ctrl_key_release(event):
-        global ctrl_pressed
-        if event.keysym == 'Control_L' or event.keysym == 'Control_R':
-            ctrl_pressed = False
-
-    def on_shift_key_press(event):
-        global shift_pressed
-        if event.keysym == 'Shift_L' or event.keysym == 'Shift_R':
-            shift_pressed = True
-
-    def on_shift_key_release(event):
-        global shift_pressed
-        if event.keysym == 'Shift_L' or event.keysym == 'Shift_R':
-            shift_pressed = False
 
     def click_treeview(event):
         global ctrl_pressed, shift_pressed, chromatograms_list, selected_item, selected_item_chromatograms, samples_list
@@ -3452,13 +3451,13 @@ def run_main_window():
                     spectra_info = (float(parent_text[-1]), rt_seconds)
                     run_ms2_window(spectra_info)
             else:
-                if ctrl_pressed or shift_pressed:
+                if len(chromatograms_list.selection()) > 1:
                     handle_treeview_select(event, False)
                     canvas.draw()
                 else:
                     handle_treeview_select(event)
         else:
-            if ctrl_pressed or shift_pressed:
+            if len(chromatograms_list.selection()) > 1:
                 handle_treeview_select(event, False)
                 canvas.draw()
             else:
@@ -3925,7 +3924,7 @@ def run_main_window():
         canvas_two_d = FigureCanvasTkAgg(fig_two_d, master=two_d_plot)
         canvas_two_d.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         
-        ax_two_d.set_xlabel('Retention Time (min)')
+        ax_two_d.set_xlabel('Retention/Migration Time (min)')
         ax_two_d.set_ylabel('m/z')
         
         ax_two_d.set_xlim(x_lims)
@@ -4245,15 +4244,15 @@ def run_main_window():
         compare_samples.grab_set()
         
         align_chromatograms_checkbox_state = tk.BooleanVar(value=False)
-        align_chromatograms_checkbox = ttk.Checkbutton(compare_samples, text="Align Chromatograms", variable=align_chromatograms_checkbox_state, command=align_chromatograms_checkbox_state_check)
+        align_chromatograms_checkbox = ttk.Checkbutton(compare_samples, text="Align Chromatograms/Electropherograms", variable=align_chromatograms_checkbox_state, command=align_chromatograms_checkbox_state_check)
         align_chromatograms_checkbox.grid(row=0, column=1, padx=10, pady=10, sticky="ne")
-        ToolTip(align_chromatograms_checkbox, "Aligns the chromatograms. It's very dependent on the quality of the peaks, so adjusting quality thresholds may affect the alignment quality.")
+        ToolTip(align_chromatograms_checkbox, "Aligns the chromatograms/electropherograms. It's very dependent on the quality of the peaks, so adjusting quality thresholds may affect the alignment quality.")
         
         chromatograms_checkboxes = CheckboxTreeview(compare_samples)
         chromatograms_checkboxes["show"] = "tree" #removes the header
         chromatograms_checkboxes.grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
         
-        chromatogram_plots_compare_frame = ttk.Labelframe(compare_samples, text="Chromatogram Viewer", style="chromatogram.TLabelframe")
+        chromatogram_plots_compare_frame = ttk.Labelframe(compare_samples, text="Chromatogram/Electropherogram Viewer", style="chromatogram.TLabelframe")
         chromatogram_plots_compare_frame.grid(row=1, column=1, padx=10, pady=10, sticky="nsew")
 
         global canvas_comp, ax_comp, coordinate_label_comp, type_coordinate_comp
@@ -4261,7 +4260,7 @@ def run_main_window():
         ax_comp = fig_comp.add_subplot(111)
         canvas_comp = FigureCanvasTkAgg(fig_comp, master=chromatogram_plots_compare_frame)
         canvas_comp.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-        ax_comp.set_xlabel('Retention Time (min)')
+        ax_comp.set_xlabel('Retention/Migration Time (min)')
         ax_comp.set_ylabel('Intensity (AU)')
         
         for i_i, i in enumerate(samples_dropdown_options):
@@ -4970,7 +4969,7 @@ def run_main_window():
             if mode == 'good':
                 chromatogram_children = chromatograms_list.get_children()
                 for i in chromatogram_children:
-                    if chromatograms_list.item(i).get('text', ()) != "Base Peak Chromatogram" and "good" in chromatograms_list.item(i).get('tags', ()):
+                    if chromatograms_list.item(i).get('text', ()) != "Base Peak Chromatogram/Electropherogram" and "good" in chromatograms_list.item(i).get('tags', ()):
                         glycans[chromatograms_list.item(i).get('text', ())] = {'abundance': 0, 'sn': 0}
             else:
                 selected_chromatograms_list = chromatograms_list.selection()
@@ -5195,6 +5194,15 @@ def run_main_window():
         
     def quick_check_window():
         global maximum_spectra, current_data, selected_item
+        
+        def exit_window_qcw():
+            global glycans_list_quickcheck_save
+            values_list = []
+            for item_id in glycans_list.get_children():
+                values = glycans_list.item(item_id, "values")
+                values_list.append(values)
+            glycans_list_quickcheck_save = values_list
+            max_spectrum_window.destroy()
         
         def glycans_list_sort(tv, col, reverse):
             # Get the data in the specified column
@@ -5491,6 +5499,7 @@ def run_main_window():
         max_spectrum_window.grid_columnconfigure(0, weight=0)
         max_spectrum_window.grid_columnconfigure(1, weight=1)
         max_spectrum_window.grab_set()
+        max_spectrum_window.protocol("WM_DELETE_WINDOW", exit_window_qcw)
         
         global quick_analysis_button
         quick_analysis_button = ttk.Button(max_spectrum_window, text="Quick Analysis", style="small_button_sfw_style1.TButton", command=quick_check_glycans)
@@ -5518,6 +5527,10 @@ def run_main_window():
         glycans_list.bind("<KeyRelease-Down>", click_glycans_list)
         max_spectrum_window.bind("<Control-c>", copy_selected_rows)
         max_spectrum_window.bind("<KeyRelease-Escape>", click_glycans_list)
+        
+        if len(glycans_list_quickcheck_save) > 0:
+            for i_i, i in enumerate(glycans_list_quickcheck_save):
+                glycans_list.insert("", "end", values=i)
     
         max_spectrum_plot_frame = ttk.Labelframe(max_spectrum_window, text="Maximum Intensity Spectrum", style="chromatogram.TLabelframe")
         max_spectrum_plot_frame.grid(row=1, column=1, padx=10, pady=10, sticky="nsew")
@@ -5563,8 +5576,6 @@ def run_main_window():
 
         ax_mis.set_position([subplot_left, subplot_bottom, subplot_width, subplot_height])
         
-        
-        
         max_spectrum_plot_frame.bind("<Configure>", lambda event, ax=ax_mis: adjust_subplot_size(event, ax_mis, canvas_mis))
         canvas_mis.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_mis, canvas_mis, True) if event.button == 3 else None) 
         zoom_selection_key_press_mis = canvas_mis.mpl_connect('key_press_event', lambda event: zoom_selection_compare(event, ax_mis, canvas_mis, type_coordinate_mis))
@@ -5591,6 +5602,184 @@ def run_main_window():
         x_position = (screen_width - window_width) // 2
         y_position = (screen_height - window_height) // 2
         max_spectrum_window.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
+    
+    def quick_trace_window():
+        global quick_trace_opened, quick_trace_window, colors, current_data, selected_item, quick_traces_all, quick_traces_list_save, samples_list
+        
+        def trace_mz(target_mz, tolerance, color_to_trace):
+            if len(samples_list) == 0:
+                return
+            rt_array = current_data['rt_array']
+            if current_data['time_unit'] == 'seconds':
+                rt_array = [x/60 for x in rt_array]
+            if f"{selected_item}_{target_mz}_{tolerance}" in quick_traces_all.keys():
+                int_array = quick_traces_all[f"{selected_item}_{target_mz}_{tolerance}"]
+            else:
+                int_array = []
+                if current_data['file_type'] == 'mzml':
+                    for i in current_data['ms1_array']:
+                        if current_data['access'][i]['ms level'] == 1:
+                            temp_id = General_Functions.binary_search_with_tolerance(current_data['access'][i]['m/z array'], target_mz, 0, len(current_data['access'][i]['m/z array'])-1, tolerance, current_data['access'][i]['intensity array'])
+                            if temp_id == -1:
+                                int_array.append(0)
+                            else:
+                                int_array.append(current_data['access'][i]['intensity array'][temp_id])
+                elif current_data['file_type'] == 'mzxml':
+                    for i in current_data['access']:
+                        if current_data['access'][i]['msLevel'] == 1:
+                            temp_id = General_Functions.binary_search_with_tolerance(current_data['access'][i]['m/z array'], target_mz, 0, len(current_data['access'][i]['m/z array'])-1, tolerance, i['intensity array'])
+                            if temp_id == -1:
+                                int_array.append(0)
+                            else:
+                                int_array.append(current_data['access'][i]['intensity array'][temp_id])
+                quick_traces_all[f"{selected_item}_{target_mz}_{tolerance}"] = int_array
+            
+            if len(quick_trace_list.selection()) > 1:
+                show_graph([rt_array, int_array, color_to_trace, f"{target_mz}±{tolerance}"], clear = False)
+            else:
+                show_graph([rt_array, int_array, color_to_trace, f"{target_mz}±{tolerance}"])
+    
+        def on_quick_trace_list_motion(event):
+            region = quick_trace_list.identify_region(event.x, event.y)
+            column = quick_trace_list.identify_column(event.x)
+            item = quick_trace_list.identify_row(event.y)
+            
+            if region == "cell" and (column == "#1" or column == "#4"):
+                values = quick_trace_list.item(item, "values")
+                # Change the cursor only if the cell value is "Value 5"
+                if "███████████████" in values or "❌" in values:
+                    quick_trace_list.config(cursor="hand2")
+                else:
+                    quick_trace_list.config(cursor="")
+            else:
+                quick_trace_list.config(cursor="")
+        
+        def exit_window_qt():
+            global quick_trace_opened, quick_traces_list_save
+            values_list = []
+            tags_list = []
+            for item_id in quick_trace_list.get_children():
+                values = quick_trace_list.item(item_id, "values")
+                tags = quick_trace_list.item(item_id, "tags")
+                values_list.append(values)
+                tags_list.append(tags)
+            quick_traces_list_save = [values_list, tags_list]
+            quick_trace_opened = False
+            quick_trace_window.destroy()
+
+        def click_quick_trace_list(event):
+            region_qtl = quick_trace_list.identify_region(event.x, event.y)
+            column_qtl = quick_trace_list.identify_column(event.x)
+            item_qtl = quick_trace_list.identify_row(event.y)
+            values_qtl = quick_trace_list.item(item_qtl, "values")
+            
+            if region_qtl == "cell" and column_qtl == '#1':
+                color_code = colorchooser.askcolor(title="Choose a color")[1]
+                quick_trace_window.lift()
+                quick_trace_window.focus_set()
+                if color_code:
+                    quick_trace_list.tag_configure(color_code, foreground=color_code)
+                    quick_trace_list.item(item_qtl, tags=(color_code,))
+                    
+            elif region_qtl == "cell" and column_qtl == "#4":
+                quick_trace_list.delete(item_qtl)
+            
+            elif region_qtl == "cell":
+                selected_items_qt = quick_trace_list.selection()
+                if len(selected_items_qt) > 1:
+                    clear_plot(ax, canvas)
+                for i in selected_items_qt:
+                    values_qtl = quick_trace_list.item(i, "values")
+                    color_to_trace = quick_trace_list.item(i, 'tags')[0]
+                    trace_mz(float(values_qtl[1]), float(values_qtl[2]), color_to_trace)
+        
+        def add_qtl():
+            try:
+                float(mz_entry.get())
+            except:
+                error_window(f"Invalid value on m/z field. Correct it and try again.")
+                return
+            try:
+                float(tol_entry.get())
+            except:
+                error_window(f"Invalid value on tolerance field. Correct it and try again.")
+                return
+            random_color = random.choice(colors)
+            quick_trace_list.tag_configure(random_color, foreground=random_color)
+            quick_trace_list.insert("", "end", values=("███████████████", f"{mz_entry.get()}", f"{tol_entry.get()}", "❌"), tags=(random_color,))
+        
+        if quick_trace_opened:
+            quick_trace_window.lift()
+            quick_trace_window.focus_set()
+            return
+        
+        quick_trace_opened = True
+        
+        small_button_qtw_style1 = ttk.Style().configure("small_button_qtw_style1.TButton", font=("Segoe UI", list_font_size), relief="raised", padding = (0, 0), justify="center")
+        
+        quick_trace_window = tk.Toplevel()
+        quick_trace_window.iconbitmap(current_dir+"/Assets/gg_icon.ico")
+        quick_trace_window.withdraw()
+        quick_trace_window.minsize(410, 480)
+        quick_trace_window.bind("<Configure>", on_resize)
+        quick_trace_window.title(f"Quick Traces")
+        quick_trace_window.resizable(False, True)
+        quick_trace_window.grid_rowconfigure(0, weight=0)
+        quick_trace_window.grid_rowconfigure(1, weight=1)
+        quick_trace_window.grid_columnconfigure(0, weight=0)
+        quick_trace_window.protocol("WM_DELETE_WINDOW", exit_window_qt)
+    
+        mz_label = ttk.Label(quick_trace_window, text='m/z:', font=("Segoe UI", list_font_size_smaller))
+        mz_label.grid(row=0, column=0, padx=(10, 10), pady=(10, 0), sticky="wns")
+        ToolTip(mz_label, "Type in the m/z value you want to trace.")
+    
+        mz_entry = ttk.Entry(quick_trace_window, width=25)
+        mz_entry.grid(row=0, column=0, padx=(40, 10), pady=(10, 0), sticky='wns')
+        ToolTip(mz_entry, "Type in the m/z value you want to trace.")
+    
+        tol_label = ttk.Label(quick_trace_window, text='Tolerance (m/z):', font=("Segoe UI", list_font_size_smaller))
+        tol_label.grid(row=0, column=0, padx=(160, 170), pady=(10, 0), sticky="ens")
+        ToolTip(tol_label, "Type in the tolerance value for the traced m/z value.")
+    
+        tol_entry = ttk.Entry(quick_trace_window, width=10)
+        tol_entry.grid(row=0, column=0, padx=(10, 100), pady=(10, 0), sticky='ens')
+        ToolTip(tol_entry, "Type in the tolerance value for the traced m/z value.")
+        
+        add_button = ttk.Button(quick_trace_window, text="Add Trace", style="small_button_qtw_style1.TButton", command=add_qtl)
+        add_button.grid(row=0, column=0, padx=(10, 10), pady=(10,0), sticky="ens")
+        
+        quick_trace_list_scrollbar = tk.Scrollbar(quick_trace_window, orient=tk.VERTICAL)
+        quick_trace_list = ttk.Treeview(quick_trace_window, columns=("Color", "m/z", "Tolerance", "Remove"), height=25, yscrollcommand=quick_trace_list_scrollbar.set, show='headings')
+        
+        quick_trace_list_columns = ["Color", "m/z", "Tolerance", "Remove"]
+        for col in quick_trace_list_columns:
+            quick_trace_list.heading(col, text=col)
+        
+        quick_trace_list.column("Color", width=10, anchor='center')
+        quick_trace_list.column("m/z", width=80)
+        quick_trace_list.column("Tolerance", width=20)
+        quick_trace_list.column("Remove", width=5, anchor='center')
+        quick_trace_list_scrollbar.config(command=quick_trace_list.yview, width=10)
+        quick_trace_list.grid(row=1, column=0, padx=(10, 20), pady=10, sticky="nsew")
+        quick_trace_list_scrollbar.grid(row=1, column=0, padx=10, pady=10, sticky="nse")
+        
+        if len(quick_traces_list_save) > 0:
+            for i_i, i in enumerate(quick_traces_list_save[0]):
+                quick_trace_list.tag_configure(quick_traces_list_save[1][i_i][0], foreground=quick_traces_list_save[1][i_i][0])
+                quick_trace_list.insert("", "end", values=i, tags=quick_traces_list_save[1][i_i])
+        
+        quick_trace_list.bind("<ButtonRelease-1>", click_quick_trace_list)
+        quick_trace_list.bind("<Motion>", on_quick_trace_list_motion)
+        
+        quick_trace_window.update_idletasks()
+        quick_trace_window.deiconify()
+        window_width = quick_trace_window.winfo_width()
+        window_height = quick_trace_window.winfo_height()
+        screen_width = quick_trace_window.winfo_screenwidth()
+        screen_height = quick_trace_window.winfo_screenheight()
+        x_position = (screen_width - window_width) // 2
+        y_position = (screen_height - window_height) // 2
+        quick_trace_window.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
         
     # Create the main window
     global main_window
@@ -5604,15 +5793,6 @@ def run_main_window():
     main_window.iconbitmap(current_dir+"/Assets/gg_icon.ico")
     main_window.minsize(1025, 720)
     main_window.bind("<Configure>", on_resize)
-    main_window.bind("<Control_L>", on_ctrl_key_press)
-    main_window.bind("<KeyRelease-Control_L>", on_ctrl_key_release)
-    main_window.bind("<Control_R>", on_ctrl_key_press)
-    main_window.bind("<KeyRelease-Control_R>", on_ctrl_key_release)
-    main_window.bind("<Shift_L>", on_shift_key_press)
-    main_window.bind("<KeyRelease-Shift_L>", on_shift_key_release)
-    main_window.bind("<Shift_R>", on_shift_key_press)
-    main_window.bind("<KeyRelease-Shift_R>", on_shift_key_release)
-    main_window.bind("<KeyRelease-Escape>", clear_treeview_selection)
     main_window.grid_columnconfigure(0, weight=0)
     main_window.grid_columnconfigure(10, weight=1)
     main_window.grid_rowconfigure(0, weight=0)
@@ -5634,6 +5814,9 @@ def run_main_window():
     
     image_mis = Image.open(current_dir+"/Assets/mis.png")
     photo_mis = ImageTk.PhotoImage(image_mis)
+    
+    image_eic = Image.open(current_dir+"/Assets/eic.png")
+    photo_eic = ImageTk.PhotoImage(image_eic)
     
     banner = Image.open(current_dir+"/Assets/banner.png")
     banner_size = banner.size
@@ -5736,13 +5919,18 @@ def run_main_window():
     
     global two_d
     two_d = ttk.Button(main_window, image=photo_two_d, style="two_d_button_style.TButton", command=draw_heatmap, state=tk.DISABLED)
-    two_d.grid(row=0, column=11, padx=(10,20), sticky='se')
-    ToolTip(two_d, "Creates a 2D-Plot (Retention Time x m/z) of the current axis ranges of the displayed chromatogram and spectrum in a new window. Wider ranges will take longer to load.")
+    two_d.grid(row=0, column=0, columnspan = 12, padx=(10,20), sticky='se')
+    ToolTip(two_d, "Creates a 2D-Plot (Retention/Migration Time x m/z) of the current axis ranges of the displayed chromatogram/electropherogram and spectrum in a new window. Wider ranges will take longer to load.")
     
     global quick_check
     quick_check = ttk.Button(main_window, image=photo_mis, style="two_d_button_style.TButton", command=process_maximum_spectrum, state=tk.DISABLED)
-    quick_check.grid(row=0, column=11, padx=(10,55), sticky='se')
-    ToolTip(quick_check, "Calculates an aggregated spectra called Maximum Intensity Spectrum (MIS) of the whole chromatographic run based on the maximum intensity values each m/z achieves. The sample can be quickly checked for the presence of glycans on the MIS window, if you have a library loaded.\nThe first time you click on this button for a given sample it will take up to a few minutes to calculate the MIS. Subsequent times will load instantly.")
+    quick_check.grid(row=0, column=0, columnspan = 12, padx=(10,55), sticky='se')
+    ToolTip(quick_check, "Calculates an aggregated spectra called Maximum Intensity Spectrum (MIS) of the whole chromatographic/electropherographic run based on the maximum intensity values each m/z achieves. The sample can be quickly checked for the presence of glycans on the MIS window, if you have a library loaded.\nThe first time you click on this button for a given sample it will take up to a few minutes to calculate the MIS. Subsequent times will load instantly.")
+    
+    global quick_trace
+    quick_trace = ttk.Button(main_window, image=photo_eic, style="two_d_button_style.TButton", command=quick_trace_window, state=tk.NORMAL)
+    quick_trace.grid(row=0, column=0, columnspan = 12, padx=(10,90), sticky='se')
+    ToolTip(quick_trace, "Opens a small window that allows you to create custom Extracted Ion Chromatograms/Electropherograms for your samples.")
     
     # Second row of widgets
     global samples_dropdown_options, samples_dropdown, chromatograms_list
@@ -5774,7 +5962,7 @@ def run_main_window():
     global compare_samples_button
     compare_samples_button = ttk.Button(main_window, text="Compare samples", style="small_button_style1.TButton", command=aligning_samples_window, state=tk.DISABLED)
     compare_samples_button.grid(row=1, rowspan=2, column=0, padx=(10, 115), pady=(10, 235), sticky="sew")
-    ToolTip(compare_samples_button, "Opens a window for comparing the chromatograms for the selected compound on different samples. It features an option for alignment of the chromatograms and, due to that, and depending on the number of samples you have, this may take a while to load the first time with a given set of QC parameters.")
+    ToolTip(compare_samples_button, "Opens a window for comparing the chromatograms/electropherograms for the selected compound on different samples. It features an option for alignment of the chromatograms/electropherograms and, due to that, and depending on the number of samples you have, this may take a while to load the first time with a given set of QC parameters.")
     
     global plot_graph_button
     plot_graph_button = ttk.Button(main_window, text="Plot Graph", style="small_button_style1.TButton", command=plot_graph_window, state=tk.DISABLED)
@@ -5840,7 +6028,7 @@ def run_main_window():
     chromatograms_qc_numbers.grid(row=1, rowspan=2, column=0, padx=10, pady=10, sticky="sew")
     ToolTip(chromatograms_qc_numbers, "Good compositions have at least one peak that matches all quality criteria set above; Average have at least one peak that fails only one criteria; Bad have all peaks failing at least two criterias.")
 
-    chromatogram_plot_frame = ttk.Labelframe(main_window, text="Chromatogram Viewer", style="chromatogram.TLabelframe")
+    chromatogram_plot_frame = ttk.Labelframe(main_window, text="Chromatogram/Electropherogram Viewer", style="chromatogram.TLabelframe")
     chromatogram_plot_frame.grid(row=1, column=1, columnspan=11, padx=20, pady=(0, 0), sticky="nsew")
 
     global canvas, ax, coordinate_label, type_coordinate
@@ -6189,9 +6377,6 @@ def run_select_files_window(samples_dropdown):
             check_qc_dist_button.config(state=tk.NORMAL)
             plot_graph_button.config(state=tk.NORMAL)
         else:
-            run_analysis_button.config(state=tk.NORMAL)
-            generate_library.config(state=tk.NORMAL)
-            import_library.config(state=tk.NORMAL)
             check_qc_dist_button.config(state=tk.DISABLED)
             plot_graph_button.config(state=tk.DISABLED)
         # Access each item in the Treeview
@@ -6207,6 +6392,9 @@ def run_select_files_window(samples_dropdown):
             reanalysis_file = threading.Thread(target=load_reanalysis, args=(reanalysis_path,))
             reanalysis_file.start()
         if len(samples_list) > 0:
+            run_analysis_button.config(state=tk.NORMAL)
+            generate_library.config(state=tk.NORMAL)
+            import_library.config(state=tk.NORMAL)
             if len(reanalysis_path) == 0:
                 samples_names = Execution_Functions.sample_names(samples_list)
                 samples_dropdown_options = samples_names
@@ -6274,11 +6462,11 @@ def run_select_files_window(samples_dropdown):
             information_text.insert(tk.END, f" -- Limit fragments assignment to composition: {parameters_gg[1][2][1]}\n")
             information_text.insert(tk.END, f" -- Assign MS2 of glycans not found in MS1: {parameters_gg[1][2][2]}\n")
         information_text.insert(tk.END, f" - Tolerance unit: {parameters_gg[1][4][0]}, tolerance value: {parameters_gg[1][4][1]}\n")
-        information_text.insert(tk.END, f" - Retention time interval analyzed: {parameters_gg[1][5][0]}, {parameters_gg[1][5][1]}\n")
+        information_text.insert(tk.END, f" - Retention/Migration time interval analyzed: {parameters_gg[1][5][0]}, {parameters_gg[1][5][1]}\n")
         information_text.insert(tk.END, f" - Custom minimum datapoints per peaks: {parameters_gg[1][8][0]}\n")
         if parameters_gg[1][8][0]:
             information_text.insert(tk.END, f" -- Minimum number of datapoints per peaks: {parameters_gg[1][8][1]}\n")
-        information_text.insert(tk.END, f" - Limit peaks picked per chromatogram: {parameters_gg[1][9][0]}\n")
+        information_text.insert(tk.END, f" - Limit peaks picked per chromatogram/electropherogram: {parameters_gg[1][9][0]}\n")
         if parameters_gg[1][9][0]:
             information_text.insert(tk.END, f" -- Number of peaks: {parameters_gg[1][9][1]}\n")
         
@@ -6596,8 +6784,8 @@ def run_set_parameters_window():
                            'Min. Li Adduct':lithium_min_entry.get(), 
                            'Max. Li Adduct':lithium_max_entry.get(), 
                            'Max. Charges':max_charges_entry.get(),
-                           'Min. Retention Time':rt_int_min_entry.get(),
-                           'Max. Retention Time':rt_int_max_entry.get(),
+                           'Min. Retention/Migration Time':rt_int_min_entry.get(),
+                           'Max. Retention/Migration Time':rt_int_max_entry.get(),
                            'Accuracy Value':acc_value_entry.get()}
         cores_good = True
         temp_number_cores = number_cores_entry.get()
@@ -7689,28 +7877,28 @@ def run_set_parameters_window():
     acc_value_entry.grid(row=3, column=1, padx=(10, 10), pady=(5, 0), sticky='e')
     ToolTip(acc_value_entry, "Enter the value for the accuracy: If using PPM, recommended a value > 1; if using mz, recommended a value between 0 and 1.")
     
-    rt_int_label = ttk.Label(analysis_frame, text='Retention time to analyze (min):', font=("Segoe UI", list_font_size))
+    rt_int_label = ttk.Label(analysis_frame, text='Retention/Migration time to analyze (min):', font=("Segoe UI", list_font_size))
     rt_int_label.grid(row=4, column=0, columnspan=2, padx=(10, 10), pady=(5, 0), sticky="w")
-    ToolTip(rt_int_label, "Crops the chromatogram based on retention time. This should be done, whenever it's possible, since it has a big impact in the analysis speed.")
+    ToolTip(rt_int_label, "Crops the chromatogram/electropherogram based on retention/migration time. This should be done, whenever it's possible, since it has a big impact in the analysis speed.")
     
     rt_int_min_entry = ttk.Entry(analysis_frame, width=6)
     rt_int_min_entry.insert(0, ret_time_interval[0])
     rt_int_min_entry.grid(row=4, column=0, columnspan=2, padx=(0, 61), pady=(5, 0), sticky='e')
-    ToolTip(rt_int_min_entry, "Set the beggining of the retention time interval to analyze.")
+    ToolTip(rt_int_min_entry, "Set the beggining of the retention/migration time interval to analyze.")
     
     rt_int_dash_label = ttk.Label(analysis_frame, text='-', font=("Segoe UI", list_font_size))
     rt_int_dash_label.grid(row=4, column=0, columnspan=2, padx=(0, 52), pady=(5, 0), sticky="e")
-    ToolTip(rt_int_dash_label, "Set the end of the retention time interval to analyze.")
+    ToolTip(rt_int_dash_label, "Set the end of the retention/migration time interval to analyze.")
     
     rt_int_max_entry = ttk.Entry(analysis_frame, width=6)
     rt_int_max_entry.insert(0, ret_time_interval[1])
     rt_int_max_entry.grid(row=4, column=0, columnspan=2, padx=(0, 10), pady=(5, 0), sticky='e')
-    ToolTip(rt_int_max_entry, "Set the end of the retention time interval to analyze.")
+    ToolTip(rt_int_max_entry, "Set the end of the retention/migration time interval to analyze.")
     
     custom_ppp_checkbox_state = tk.BooleanVar(value=min_ppp[0])
     custom_ppp_checkbox = ttk.Checkbutton(analysis_frame, text="Custom minimum datapoints\nper peak", variable=custom_ppp_checkbox_state, command=custom_ppp_checkbox_state_check)
     custom_ppp_checkbox.grid(row=5, column=0, padx=(10, 10), pady=(5, 0), sticky="w")
-    ToolTip(custom_ppp_checkbox, "Imposes a minimum amount of datapoints per peak to consider any given peak viable. If off, the program automatically determines an amount based on the number of datapoints in 0.2 minutes of chromatogram, implying that peaks are at least 0.2 minutes wide.")
+    ToolTip(custom_ppp_checkbox, "Imposes a minimum amount of datapoints per peak to consider any given peak viable. If off, the program automatically determines an amount based on the number of datapoints in 0.2 minutes of chromatogram/electropherogram, implying that peaks are at least 0.2 minutes wide.")
     
     custom_ppp_label = ttk.Label(analysis_frame, text='Number of\nDatapoints:', font=("Segoe UI", list_font_size))
     custom_ppp_label.grid(row=5, column=1, columnspan=2, padx=(0, 55), pady=(5, 0), sticky="e")
@@ -7726,9 +7914,9 @@ def run_set_parameters_window():
     ToolTip(custom_ppp_entry, "Defines the minimum amount of datapoints to consider a peak viable.")
     
     close_peaks_checkbox_state = tk.BooleanVar(value=close_peaks[0])
-    close_peaks_checkbox = ttk.Checkbutton(analysis_frame, text="Limit peaks picked per\nchromatogram", variable=close_peaks_checkbox_state, command=close_peaks_checkbox_state_check)
+    close_peaks_checkbox = ttk.Checkbutton(analysis_frame, text="Limit peaks picked per\nEIC/EIE", variable=close_peaks_checkbox_state, command=close_peaks_checkbox_state_check)
     close_peaks_checkbox.grid(row=6, column=0, padx=(10, 10), pady=(5, 0), sticky="w")
-    ToolTip(close_peaks_checkbox, "Imposes a limit to the number of peaks picked in each chromatogram. Peaks picked will always be selected based on the most intense peak, followed by the peaks closest to it.")
+    ToolTip(close_peaks_checkbox, "Imposes a limit to the number of peaks picked in each extracted ion chromatogram/electropherogram. Peaks picked will always be selected based on the most intense peak, followed by the peaks closest to it.")
     
     close_peaks_label = ttk.Label(analysis_frame, text='Number of\nPeaks:', font=("Segoe UI", list_font_size))
     close_peaks_label.grid(row=6, column=1, columnspan=2, padx=(0, 55), pady=(5, 0), sticky="e")
@@ -7955,7 +8143,7 @@ def save_results_window():
     save_composition_checkbox_state = tk.BooleanVar(value=compositions)
     save_composition_checkbox = ttk.Checkbutton(sr_window, text="Include whole composition information, in addition to peak-separated\ninformation", variable=save_composition_checkbox_state, command=save_composition_checkbox_state_check)
     save_composition_checkbox.grid(row=0, column=0, columnspan=2, padx=(10, 10), pady=(10, 0), sticky="we")
-    ToolTip(save_composition_checkbox, "Normally the data will be peak-separated, meaning that the same composition will result in multiple results, one for each peak in the chromatogram. If you enable this option, you'll also have a sheet where all the peaks area under curve value of a given composition are combined.")
+    ToolTip(save_composition_checkbox, "Normally the data will be peak-separated, meaning that the same composition will result in multiple results, one for each peak in the chromatogram/electropherogram. If you enable this option, you'll also have a sheet where all the peaks area under curve value of a given composition are combined.")
     
     n_glycans_class_checkbox_state = tk.BooleanVar(value=force_nglycan)
     n_glycans_class_checkbox = ttk.Checkbutton(sr_window, text="Determine N-Glycans class", variable=n_glycans_class_checkbox_state, command=n_glycans_class_checkbox_state_check)
@@ -7963,9 +8151,9 @@ def save_results_window():
     ToolTip(n_glycans_class_checkbox, "If used, outputs extra columns informing if a glycan's composition fits any of the N-Glycans classes, such as oligomannose, complex, hybrid or paucimannose. Can be enabled even if 'Force N-Glycans Compositions' is off in parameters' window, but it's meant to be used for N-Glycans analysis.")
     
     align_chromatograms_sr_checkbox_state = tk.BooleanVar(value=align_chromatograms)
-    align_chromatograms_sr_checkbox = ttk.Checkbutton(sr_window, text="Align Results and Chromatograms by Retention Time", variable=align_chromatograms_sr_checkbox_state, command=align_chromatograms_sr_checkbox_state_check)
+    align_chromatograms_sr_checkbox = ttk.Checkbutton(sr_window, text="Align Results and Chromatograms/Electropherograms by Retention/Migration Time", variable=align_chromatograms_sr_checkbox_state, command=align_chromatograms_sr_checkbox_state_check)
     align_chromatograms_sr_checkbox.grid(row=2, column=0, columnspan=2, padx=(10, 10), pady=(5, 0), sticky="w")
-    ToolTip(align_chromatograms_sr_checkbox, "Aligns the results and the chromatograms based on peaks assignment.")
+    ToolTip(align_chromatograms_sr_checkbox, "Aligns the results and the chromatograms/electropherograms based on peaks assignment.")
     
     additional_files_frame = ttk.Labelframe(sr_window, text="Additional Files:", style="library_building.TLabelframe")
     additional_files_frame.grid(row=3, column=0, columnspan=2, padx=(10, 10), pady=(10, 0), sticky="nsew")
