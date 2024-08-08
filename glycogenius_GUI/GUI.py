@@ -18,7 +18,7 @@
 
 global gg_version, GUI_version
 gg_version = '1.1.30'
-GUI_version = '0.0.25'
+GUI_version = '0.0.26'
 
 from PIL import Image, ImageTk
 import threading
@@ -807,21 +807,21 @@ def error_window(text):
 def kill_concurrent_futures():
     processes = psutil.pids()
     gui_id = os.getpid()
-    this_process = psutil.Process(p)
+    this_process = psutil.Process(gui_id)
     this_process_name = this_process.name()
     for p in processes:
-        process = psutil.Process(p)
         try:
+            process = psutil.Process(p)
             name = process.name()
             ppid = process.ppid()
             cmd_line = process.cmdline()
+            if (name == 'python.exe' or name == this_process_name) and ppid == gui_id:
+                for i in cmd_line:
+                    if i == '--multiprocessing-fork':
+                        process.terminate()
+                        break
         except:
             continue
-        if (name == 'python.exe' or name == this_process_name) and ppid == gui_id:
-            for i in cmd_line:
-                if i == '--multiprocessing-fork':
-                    process.terminate()
-                    break
                 
 def on_closing():
     return
