@@ -18,7 +18,7 @@
 
 global gg_version, GUI_version
 gg_version = '1.1.30'
-GUI_version = '0.0.24'
+GUI_version = '0.0.25'
 
 from PIL import Image, ImageTk
 import threading
@@ -800,19 +800,28 @@ def load_gg_parameters(path):
     with open(os.path.join(temp_folder, 'raw_data_7'), 'rb') as f:
         parameters_gg = dill.load(f)
         f.close()
-    
 
 def error_window(text):
     messagebox.showerror("Error", text)
-    
+        
 def kill_concurrent_futures():
     processes = psutil.pids()
+    gui_id = os.getpid()
+    this_process = psutil.Process(p)
+    this_process_name = this_process.name()
     for p in processes:
         process = psutil.Process(p)
-        if process.name() == 'python.exe' or process.name() == 'GlycoGenius.exe':
-            for i in process.cmdline():
+        try:
+            name = process.name()
+            ppid = process.ppid()
+            cmd_line = process.cmdline()
+        except:
+            continue
+        if (name == 'python.exe' or name == this_process_name) and ppid == gui_id:
+            for i in cmd_line:
                 if i == '--multiprocessing-fork':
                     process.terminate()
+                    break
                 
 def on_closing():
     return
@@ -1885,6 +1894,95 @@ def run_main_window():
             loading_files_after_analysis()
             check_qc_dist_button.config(state=tk.NORMAL)
             plot_graph_button.config(state=tk.NORMAL)
+        
+        def get_parameters_analysis():
+            def close_analysis_param():
+                run_analysis.grab_set()
+                analysis_info_window.destroy()
+            analysis_info_window = tk.Toplevel()
+            analysis_info_window.withdraw()
+            analysis_info_window.title("Analysis Parameters")
+            analysis_info_window.iconbitmap(current_dir+"/Assets/gg_icon.ico")
+            analysis_info_window.resizable(False, False)
+            analysis_info_window.grab_set()
+
+            information_text = ScrolledText(analysis_info_window, width=55, height=30, wrap=tk.WORD)
+            information_text.grid(row=0, column=0, padx = 10, pady = 10, sticky="new")
+            
+            information_text.insert(tk.END, "Samples analyzed:\n")
+            for i in samples_list:
+                information_text.insert(tk.END, f"- {i.split("/")[-1]}\n")
+            information_text.insert(tk.END, "\n")
+            information_text.insert(tk.END, "Library properties:\n")
+            
+            shutil.copy(library_path, os.path.join(temp_folder, 'glycans_library.py'))
+            spec = importlib.util.spec_from_file_location("glycans_library", temp_folder+"/glycans_library.py")
+            lib_module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(lib_module)
+            try:
+                library_metadata = lib_module.metadata
+            except:
+                library_metadata = []
+            if len(library_metadata) > 0:
+                min_max_monos = library_metadata[0]
+                min_max_hex = library_metadata[1]
+                min_max_hexnac = library_metadata[2]
+                min_max_fuc = library_metadata[3]
+                min_max_sia = library_metadata[4]
+                min_max_ac = library_metadata[5]
+                min_max_gc = library_metadata[6]
+                force_nglycan = library_metadata[7]
+                max_adducts = library_metadata[8]
+                max_charges = library_metadata[9]
+                reducing_end_tag = library_metadata[10]
+                internal_standard = library_metadata[11]
+                permethylated = library_metadata[12]
+                lactonized_ethyl_esterified = library_metadata[13]
+                reduced = library_metadata[14]
+                fast_iso = library_metadata[15]
+                high_res = library_metadata[16]
+                custom_glycans = library_metadata[17]
+                if len(library_metadata) > 18:
+                    min_max_xyl = library_metadata[18]
+                else:
+                    min_max_xyl = 'unavailable'
+            if custom_glycans[0]:
+                library_type = f" - Custom glycans: {str(custom_glycans[1])[1:-1]}"
+            else:
+                library_type = f" - Monosaccharides: {str(min_max_monos)[1:-1]}\n - Hexoses: {str(min_max_hex)[1:-1]}\n - HexNAcs: {str(min_max_hexnac)[1:-1]}\n - Xyloses: {str(min_max_xyl)[1:-1]}\n - Sialic Acids: {str(min_max_sia)[1:-1]}\n - dHex: {str(min_max_fuc)[1:-1]}\n - Neu5Acs: {str(min_max_ac)[1:-1]}\n - Neu5Gcs: {str(min_max_gc)[1:-1]}"
+
+            additional_info = f" - Force N-Glycans composition: {force_nglycan}\n - Maximum adducts: {max_adducts}\n - Maximum charges: {max_charges}\n - Reducing end tag: {reducing_end_tag}\n - Permethylated: {permethylated}\n - Reduced end: {reduced}\n - Amidated/Ethyl-Esterified: {lactonized_ethyl_esterified}\n - Fast isotopic calculations: {fast_iso}\n - High resolution isotopic calculations: {high_res}"
+                
+            information_text.insert(tk.END, f"{library_type}\n")
+            information_text.insert(tk.END, "\n")
+            information_text.insert(tk.END, f"{additional_info}\n")
+            information_text.insert(tk.END, "\n")
+            information_text.insert(tk.END, "Analysis settings:\n")
+            information_text.insert(tk.END, f" - Analyze MS2: {analyze_ms2[0]}\n")
+            if analyze_ms2[0]:
+                information_text.insert(tk.END, f" -- Limit fragments assignment to composition: {analyze_ms2[1]}\n")
+                information_text.insert(tk.END, f" -- Assign MS2 of glycans not found in MS1: {analyze_ms2[2]}\n")
+            information_text.insert(tk.END, f" - Tolerance unit: {tolerance[0]}, tolerance value: {tolerance[1]}\n")
+            information_text.insert(tk.END, f" - Retention/Migration time interval analyzed: {ret_time_interval[0]}, {ret_time_interval[1]}\n")
+            information_text.insert(tk.END, f" - Custom minimum datapoints per peaks: {min_ppp[0]}\n")
+            if min_ppp[0]:
+                information_text.insert(tk.END, f" -- Minimum number of datapoints per peaks: {min_ppp[1]}\n")
+            information_text.insert(tk.END, f" - Limit peaks picked per chromatogram/electropherogram: {close_peaks[0]}\n")
+            if close_peaks[0]:
+                information_text.insert(tk.END, f" -- Number of peaks: {close_peaks[1]}\n")
+        
+            close_analysis_info_button = ttk.Button(analysis_info_window, text="Close", style="small_button_sfw_style1.TButton", command=close_analysis_param)
+            close_analysis_info_button.grid(row=1, column=0, padx=10, pady=10)
+            
+            analysis_info_window.update_idletasks()
+            analysis_info_window.deiconify()
+            window_width = analysis_info_window.winfo_width()
+            window_height = analysis_info_window.winfo_height()
+            screen_width = analysis_info_window.winfo_screenwidth()
+            screen_height = analysis_info_window.winfo_screenheight()
+            x_position = (screen_width - window_width) // 2
+            y_position = (screen_height - window_height) // 2
+            analysis_info_window.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
                     
         if len(samples_list) == 0:
             error_window("You must select files for analysis on 'Select Files' menu!")
@@ -1918,10 +2016,13 @@ def run_main_window():
             
             global ok_run_analysis_button
             ok_run_analysis_button = ttk.Button(run_analysis, text="Ok", style="small_button_sfw_style1.TButton", command=ok_progress_run_analysis_window, state=tk.DISABLED)
-            ok_run_analysis_button.grid(row=5, column=0, padx=10, pady=10, sticky="e")
+            ok_run_analysis_button.grid(row=5, column=0, columnspan=2, padx=10, pady=10, sticky="w")
             
             cancel_run_analysis_button = ttk.Button(run_analysis, text="Cancel", style="small_button_sfw_style1.TButton", command=close_progress_run_analysis_window)
-            cancel_run_analysis_button.grid(row=5, column=1, padx=10, pady=10, sticky="w")
+            cancel_run_analysis_button.grid(row=5, column=0, columnspan=2, padx=(100, 10), pady=10, sticky="w")
+            
+            check_param_analysis_button = ttk.Button(run_analysis, text="Check Analysis Parameters", style="small_button_sfw_style1.TButton", command=get_parameters_analysis)
+            check_param_analysis_button.grid(row=5, column=1, padx=10, pady=10, sticky="e")
             
             run_analysis.update_idletasks()
             run_analysis.deiconify()
@@ -5201,7 +5302,7 @@ def run_main_window():
             for item_id in glycans_list.get_children():
                 values = glycans_list.item(item_id, "values")
                 values_list.append(values)
-            glycans_list_quickcheck_save = values_list
+            glycans_list_quickcheck_save[f"{selected_item}_{tolerance}_{library_path.split("/")[-1]}"] = values_list
             max_spectrum_window.destroy()
         
         def glycans_list_sort(tv, col, reverse):
@@ -5528,8 +5629,8 @@ def run_main_window():
         max_spectrum_window.bind("<Control-c>", copy_selected_rows)
         max_spectrum_window.bind("<KeyRelease-Escape>", click_glycans_list)
         
-        if len(glycans_list_quickcheck_save) > 0:
-            for i_i, i in enumerate(glycans_list_quickcheck_save):
+        if f"{selected_item}_{tolerance}_{library_path.split("/")[-1]}" in glycans_list_quickcheck_save.keys():
+            for i_i, i in enumerate(glycans_list_quickcheck_save[f"{selected_item}_{tolerance}_{library_path.split("/")[-1]}"]):
                 glycans_list.insert("", "end", values=i)
     
         max_spectrum_plot_frame = ttk.Labelframe(max_spectrum_window, text="Maximum Intensity Spectrum", style="chromatogram.TLabelframe")
@@ -5605,39 +5706,84 @@ def run_main_window():
     
     def quick_trace_window():
         global quick_trace_opened, quick_trace_window, colors, current_data, selected_item, quick_traces_all, quick_traces_list_save, samples_list
+                    
+        def trace_loading():
+            global loading_eic_window
+            loading_eic_window = tk.Toplevel()
+            loading_eic_window.withdraw()
+            loading_eic_window.title("Tracing the EIC/EIE")
+            loading_eic_window.iconbitmap(current_dir+"/Assets/gg_icon.ico")
+            loading_eic_window.resizable(False, False)
+            loading_eic_window.grab_set()
+            loading_eic_window.protocol("WM_DELETE_WINDOW", on_closing)
+            
+            loading_eic_window_label = ttk.Label(loading_eic_window, text="Tracing EIC/EIE for the specified m/z in this sample.\nPlease wait.", font=("Segoe UI", list_font_size))
+            loading_eic_window_label.pack(pady=35, padx=70)
+            
+            loading_eic_window.update_idletasks()
+            loading_eic_window.deiconify()
+            window_width = loading_eic_window.winfo_width()
+            window_height = loading_eic_window.winfo_height()
+            screen_width = loading_eic_window.winfo_screenwidth()
+            screen_height = loading_eic_window.winfo_screenheight()
+            x_position = (screen_width - window_width) // 2
+            y_position = (screen_height - window_height) // 2
+            loading_eic_window.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
         
-        def trace_mz(target_mz, tolerance, color_to_trace):
+        def trace_mz():
+            global loading_eic_window, quick_traces_all
             if len(samples_list) == 0:
                 return
-            rt_array = current_data['rt_array']
-            if current_data['time_unit'] == 'seconds':
-                rt_array = [x/60 for x in rt_array]
-            if f"{selected_item}_{target_mz}_{tolerance}" in quick_traces_all.keys():
-                int_array = quick_traces_all[f"{selected_item}_{target_mz}_{tolerance}"]
-            else:
-                int_array = []
-                if current_data['file_type'] == 'mzml':
-                    for i in current_data['ms1_array']:
-                        if current_data['access'][i]['ms level'] == 1:
-                            temp_id = General_Functions.binary_search_with_tolerance(current_data['access'][i]['m/z array'], target_mz, 0, len(current_data['access'][i]['m/z array'])-1, tolerance, current_data['access'][i]['intensity array'])
-                            if temp_id == -1:
+                
+            selected_items_qtl = quick_trace_list.selection()
+            if len(selected_items_qtl) > 1:
+                clear_plot(ax, canvas)
+                
+            for i_i, i in enumerate(selected_items_qtl):
+                values_qtl = quick_trace_list.item(i, "values")
+                target_mz = values_qtl[1]
+                tolerance = float(values_qtl[2])
+                color_to_trace = quick_trace_list.item(i, 'tags')[0]
+                
+                rt_array = current_data['rt_array']
+                if current_data['time_unit'] == 'seconds':
+                    rt_array = [x/60 for x in rt_array]
+                if f"{selected_item}_{target_mz}_{tolerance}" in quick_traces_all.keys():
+                    int_array = quick_traces_all[f"{selected_item}_{target_mz}_{tolerance}"]
+                else:
+                    targets = target_mz.split(";")
+                    int_array = []
+                    if current_data['file_type'] == 'mzml':
+                        for i in current_data['ms1_array']:
+                            if current_data['access'][i]['ms level'] == 1:
                                 int_array.append(0)
-                            else:
-                                int_array.append(current_data['access'][i]['intensity array'][temp_id])
-                elif current_data['file_type'] == 'mzxml':
-                    for i in current_data['access']:
-                        if current_data['access'][i]['msLevel'] == 1:
-                            temp_id = General_Functions.binary_search_with_tolerance(current_data['access'][i]['m/z array'], target_mz, 0, len(current_data['access'][i]['m/z array'])-1, tolerance, i['intensity array'])
-                            if temp_id == -1:
+                                for j in targets:
+                                    temp_id = General_Functions.binary_search_with_tolerance(current_data['access'][i]['m/z array'], float(j), 0, len(current_data['access'][i]['m/z array'])-1, tolerance, current_data['access'][i]['intensity array'])
+                                    if temp_id != -1:
+                                        int_array[-1] += current_data['access'][i]['intensity array'][temp_id]
+                    elif current_data['file_type'] == 'mzxml':
+                        for i in current_data['access']:
+                            if current_data['access'][i]['msLevel'] == 1:
                                 int_array.append(0)
-                            else:
-                                int_array.append(current_data['access'][i]['intensity array'][temp_id])
-                quick_traces_all[f"{selected_item}_{target_mz}_{tolerance}"] = int_array
-            
-            if len(quick_trace_list.selection()) > 1:
-                show_graph([rt_array, int_array, color_to_trace, f"{target_mz}±{tolerance}"], clear = False)
-            else:
-                show_graph([rt_array, int_array, color_to_trace, f"{target_mz}±{tolerance}"])
+                                for j in targets:
+                                    temp_id = General_Functions.binary_search_with_tolerance(current_data['access'][i]['m/z array'], float(j), 0, len(current_data['access'][i]['m/z array'])-1, tolerance, current_data['access'][i]['intensity array'])
+                                    if temp_id != -1:
+                                        int_array[-1] += current_data['access'][i]['intensity array'][temp_id]
+                    quick_traces_all[f"{selected_item}_{target_mz}_{tolerance}"] = int_array
+                
+                if len(quick_trace_list.selection()) > 1:
+                    show_graph([rt_array, int_array, color_to_trace, f"{target_mz}±{tolerance}"], clear = False)
+                    if i_i >= len(selected_items_qtl)-1:
+                        loading_eic_window.destroy()
+                        quick_trace_window.lift()
+                        quick_trace_window.focus_set()
+                    
+                else:
+                    show_graph([rt_array, int_array, color_to_trace, f"{target_mz}±{tolerance}"])
+                    if i_i >= len(selected_items_qtl)-1:
+                        loading_eic_window.destroy()
+                        quick_trace_window.lift()
+                        quick_trace_window.focus_set()
     
         def on_quick_trace_list_motion(event):
             region = quick_trace_list.identify_region(event.x, event.y)
@@ -5685,28 +5831,43 @@ def run_main_window():
                 quick_trace_list.delete(item_qtl)
             
             elif region_qtl == "cell":
-                selected_items_qt = quick_trace_list.selection()
-                if len(selected_items_qt) > 1:
-                    clear_plot(ax, canvas)
-                for i in selected_items_qt:
-                    values_qtl = quick_trace_list.item(i, "values")
-                    color_to_trace = quick_trace_list.item(i, 'tags')[0]
-                    trace_mz(float(values_qtl[1]), float(values_qtl[2]), color_to_trace)
+                trace_loading()
+                threading.Thread(target = trace_mz).start()
+                    
         
         def add_qtl():
-            try:
-                float(mz_entry.get())
-            except:
-                error_window(f"Invalid value on m/z field. Correct it and try again.")
-                return
-            try:
-                float(tol_entry.get())
-            except:
-                error_window(f"Invalid value on tolerance field. Correct it and try again.")
-                return
-            random_color = random.choice(colors)
-            quick_trace_list.tag_configure(random_color, foreground=random_color)
-            quick_trace_list.insert("", "end", values=("███████████████", f"{mz_entry.get()}", f"{tol_entry.get()}", "❌"), tags=(random_color,))
+            if mz_entry.get().lower() == 'mis':
+                if f"{selected_item}_{tolerance}_{library_path.split("/")[-1]}" in glycans_list_quickcheck_save.keys():
+                    for i_i, i in enumerate(glycans_list_quickcheck_save[f"{selected_item}_{tolerance}_{library_path.split("/")[-1]}"]):
+                        random_color = random.choice(colors)
+                        quick_trace_list.tag_configure(random_color, foreground=random_color)
+                        quick_trace_list.insert("", "end", values=("███████████████", f"{i[2]}", f"{round(General_Functions.tolerance_calc(tolerance[0], tolerance[1], mz = 1000.0), 4)}", "❌"), tags=(random_color,))
+                else:
+                    error_window(f"No MIS analyzed for this sample.")
+                    quick_trace_window.lift()
+                    quick_trace_window.focus_set()
+                    return
+            else:
+                try:
+                    mz_list = mz_entry.get().split(";")
+                    for i in mz_list:
+                        if len(i) > 0:
+                            float(i)
+                except:
+                    error_window(f"Invalid value on m/z field. Correct it and try again.")
+                    quick_trace_window.lift()
+                    quick_trace_window.focus_set()
+                    return
+                try:
+                    float(tol_entry.get())
+                except:
+                    error_window(f"Invalid value on tolerance field. Correct it and try again.")
+                    quick_trace_window.lift()
+                    quick_trace_window.focus_set()
+                    return
+                random_color = random.choice(colors)
+                quick_trace_list.tag_configure(random_color, foreground=random_color)
+                quick_trace_list.insert("", "end", values=("███████████████", f"{mz_entry.get()}", f"{tol_entry.get()}", "❌"), tags=(random_color,))
         
         if quick_trace_opened:
             quick_trace_window.lift()
@@ -5720,7 +5881,7 @@ def run_main_window():
         quick_trace_window = tk.Toplevel()
         quick_trace_window.iconbitmap(current_dir+"/Assets/gg_icon.ico")
         quick_trace_window.withdraw()
-        quick_trace_window.minsize(410, 480)
+        quick_trace_window.minsize(380, 480)
         quick_trace_window.bind("<Configure>", on_resize)
         quick_trace_window.title(f"Quick Traces")
         quick_trace_window.resizable(False, True)
@@ -5731,17 +5892,17 @@ def run_main_window():
     
         mz_label = ttk.Label(quick_trace_window, text='m/z:', font=("Segoe UI", list_font_size_smaller))
         mz_label.grid(row=0, column=0, padx=(10, 10), pady=(10, 0), sticky="wns")
-        ToolTip(mz_label, "Type in the m/z value you want to trace.")
+        ToolTip(mz_label, "Type in the m/z value you want to trace or 'MIS' to import the Quick Analysis results from the MIS window.")
     
-        mz_entry = ttk.Entry(quick_trace_window, width=25)
+        mz_entry = ttk.Entry(quick_trace_window, width=20)
         mz_entry.grid(row=0, column=0, padx=(40, 10), pady=(10, 0), sticky='wns')
-        ToolTip(mz_entry, "Type in the m/z value you want to trace.")
+        ToolTip(mz_entry, "Type in the m/z value you want to trace or 'MIS' to import the Quick Analysis results from the MIS window..")
     
         tol_label = ttk.Label(quick_trace_window, text='Tolerance (m/z):', font=("Segoe UI", list_font_size_smaller))
-        tol_label.grid(row=0, column=0, padx=(160, 170), pady=(10, 0), sticky="ens")
+        tol_label.grid(row=0, column=0, padx=(170, 135), pady=(10, 0), sticky="ens")
         ToolTip(tol_label, "Type in the tolerance value for the traced m/z value.")
     
-        tol_entry = ttk.Entry(quick_trace_window, width=10)
+        tol_entry = ttk.Entry(quick_trace_window, width=5)
         tol_entry.grid(row=0, column=0, padx=(10, 100), pady=(10, 0), sticky='ens')
         ToolTip(tol_entry, "Type in the tolerance value for the traced m/z value.")
         
@@ -5757,7 +5918,7 @@ def run_main_window():
         
         quick_trace_list.column("Color", width=10, anchor='center')
         quick_trace_list.column("m/z", width=80)
-        quick_trace_list.column("Tolerance", width=20)
+        quick_trace_list.column("Tolerance", width=10)
         quick_trace_list.column("Remove", width=5, anchor='center')
         quick_trace_list_scrollbar.config(command=quick_trace_list.yview, width=10)
         quick_trace_list.grid(row=1, column=0, padx=(10, 20), pady=10, sticky="nsew")
@@ -5769,6 +5930,8 @@ def run_main_window():
                 quick_trace_list.insert("", "end", values=i, tags=quick_traces_list_save[1][i_i])
         
         quick_trace_list.bind("<ButtonRelease-1>", click_quick_trace_list)
+        quick_trace_list.bind("<KeyRelease-Up>", click_quick_trace_list)
+        quick_trace_list.bind("<KeyRelease-Down>", click_quick_trace_list)
         quick_trace_list.bind("<Motion>", on_quick_trace_list_motion)
         
         quick_trace_window.update_idletasks()
