@@ -17,13 +17,14 @@
 # by typing 'glycogenius'. If not, see <https://www.gnu.org/licenses/>.
 
 global gg_version, GUI_version
-gg_version = '1.1.30'
-GUI_version = '0.0.26'
+gg_version = '1.1.31'
+GUI_version = '0.0.27'
 
 from PIL import Image, ImageTk
 import threading
 import tkinter as tk
 import pathlib
+import psutil
 import os
 import tempfile
 
@@ -40,14 +41,18 @@ exec_check_folder = os.path.join(tempfile.gettempdir())
 global number_executions
 
 def start_splash():
-    global splash_screen, run_once
+    global splash_screen
     
     try:
-        with open(os.path.join(exec_check_folder, "gg_check.txt"), 'r') as f:
+        this_process_id = os.getpid()
+        this_process = psutil.Process(this_process_id)
+        this_process_ppid = this_process.ppid()
+        with open(os.path.join(exec_check_folder, f"{this_process_ppid}.txt"), 'r') as f:
             f.close()
     except:
+        this_process_id = os.getpid()
         # Creates a dummy file to check execution
-        with open(os.path.join(exec_check_folder, "gg_check.txt"), 'w') as f:
+        with open(os.path.join(exec_check_folder, f"{this_process_id}.txt"), 'w') as f:
             f.write("Glycogenius has run")
             f.close()
             
@@ -81,8 +86,7 @@ def start_splash():
         # Update the GUI manually
         splash_screen.update()
 
-if __name__ == "__main__":
-    start_splash()
+start_splash()
 
 from glycogenius.Modules.core import main as run_glycogenius
 from glycogenius.Modules import Execution_Functions, General_Functions, Config_Handler
@@ -101,7 +105,6 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
 import matplotlib
-import psutil
 import shutil
 import importlib
 import sys
@@ -1988,6 +1991,8 @@ def run_main_window():
             error_window("You must select files for analysis on 'Select Files' menu!")
         elif save_path == "":
             error_window("You must select a working directory in the 'Set Parameters' menu before starting an analysis!")
+        elif library_path == "":
+            error_window("You must generate or import a library before starting an analysis!")
         else:
             global run_analysis
             run_analysis = tk.Toplevel()
@@ -3291,7 +3296,8 @@ def run_main_window():
         def ok_close_main_window():
             shutil.rmtree(temp_folder)
             try:
-                os.remove(os.path.join(exec_check_folder, "gg_check.txt"))
+                this_process_id = os.getpid()
+                os.remove(os.path.join(exec_check_folder, f"{this_process_id}.txt"))
             except:
                 pass
             main_window.destroy()
@@ -8445,5 +8451,8 @@ def main():
     begin_time = str(date)[2:4]+str(date)[5:7]+str(date)[8:10]+"_"+str(date)[11:13]+str(date)[14:16]+str(date)[17:19]
     temp_folder = os.path.join(tempfile.gettempdir(), "gg_"+begin_time)
     os.makedirs(temp_folder)
+    try:
+        splash_screen.destroy()
+    except:
+        pass
     run_main_window()
-    
