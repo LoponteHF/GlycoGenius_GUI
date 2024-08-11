@@ -18,7 +18,7 @@
 
 global gg_version, GUI_version
 gg_version = '1.1.31'
-GUI_version = '0.0.27'
+GUI_version = '0.0.28'
 
 from PIL import Image, ImageTk
 import threading
@@ -688,10 +688,10 @@ def pre_process_one_sample(sample, sample_name):
         error_window(f"Something went wrong when loading the file {sample}. Check if it is an MzML/MzXML file. If it is, it might be corrupted.")
         return 'bad'
 
-def analyze_fraction(access, min_max_index, decimal_places = 2):
+def analyze_fraction(access, ms_level, min_max_index, decimal_places = 2):
     maximum = defaultdict(list)
     for i in access[min_max_index[0]:min_max_index[1]]:
-        if i['ms level'] == 1:
+        if i[ms_level] == 1:
             mz_array = i['m/z array']
             int_array = i['intensity array']
             for j_j, j in enumerate(mz_array):
@@ -5392,16 +5392,16 @@ def run_main_window():
                 
             canvas_mis.draw_idle()
         
-        def calculate_maximum_spectrum(access):
+        def calculate_maximum_spectrum(access, file_type):
             maximum = defaultdict(list)
             
             cpu_count = (os.cpu_count())-2 if os.cpu_count() < 60 else 60
-            interval_len = float(access[-1]['scanList']['scan'][0]['scan start time'])//cpu_count
+            interval_len = float(access[-1]['scanList']['scan'][0]['scan start time'])//cpu_count if file_type == 'mzml' else float(access[-1]['retentionTime'])//cpu_count
             indexes = []
 
             for i in range(cpu_count):
-                indexes.append(access.time[i*interval_len]['index'])
-            indexes.append(access[-1]['index']+1)
+                indexes.append(access.time[i*interval_len]['index'] if file_type == 'mzml' else int(access.time[i*interval_len]['num'])-1)
+            indexes.append(access[-1]['index']+1 if file_type == 'mzml' else int(access[-1]['num']))
 
             results = []
             with concurrent.futures.ProcessPoolExecutor(max_workers = cpu_count) as executor:
@@ -5409,7 +5409,7 @@ def run_main_window():
                     if i_i == len(indexes)-1:
                         break
                     min_max_index = [i, indexes[i_i+1]]
-                    result = executor.submit(analyze_fraction, access, min_max_index)
+                    result = executor.submit(analyze_fraction, access, 'ms level' if file_type == 'mzml' else 'msLevel', min_max_index)
                     results.append(result)
                     
                 for i in results:
@@ -5582,7 +5582,7 @@ def run_main_window():
         if selected_item in maximum_spectra.keys():
             maximum_spectrum = maximum_spectra[selected_item]
         else:
-            maximum_spectrum = calculate_maximum_spectrum(current_data['access'])
+            maximum_spectrum = calculate_maximum_spectrum(current_data['access'], current_data['file_type'])
             maximum_spectra[selected_item] = maximum_spectrum
             
         x_data_mis = []
@@ -5768,7 +5768,7 @@ def run_main_window():
                                     if temp_id != -1:
                                         int_array[-1] += current_data['access'][i]['intensity array'][temp_id]
                     elif current_data['file_type'] == 'mzxml':
-                        for i in current_data['access']:
+                        for i in current_data['ms1_array']:
                             if current_data['access'][i]['msLevel'] == 1:
                                 int_array.append(0)
                                 for j in targets:
