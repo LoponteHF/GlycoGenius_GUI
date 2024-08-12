@@ -18,7 +18,7 @@
 
 global gg_version, GUI_version
 gg_version = '1.1.31'
-GUI_version = '0.0.33'
+GUI_version = '0.0.34'
 
 from PIL import Image, ImageTk
 import threading
@@ -2404,8 +2404,9 @@ def run_main_window():
             grand_parent_text = chromatograms_list.item(grand_parent_item, "text") #glycan
             
             parent_text_split_zero = parent_text.split(" ")[0]
-            if f"{grand_parent_text}+{parent_text_split_zero}_{chromatograms_list.item(selected_item_chromatograms, "text")}_RTs" in curve_fittings[sample_index]:
-                vlines_coord = [curve_fittings[sample_index][f"{grand_parent_text}+{parent_text_split_zero}_{chromatograms_list.item(selected_item_chromatograms, "text")}_RTs"][0], curve_fittings[sample_index][f"{grand_parent_text}+{parent_text_split_zero}_{chromatograms_list.item(selected_item_chromatograms, "text")}_RTs"][-1]]
+            chromatograms_list_selected_item_text = chromatograms_list.item(selected_item_chromatograms, "text")
+            if f"{grand_parent_text}+{parent_text_split_zero}_{chromatograms_list_selected_item_text}_RTs" in curve_fittings[sample_index]:
+                vlines_coord = [curve_fittings[sample_index][f"{grand_parent_text}+{parent_text_split_zero}_{chromatograms_list_selected_item_text}_RTs"][0], curve_fittings[sample_index][f"{grand_parent_text}+{parent_text_split_zero}_{chromatograms_list_selected_item_text}_RTs"][-1]]
                 ax.axvline(vlines_coord[0], color = "blue", linestyle='--', linewidth=1)
                 ax.axvline(vlines_coord[1], color = "blue", linestyle='--', linewidth=1)
                 ax.set_xlim(vlines_coord[0]-1, vlines_coord[1]+1)
@@ -3452,10 +3453,11 @@ def run_main_window():
         grand_parent_item = chromatograms_list.parent(parent_item)
         grand_parent_text = chromatograms_list.item(grand_parent_item, "text")
         parent_text_split_zero = parent_text.split(" ")[0]
-        if f"{grand_parent_text}+{parent_text_split_zero}_{chromatograms_list.item(selected_item_chromatograms, "text")}_RTs" in curve_fittings[sample_index]:
-            y_values_ideal = curve_fittings[sample_index][f"{grand_parent_text}+{parent_text_split_zero}_{chromatograms_list.item(selected_item_chromatograms, "text")}_Ideal_ints"]
-            y_values_found = curve_fittings[sample_index][f"{grand_parent_text}+{parent_text_split_zero}_{chromatograms_list.item(selected_item_chromatograms, "text")}_Found_ints"]
-            x_values_pv = curve_fittings[sample_index][f"{grand_parent_text}+{parent_text_split_zero}_{chromatograms_list.item(selected_item_chromatograms, "text")}_RTs"]
+        chromatograms_list_selected_item_text = chromatograms_list.item(selected_item_chromatograms, "text")
+        if f"{grand_parent_text}+{parent_text_split_zero}_{chromatograms_list_selected_item_text}_RTs" in curve_fittings[sample_index]:
+            y_values_ideal = curve_fittings[sample_index][f"{grand_parent_text}+{parent_text_split_zero}_{chromatograms_list_selected_item_text}_Ideal_ints"]
+            y_values_found = curve_fittings[sample_index][f"{grand_parent_text}+{parent_text_split_zero}_{chromatograms_list_selected_item_text}_Found_ints"]
+            x_values_pv = curve_fittings[sample_index][f"{grand_parent_text}+{parent_text_split_zero}_{chromatograms_list_selected_item_text}_RTs"]
         peak_visualizer.title(f"Peak Visualizer - {grand_parent_text}-{parent_text}")
             
         ax_pv.plot(x_values_pv, y_values_ideal, marker="o", color="red", label = 'Ideal', picker=5)
@@ -3496,7 +3498,8 @@ def run_main_window():
         
         ppm_score = glycans_per_sample[selected_item][grand_parent_text][parent_text_split_zero]['ppm'][glycans_per_sample[selected_item][chromatograms_list.item(grand_parent_item, "text")][chromatogram_parent_item_adduct]['peaks'].index(chromatograms_list.item(selected_item_chromatograms, "text"))]
         
-        auc_for_label = f"{glycans_per_sample[selected_item][grand_parent_text][parent_text_split_zero]['auc'][glycans_per_sample[selected_item][chromatograms_list.item(grand_parent_item, "text")][chromatogram_parent_item_adduct]['peaks'].index(chromatograms_list.item(selected_item_chromatograms, "text"))]:.1e}"
+        chromatograms_list_selected_item_text = chromatograms_list.item(selected_item_chromatograms, "text")
+        auc_for_label = f"{glycans_per_sample[selected_item][grand_parent_text][parent_text_split_zero]['auc'][glycans_per_sample[selected_item][chromatograms_list.item(grand_parent_item, "text")][chromatogram_parent_item_adduct]['peaks'].index(chromatograms_list_selected_item_text)]:.1e}"
         
         ambiguities = f"{glycans_per_sample[selected_item][grand_parent_text][parent_text_split_zero]['ambiguity']}"
         
