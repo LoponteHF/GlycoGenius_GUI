@@ -18,7 +18,7 @@
 
 global gg_version, GUI_version
 gg_version = '1.1.31'
-GUI_version = '0.0.34'
+GUI_version = '0.0.35'
 
 from PIL import Image, ImageTk
 import threading
@@ -3379,8 +3379,8 @@ def run_main_window():
             
             clear_plot(ax_if, canvas_if)
             
-            if x in isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text.split(" ")[0]}"]:
-                parent_text_split_zero = parent_text.split(" ")[0]
+            parent_text_split_zero = parent_text.split(" ")[0]
+            if x in isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text_split_zero}"]:
                 x_values_if_ideal = isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text_split_zero}"][x][0]
                 y_values_if_ideal = isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text_split_zero}"][x][1]
                 if len(x_values_if_ideal) > 0:
