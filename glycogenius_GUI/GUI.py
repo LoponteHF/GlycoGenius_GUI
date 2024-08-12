@@ -18,7 +18,7 @@
 
 global gg_version, GUI_version
 gg_version = '1.1.31'
-GUI_version = '0.0.36'
+GUI_version = '0.0.37'
 
 from PIL import Image, ImageTk
 import threading
@@ -3489,17 +3489,18 @@ def run_main_window():
         
         parent_text_split_zero = parent_text.split(" ")[0]
         chromatogram_parent_item_adduct = chromatograms_list.item(parent_item, "text").split(" ")[0]
-        
-        iso_fitting_score = glycans_per_sample[selected_item][grand_parent_text][parent_text_split_zero]['iso'][glycans_per_sample[selected_item][chromatograms_list.item(grand_parent_item, "text")][chromatogram_parent_item_adduct]['peaks'].index(chromatograms_list.item(selected_item_chromatograms, "text"))]
-        
-        curve_fitting_score = glycans_per_sample[selected_item][grand_parent_text][parent_text_split_zero]['curve'][glycans_per_sample[selected_item][chromatograms_list.item(grand_parent_item, "text")][chromatogram_parent_item_adduct]['peaks'].index(chromatograms_list.item(selected_item_chromatograms, "text"))]
-        
-        s_to_n_score = glycans_per_sample[selected_item][grand_parent_text][parent_text_split_zero]['sn'][glycans_per_sample[selected_item][chromatograms_list.item(grand_parent_item, "text")][chromatogram_parent_item_adduct]['peaks'].index(chromatograms_list.item(selected_item_chromatograms, "text"))]
-        
-        ppm_score = glycans_per_sample[selected_item][grand_parent_text][parent_text_split_zero]['ppm'][glycans_per_sample[selected_item][chromatograms_list.item(grand_parent_item, "text")][chromatogram_parent_item_adduct]['peaks'].index(chromatograms_list.item(selected_item_chromatograms, "text"))]
-        
         chromatograms_list_selected_item_text = chromatograms_list.item(selected_item_chromatograms, "text")
-        auc_for_label = f"{glycans_per_sample[selected_item][grand_parent_text][parent_text_split_zero]['auc'][glycans_per_sample[selected_item][chromatograms_list.item(grand_parent_item, "text")][chromatogram_parent_item_adduct]['peaks'].index(chromatograms_list_selected_item_text)]:.1e}"
+        chromatograms_list_grand_parent_text = chromatograms_list.item(grand_parent_item, "text")
+        
+        iso_fitting_score = glycans_per_sample[selected_item][grand_parent_text][parent_text_split_zero]['iso'][glycans_per_sample[selected_item][chromatograms_list_grand_parent_text][chromatogram_parent_item_adduct]['peaks'].index(chromatograms_list_selected_item_text)]
+        
+        curve_fitting_score = glycans_per_sample[selected_item][grand_parent_text][parent_text_split_zero]['curve'][glycans_per_sample[selected_item][chromatograms_list_grand_parent_text][chromatogram_parent_item_adduct]['peaks'].index(chromatograms_list_selected_item_text)]
+        
+        s_to_n_score = glycans_per_sample[selected_item][grand_parent_text][parent_text_split_zero]['sn'][glycans_per_sample[selected_item][chromatograms_list_grand_parent_text][chromatogram_parent_item_adduct]['peaks'].index(chromatograms_list_selected_item_text)]
+        
+        ppm_score = glycans_per_sample[selected_item][grand_parent_text][parent_text_split_zero]['ppm'][glycans_per_sample[selected_item][chromatograms_list_grand_parent_text][chromatogram_parent_item_adduct]['peaks'].index(chromatograms_list_selected_item_text)]
+        
+        auc_for_label = f"{glycans_per_sample[selected_item][grand_parent_text][parent_text_split_zero]['auc'][glycans_per_sample[selected_item][chromatograms_list_grand_parent_text][chromatogram_parent_item_adduct]['peaks'].index(chromatograms_list_selected_item_text)]:.1e}"
         
         ambiguities = f"{glycans_per_sample[selected_item][grand_parent_text][parent_text_split_zero]['ambiguity']}"
         
