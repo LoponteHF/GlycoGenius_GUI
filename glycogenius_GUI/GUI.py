@@ -18,7 +18,7 @@
 
 global gg_version, GUI_version
 gg_version = '1.1.31'
-GUI_version = '0.0.30'
+GUI_version = '0.0.31'
 
 from PIL import Image, ImageTk
 import threading
@@ -1914,7 +1914,8 @@ def run_main_window():
             
             information_text.insert(tk.END, "Samples analyzed:\n")
             for i in samples_list:
-                information_text.insert(tk.END, f"- {i.split("/")[-1]}\n")
+                i_temp_line = i.split("/")[-1]
+                information_text.insert(tk.END, f"- {i_temp_line}\n")
             information_text.insert(tk.END, "\n")
             information_text.insert(tk.END, "Library properties:\n")
             
@@ -2401,7 +2402,8 @@ def run_main_window():
             grand_parent_text = chromatograms_list.item(grand_parent_item, "text") #glycan
             
             if f"{grand_parent_text}+{parent_text.split(" ")[0]}_{chromatograms_list.item(selected_item_chromatograms, "text")}_RTs" in curve_fittings[sample_index]:
-                vlines_coord = [curve_fittings[sample_index][f"{grand_parent_text}+{parent_text.split(" ")[0]}_{chromatograms_list.item(selected_item_chromatograms, "text")}_RTs"][0], curve_fittings[sample_index][f"{grand_parent_text}+{parent_text.split(" ")[0]}_{chromatograms_list.item(selected_item_chromatograms, "text")}_RTs"][-1]]
+                parent_text_adduct = parent_text.split(" ")[0]
+                vlines_coord = [curve_fittings[sample_index][f"{grand_parent_text}+{parent_text_adduct}_{chromatograms_list.item(selected_item_chromatograms, "text")}_RTs"][0], curve_fittings[sample_index][f"{grand_parent_text}+{parent_text_adduct}_{chromatograms_list.item(selected_item_chromatograms, "text")}_RTs"][-1]]
                 ax.axvline(vlines_coord[0], color = "blue", linestyle='--', linewidth=1)
                 ax.axvline(vlines_coord[1], color = "blue", linestyle='--', linewidth=1)
                 ax.set_xlim(vlines_coord[0]-1, vlines_coord[1]+1)
@@ -2616,8 +2618,9 @@ def run_main_window():
                 parent_text = chromatograms_list.item(parent_item, "text") #adduct
                 grand_parent_item = chromatograms_list.parent(parent_item)
                 grand_parent_text = chromatograms_list.item(grand_parent_item, "text") #glycan
-                if rt_minutes in isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text.split(" ")[0]}"]:
-                    peaks = isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text.split(" ")[0]}"][rt_minutes][0]
+                parent_text_adduct = parent_text.split(" ")[0]
+                if rt_minutes in isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text_adduct}"]:
+                    peaks = isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text_adduct}"][rt_minutes][0]
                     if len(peaks) != 0:
                         ax_spec.set_xlim(peaks[0]-5, peaks[0]+10)
                         highest = 0
@@ -3374,12 +3377,13 @@ def run_main_window():
             clear_plot(ax_if, canvas_if)
             
             if x in isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text.split(" ")[0]}"]:
-                x_values_if_ideal = isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text.split(" ")[0]}"][x][0]
-                y_values_if_ideal = isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text.split(" ")[0]}"][x][1]
+                parent_text_adduct = parent_text.split(" ")[0]
+                x_values_if_ideal = isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text_adduct}"][x][0]
+                y_values_if_ideal = isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text_adduct}"][x][1]
                 if len(x_values_if_ideal) > 0:
                     ax_if.set_xlim(x_values_if_ideal[0]-0.2, x_values_if_ideal[-1]+0.2)
                     x_values_if_actual = [x-(ax_if.get_xlim()[1]-ax_if.get_xlim()[0])*0.02 for x in x_values_if_ideal]
-                    y_values_if_actual = isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text.split(" ")[0]}"][x][2]
+                    y_values_if_actual = isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text_adduct}"][x][2]
                     ax_if.set_ylim(0, max(y_values_if_actual)*1.1 if max(y_values_if_actual) > max(y_values_if_ideal) else max(y_values_if_ideal)*1.1)
                     ax_if.plot(x_values_if_ideal, y_values_if_ideal, marker='', linewidth=0, label="Ideal")
                     ax_if.plot(x_values_if_actual, y_values_if_actual, marker='', linewidth=0, label="Found")
@@ -3445,10 +3449,11 @@ def run_main_window():
         parent_text = chromatograms_list.item(parent_item, "text") #adduct
         grand_parent_item = chromatograms_list.parent(parent_item)
         grand_parent_text = chromatograms_list.item(grand_parent_item, "text")
-        if f"{grand_parent_text}+{parent_text.split(" ")[0]}_{chromatograms_list.item(selected_item_chromatograms, "text")}_RTs" in curve_fittings[sample_index]:
-            y_values_ideal = curve_fittings[sample_index][f"{grand_parent_text}+{parent_text.split(" ")[0]}_{chromatograms_list.item(selected_item_chromatograms, "text")}_Ideal_ints"]
-            y_values_found = curve_fittings[sample_index][f"{grand_parent_text}+{parent_text.split(" ")[0]}_{chromatograms_list.item(selected_item_chromatograms, "text")}_Found_ints"]
-            x_values_pv = curve_fittings[sample_index][f"{grand_parent_text}+{parent_text.split(" ")[0]}_{chromatograms_list.item(selected_item_chromatograms, "text")}_RTs"]
+        parent_text_adduct = parent_text.split(" ")[0]
+        if f"{grand_parent_text}+{parent_text_adduct}_{chromatograms_list.item(selected_item_chromatograms, "text")}_RTs" in curve_fittings[sample_index]:
+            y_values_ideal = curve_fittings[sample_index][f"{grand_parent_text}+{parent_text_adduct}_{chromatograms_list.item(selected_item_chromatograms, "text")}_Ideal_ints"]
+            y_values_found = curve_fittings[sample_index][f"{grand_parent_text}+{parent_text_adduct}_{chromatograms_list.item(selected_item_chromatograms, "text")}_Found_ints"]
+            x_values_pv = curve_fittings[sample_index][f"{grand_parent_text}+{parent_text_adduct}_{chromatograms_list.item(selected_item_chromatograms, "text")}_RTs"]
         peak_visualizer.title(f"Peak Visualizer - {grand_parent_text}-{parent_text}")
             
         ax_pv.plot(x_values_pv, y_values_ideal, marker="o", color="red", label = 'Ideal', picker=5)
@@ -3478,17 +3483,20 @@ def run_main_window():
         
         canvas_if.draw()
         
-        iso_fitting_score = glycans_per_sample[selected_item][grand_parent_text][parent_text.split(" ")[0]]['iso'][glycans_per_sample[selected_item][chromatograms_list.item(grand_parent_item, "text")][chromatograms_list.item(parent_item, "text").split(" ")[0]]['peaks'].index(chromatograms_list.item(selected_item_chromatograms, "text"))]
+        parent_text_adduct = parent_text.split(" ")[0]
+        chromatogram_parent_item_adduct = chromatograms_list.item(parent_item, "text").split(" ")[0]
         
-        curve_fitting_score = glycans_per_sample[selected_item][grand_parent_text][parent_text.split(" ")[0]]['curve'][glycans_per_sample[selected_item][chromatograms_list.item(grand_parent_item, "text")][chromatograms_list.item(parent_item, "text").split(" ")[0]]['peaks'].index(chromatograms_list.item(selected_item_chromatograms, "text"))]
+        iso_fitting_score = glycans_per_sample[selected_item][grand_parent_text][parent_text_adduct]['iso'][glycans_per_sample[selected_item][chromatograms_list.item(grand_parent_item, "text")][chromatogram_parent_item_adduct]['peaks'].index(chromatograms_list.item(selected_item_chromatograms, "text"))]
         
-        s_to_n_score = glycans_per_sample[selected_item][grand_parent_text][parent_text.split(" ")[0]]['sn'][glycans_per_sample[selected_item][chromatograms_list.item(grand_parent_item, "text")][chromatograms_list.item(parent_item, "text").split(" ")[0]]['peaks'].index(chromatograms_list.item(selected_item_chromatograms, "text"))]
+        curve_fitting_score = glycans_per_sample[selected_item][grand_parent_text][parent_text_adduct]['curve'][glycans_per_sample[selected_item][chromatograms_list.item(grand_parent_item, "text")][chromatogram_parent_item_adduct]['peaks'].index(chromatograms_list.item(selected_item_chromatograms, "text"))]
         
-        ppm_score = glycans_per_sample[selected_item][grand_parent_text][parent_text.split(" ")[0]]['ppm'][glycans_per_sample[selected_item][chromatograms_list.item(grand_parent_item, "text")][chromatograms_list.item(parent_item, "text").split(" ")[0]]['peaks'].index(chromatograms_list.item(selected_item_chromatograms, "text"))]
+        s_to_n_score = glycans_per_sample[selected_item][grand_parent_text][parent_text_adduct]['sn'][glycans_per_sample[selected_item][chromatograms_list.item(grand_parent_item, "text")][chromatogram_parent_item_adduct]['peaks'].index(chromatograms_list.item(selected_item_chromatograms, "text"))]
         
-        auc_for_label = f"{glycans_per_sample[selected_item][grand_parent_text][parent_text.split(" ")[0]]['auc'][glycans_per_sample[selected_item][chromatograms_list.item(grand_parent_item, "text")][chromatograms_list.item(parent_item, "text").split(" ")[0]]['peaks'].index(chromatograms_list.item(selected_item_chromatograms, "text"))]:.1e}"
+        ppm_score = glycans_per_sample[selected_item][grand_parent_text][parent_text_adduct]['ppm'][glycans_per_sample[selected_item][chromatograms_list.item(grand_parent_item, "text")][chromatogram_parent_item_adduct]['peaks'].index(chromatograms_list.item(selected_item_chromatograms, "text"))]
         
-        ambiguities = f"{glycans_per_sample[selected_item][grand_parent_text][parent_text.split(" ")[0]]['ambiguity']}"
+        auc_for_label = f"{glycans_per_sample[selected_item][grand_parent_text][parent_text_adduct]['auc'][glycans_per_sample[selected_item][chromatograms_list.item(grand_parent_item, "text")][chromatogram_parent_item_adduct]['peaks'].index(chromatograms_list.item(selected_item_chromatograms, "text"))]:.1e}"
+        
+        ambiguities = f"{glycans_per_sample[selected_item][grand_parent_text][parent_text_adduct]['ambiguity']}"
         
         peak_info = [("Isotopic Fitting Score:", iso_fitting_score),
                      ("Curve Fitting Score:", curve_fitting_score),
@@ -5224,7 +5232,8 @@ def run_main_window():
         ax_plot_window.set_yscale('log')
         ax_plot_window.set_xticks(range(len(glycans)))
         ax_plot_window.set_xticklabels(glycans_keys, fontdict={'fontsize': fontsize})
-        ax_plot_window.set_title(f"{glycan if mode == "compare_samples" else selected_item}")
+        ax_plot_window_title = glycan if mode == "compare_samples" else selected_item
+        ax_plot_window.set_title(f"{ax_plot_window_title}")
         
         if diagonal:
             plt.setp(ax_plot_window.get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor")
@@ -5241,7 +5250,8 @@ def run_main_window():
         canvas_plot_window1.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         
         bar_graph1 = ax_plot_window1.bar(glycans_keys, [glycans[i]['sn'] for i in glycans], color = 'blue')
-        ax_plot_window1.set_xlabel(f"{"Samples" if mode == "compare_samples" else "Glycans"}")
+        ax_plot_window1_xlabel = "Samples" if mode == "compare_samples" else "Glycans"
+        ax_plot_window1.set_xlabel(f"{ax_plot_window1_xlabel}")
         ax_plot_window1.set_ylabel('Signal-to-Noise Ratio')
         ax_plot_window1.set_yscale('log')
         ax_plot_window1.set_xticks(range(len(glycans)))
@@ -5316,7 +5326,8 @@ def run_main_window():
             for item_id in glycans_list.get_children():
                 values = glycans_list.item(item_id, "values")
                 values_list.append(values)
-            glycans_list_quickcheck_save[f"{selected_item}_{tolerance}_{library_path.split("/")[-1]}"] = values_list
+            library_name_from_path = library_path.split("/")[-1]
+            glycans_list_quickcheck_save[f"{selected_item}_{tolerance}_{library_name_from_path}"] = values_list
             max_spectrum_window.destroy()
         
         def glycans_list_sort(tv, col, reverse):
@@ -5383,7 +5394,8 @@ def run_main_window():
             selected_glycan_list_content = (selected_glycan_list_content[0], selected_glycan_list_content[1], float(selected_glycan_list_content[2]), float(selected_glycan_list_content[3]), float(selected_glycan_list_content[4]))
             
             mz_list = []
-            for i in glycans_list_quickcheck[f"{selected_item}_{tolerance}_{library_path.split("/")[-1]}"]:
+            library_name_from_path = library_path.split("/")[-1]
+            for i in glycans_list_quickcheck[f"{selected_item}_{tolerance}_{library_name_from_path}"]:
                 if i[0] == selected_glycan_list_content:
                     mz_list = i[1]
                     max_int = i[2]
@@ -5534,9 +5546,9 @@ def run_main_window():
                 error_window("You must first generate or import a library\nto do a quick check.")
                 max_spectrum_window.grab_set()
                 return
-            
-            if f"{selected_item}_{tolerance}_{library_path.split("/")[-1]}" in glycans_list_quickcheck.keys():
-                glycans_list_temp = glycans_list_quickcheck[f"{selected_item}_{tolerance}_{library_path.split("/")[-1]}"]
+            library_name_from_path = library_path.split("/")[-1]
+            if f"{selected_item}_{tolerance}_{library_name_from_path}" in glycans_list_quickcheck.keys():
+                glycans_list_temp = glycans_list_quickcheck[f"{selected_item}_{tolerance}_{library_name_from_path}"]
             else:
                 shutil.copy(library_path, os.path.join(temp_folder, 'glycans_library.py'))
                 spec = importlib.util.spec_from_file_location("glycans_library", temp_folder+"/glycans_library.py")
@@ -5579,8 +5591,9 @@ def run_main_window():
                         result = analyze_glycan(mz_array, int_array, library[i], library[i]['Adducts_mz'][j], tolerance, max_charges, General_Functions.form_to_charge(j))
                         if result != 'bad':
                             glycans_list_temp.append([(i, j, float("%.4f" % round(library[i]['Adducts_mz'][j], 4)), float("%.2f" % round(result[1], 2)), float("%.1f" % round(result[2], 1))), result[0], result[3]])
-                
-                glycans_list_quickcheck[f"{selected_item}_{tolerance}_{library_path.split("/")[-1]}"] = glycans_list_temp
+                            
+                library_name_from_path = library_path.split("/")[-1]
+                glycans_list_quickcheck[f"{selected_item}_{tolerance}_{library_name_from_path}"] = glycans_list_temp
                     
             for item in glycans_list.get_children():
                 glycans_list.delete(item)        
@@ -5643,8 +5656,9 @@ def run_main_window():
         max_spectrum_window.bind("<Control-c>", copy_selected_rows)
         max_spectrum_window.bind("<KeyRelease-Escape>", click_glycans_list)
         
-        if f"{selected_item}_{tolerance}_{library_path.split("/")[-1]}" in glycans_list_quickcheck_save.keys():
-            for i_i, i in enumerate(glycans_list_quickcheck_save[f"{selected_item}_{tolerance}_{library_path.split("/")[-1]}"]):
+        library_name_from_path = library_path.split("/")[-1]
+        if f"{selected_item}_{tolerance}_{library_name_from_path}" in glycans_list_quickcheck_save.keys():
+            for i_i, i in enumerate(glycans_list_quickcheck_save[f"{selected_item}_{tolerance}_{library_name_from_path}"]):
                 glycans_list.insert("", "end", values=i)
     
         max_spectrum_plot_frame = ttk.Labelframe(max_spectrum_window, text="Maximum Intensity Spectrum", style="chromatogram.TLabelframe")
@@ -5854,8 +5868,9 @@ def run_main_window():
         
         def add_qtl():
             if mz_entry.get().lower() == 'mis':
-                if f"{selected_item}_{tolerance}_{library_path.split("/")[-1]}" in glycans_list_quickcheck_save.keys():
-                    for i_i, i in enumerate(glycans_list_quickcheck_save[f"{selected_item}_{tolerance}_{library_path.split("/")[-1]}"]):
+                library_name_from_path = library_path.split("/")[-1]
+                if f"{selected_item}_{tolerance}_{library_name_from_path}" in glycans_list_quickcheck_save.keys():
+                    for i_i, i in enumerate(glycans_list_quickcheck_save[f"{selected_item}_{tolerance}_{library_name_from_path}"]):
                         random_color = random.choice(colors)
                         quick_trace_list.tag_configure(random_color, foreground=random_color)
                         quick_trace_list.insert("", "end", values=("███████████████", f"{i[2]}", f"{round(General_Functions.tolerance_calc(tolerance[0], tolerance[1], mz = 1000.0), 4)}", "❌"), tags=(random_color,))
