@@ -18,7 +18,7 @@
 
 global gg_version, GUI_version
 gg_version = '1.1.31'
-GUI_version = '0.0.28'
+GUI_version = '0.0.29'
 
 from PIL import Image, ImageTk
 import threading
@@ -2639,7 +2639,8 @@ def run_main_window():
         
         canvas_spec.draw()
         
-        rt_label = tk.Label(spectra_plot_frame, text=f"Retention/Migration Time: {"%.2f" % round(rt_minutes, 2)}", font=("Segoe UI", 8), bg="white")
+        rt_formatted = "%.2f" % round(rt_minutes, 2)
+        rt_label = tk.Label(spectra_plot_frame, text=f"Retention/Migration Time: {rt_formatted}", font=("Segoe UI", 8), bg="white")
         rt_label.place(relx=0.5, rely=0, anchor='n')
         
         spec_frame_width = spectra_plot_frame.winfo_width()
@@ -3384,12 +3385,16 @@ def run_main_window():
                     ax_if.plot(x_values_if_actual, y_values_if_actual, marker='', linewidth=0, label="Found")
                     ax_if.vlines(x_values_if_ideal, ymin=0, ymax=y_values_if_ideal, linewidth=3, colors='red')
                     ax_if.vlines(x_values_if_actual, ymin=0, ymax=y_values_if_actual, linewidth=3, colors='blue')
-                    info_label.config(text=f"RT: {float("%.2f" % round(x, 2))}    Score: {float("%.3f" % round(isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text.split(" ")[0]}"][x][3], 3))}")
+                    label_rt = float("%.2f" % round(x, 2))
+                    label_score = float("%.3f" % round(isotopic_fittings[sample_index][f"{grand_parent_text
+                    info_label.config(text=f"RT: {label_rt}    Score: {label_score}_{parent_text.split(" ")[0]}"][x][3], 3))}")
                 else:
-                    info_label.config(text=f"RT: {float("%.2f" % round(x, 2))}    Score: 0.0")
+                    label_rt = float("%.2f" % round(x, 2))
+                    info_label.config(text=f"RT: {label_rt}    Score: 0.0")
                     ax_if.text(0.26, 0.35, 'No data available for this datapoint.\nThis might be caused by very poor data\nand may account for potentially low\nisotopic fitting score for the peak.', horizontalalignment='center', verticalalignment='center', transform=ax.transAxes, fontsize=10, wrap=True)
             else:
-                info_label.config(text=f"RT: {float("%.2f" % round(x, 2))}    Score: 0.0")
+                label_rt = float("%.2f" % round(x, 2))
+                info_label.config(text=f"RT: {label_rt}    Score: 0.0")
                 ax_if.text(0.26, 0.35, 'No data available for this datapoint.\nThis might be caused by very poor data\nand may account for potentially low\nisotopic fitting score for the peak.', horizontalalignment='center', verticalalignment='center', transform=ax.transAxes, fontsize=10, wrap=True)
             canvas_if.draw()
 
@@ -3501,12 +3506,13 @@ def run_main_window():
                     if current_tic_explained > highest_tic_explained:
                         highest_tic_explained = current_tic_explained
             if highest_tic_explained != 0:
+                ms2_tic_formatted = float("%.1f" % round(highest_tic_explained, 1))
                 peak_info = [("Isotopic Fitting Score:", iso_fitting_score),
                              ("Curve Fitting Score:", curve_fitting_score),
                              ("Signal-to-Noise ratio:", s_to_n_score),
                              ("Average PPM error:", ppm_score),
                              ("Area Under Curve (AUC):", auc_for_label),
-                             ("MS2 TIC explained:", f"{float("%.1f" % round(highest_tic_explained, 1))}%"),
+                             ("MS2 TIC explained:", f"{ms2_tic_formatted}%"),
                              ("Ambiguities:", ambiguities)]
         
         for i, (left_text, right_text) in enumerate(peak_info):
@@ -3735,7 +3741,8 @@ def run_main_window():
         coordinate_label_ms2 = tk.Label(ms2_visualizer, text="", anchor="e", font=("Segoe UI", 8), bg="white")
         coordinate_label_ms2.place(relx=1.0, rely=0, anchor='ne')
         
-        precursor_label = tk.Label(ms2_visualizer, text=f"Precursor m/z: {"%.4f" % spectra_info[0]}", font=("Segoe UI", 8), bg="white")
+        precursor_mz_formatted = "%.4f" % spectra_info[0]
+        precursor_label = tk.Label(ms2_visualizer, text=f"Precursor m/z: {precursor_mz_formatted}", font=("Segoe UI", 8), bg="white")
         precursor_label.place(relx=0.5, rely=0, anchor='n')
         
         coordinate_label_ms2.lift()
@@ -3778,7 +3785,8 @@ def run_main_window():
                 grand_parent_text = chromatograms_list.item(grand_parent_item, "text")
             if level == 2 or level == 3:
                 if abs(float("%.4f" % round(spectra_info[0], 4)) - float(parent_text[-1])) < 1:
-                    precursor_label.config(text=f"Precursor m/z: {"%.4f" % spectra_info[0]} Composition: {grand_parent_text}")
+                    precursor_label_mz = "%.4f" % spectra_info[0]
+                    precursor_label.config(text=f"Precursor m/z: {precursor_label_mz} Composition: {grand_parent_text}")
                 if grand_parent_text in glycans_per_sample[selected_item]:
                     if parent_text[0] in glycans_per_sample[selected_item][grand_parent_text]:
                         if 'ms2' in glycans_per_sample[selected_item][grand_parent_text][parent_text[0]]:
@@ -5739,6 +5747,9 @@ def run_main_window():
         def trace_mz():
             global loading_eic_window, quick_traces_all
             if len(samples_list) == 0:
+                loading_eic_window.destroy()
+                quick_trace_window.lift()
+                quick_trace_list.focus_set()
                 return
                 
             selected_items_qtl = quick_trace_list.selection()
@@ -5782,14 +5793,14 @@ def run_main_window():
                     if i_i >= len(selected_items_qtl)-1:
                         loading_eic_window.destroy()
                         quick_trace_window.lift()
-                        quick_trace_window.focus_set()
+                        quick_trace_list.focus_set()
                     
                 else:
                     show_graph([rt_array, int_array, color_to_trace, f"{target_mz}±{tolerance}"])
                     if i_i >= len(selected_items_qtl)-1:
                         loading_eic_window.destroy()
                         quick_trace_window.lift()
-                        quick_trace_window.focus_set()
+                        quick_trace_list.focus_set()
     
         def on_quick_trace_list_motion(event):
             region = quick_trace_list.identify_region(event.x, event.y)
