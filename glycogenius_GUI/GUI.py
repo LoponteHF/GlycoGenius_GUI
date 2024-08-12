@@ -18,7 +18,7 @@
 
 global gg_version, GUI_version
 gg_version = '1.1.31'
-GUI_version = '0.0.31'
+GUI_version = '0.0.32'
 
 from PIL import Image, ImageTk
 import threading
@@ -2342,13 +2342,15 @@ def run_main_window():
                 if level == 2:
                     parent_item = chromatograms_list.parent(selected_item_chromatograms)
                     parent_text = chromatograms_list.item(parent_item, "text")
-                    label_show_graph = f"{item_text.split(" ")[0]}"
+                    item_text_split_zero = item_text.split(" ")[0]
+                    label_show_graph = f"{item_text_split_zero}"
                 if level == 3:
                     parent_item = chromatograms_list.parent(selected_item_chromatograms)
                     parent_text = chromatograms_list.item(parent_item, "text")
                     grand_parent_item = chromatograms_list.parent(parent_item)
                     grand_parent_text = chromatograms_list.item(grand_parent_item, "text")
-                    label_show_graph = f"{grand_parent_text} - {parent_text.split(" ")[0]}"
+                    parent_text_split_zero = parent_text.split(" ")[0]
+                    label_show_graph = f"{grand_parent_text} - {parent_text_split_zero}"
             else:
                 return
         
