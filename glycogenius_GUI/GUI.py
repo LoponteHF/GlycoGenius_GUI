@@ -18,7 +18,7 @@
 
 global gg_version, GUI_version
 gg_version = '1.1.31'
-GUI_version = '0.0.37'
+GUI_version = '0.0.38'
 
 from PIL import Image, ImageTk
 import threading
@@ -5210,7 +5210,8 @@ def run_main_window():
         plot_window.minsize(900, 900)
         plot_window.withdraw()
         plot_window.bind("<Configure>", on_resize)
-        plot_window.title(f"Plot Graph - {glycan if mode == "compare_samples" else selected_item}")
+        plot_window_title = glycan if mode == "compare_samples" else selected_item
+        plot_window.title(f"Plot Graph - {plot_window_title}")
         plot_window.resizable(True, True)
         plot_window.protocol("WM_DELETE_WINDOW", exit_plot_window)
         
