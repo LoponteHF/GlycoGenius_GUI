@@ -18,7 +18,7 @@
 
 global gg_version, GUI_version
 gg_version = '1.1.31'
-GUI_version = '0.0.32'
+GUI_version = '0.0.33'
 
 from PIL import Image, ImageTk
 import threading
@@ -2403,9 +2403,9 @@ def run_main_window():
             grand_parent_item = chromatograms_list.parent(parent_item)
             grand_parent_text = chromatograms_list.item(grand_parent_item, "text") #glycan
             
-            if f"{grand_parent_text}+{parent_text.split(" ")[0]}_{chromatograms_list.item(selected_item_chromatograms, "text")}_RTs" in curve_fittings[sample_index]:
-                parent_text_adduct = parent_text.split(" ")[0]
-                vlines_coord = [curve_fittings[sample_index][f"{grand_parent_text}+{parent_text_adduct}_{chromatograms_list.item(selected_item_chromatograms, "text")}_RTs"][0], curve_fittings[sample_index][f"{grand_parent_text}+{parent_text_adduct}_{chromatograms_list.item(selected_item_chromatograms, "text")}_RTs"][-1]]
+            parent_text_split_zero = parent_text.split(" ")[0]
+            if f"{grand_parent_text}+{parent_text_split_zero}_{chromatograms_list.item(selected_item_chromatograms, "text")}_RTs" in curve_fittings[sample_index]:
+                vlines_coord = [curve_fittings[sample_index][f"{grand_parent_text}+{parent_text_split_zero}_{chromatograms_list.item(selected_item_chromatograms, "text")}_RTs"][0], curve_fittings[sample_index][f"{grand_parent_text}+{parent_text_split_zero}_{chromatograms_list.item(selected_item_chromatograms, "text")}_RTs"][-1]]
                 ax.axvline(vlines_coord[0], color = "blue", linestyle='--', linewidth=1)
                 ax.axvline(vlines_coord[1], color = "blue", linestyle='--', linewidth=1)
                 ax.set_xlim(vlines_coord[0]-1, vlines_coord[1]+1)
@@ -2620,9 +2620,9 @@ def run_main_window():
                 parent_text = chromatograms_list.item(parent_item, "text") #adduct
                 grand_parent_item = chromatograms_list.parent(parent_item)
                 grand_parent_text = chromatograms_list.item(grand_parent_item, "text") #glycan
-                parent_text_adduct = parent_text.split(" ")[0]
-                if rt_minutes in isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text_adduct}"]:
-                    peaks = isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text_adduct}"][rt_minutes][0]
+                parent_text_split_zero = parent_text.split(" ")[0]
+                if rt_minutes in isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text_split_zero}"]:
+                    peaks = isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text_split_zero}"][rt_minutes][0]
                     if len(peaks) != 0:
                         ax_spec.set_xlim(peaks[0]-5, peaks[0]+10)
                         highest = 0
@@ -3379,13 +3379,13 @@ def run_main_window():
             clear_plot(ax_if, canvas_if)
             
             if x in isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text.split(" ")[0]}"]:
-                parent_text_adduct = parent_text.split(" ")[0]
-                x_values_if_ideal = isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text_adduct}"][x][0]
-                y_values_if_ideal = isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text_adduct}"][x][1]
+                parent_text_split_zero = parent_text.split(" ")[0]
+                x_values_if_ideal = isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text_split_zero}"][x][0]
+                y_values_if_ideal = isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text_split_zero}"][x][1]
                 if len(x_values_if_ideal) > 0:
                     ax_if.set_xlim(x_values_if_ideal[0]-0.2, x_values_if_ideal[-1]+0.2)
                     x_values_if_actual = [x-(ax_if.get_xlim()[1]-ax_if.get_xlim()[0])*0.02 for x in x_values_if_ideal]
-                    y_values_if_actual = isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text_adduct}"][x][2]
+                    y_values_if_actual = isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text_split_zero}"][x][2]
                     ax_if.set_ylim(0, max(y_values_if_actual)*1.1 if max(y_values_if_actual) > max(y_values_if_ideal) else max(y_values_if_ideal)*1.1)
                     ax_if.plot(x_values_if_ideal, y_values_if_ideal, marker='', linewidth=0, label="Ideal")
                     ax_if.plot(x_values_if_actual, y_values_if_actual, marker='', linewidth=0, label="Found")
@@ -3451,11 +3451,11 @@ def run_main_window():
         parent_text = chromatograms_list.item(parent_item, "text") #adduct
         grand_parent_item = chromatograms_list.parent(parent_item)
         grand_parent_text = chromatograms_list.item(grand_parent_item, "text")
-        parent_text_adduct = parent_text.split(" ")[0]
-        if f"{grand_parent_text}+{parent_text_adduct}_{chromatograms_list.item(selected_item_chromatograms, "text")}_RTs" in curve_fittings[sample_index]:
-            y_values_ideal = curve_fittings[sample_index][f"{grand_parent_text}+{parent_text_adduct}_{chromatograms_list.item(selected_item_chromatograms, "text")}_Ideal_ints"]
-            y_values_found = curve_fittings[sample_index][f"{grand_parent_text}+{parent_text_adduct}_{chromatograms_list.item(selected_item_chromatograms, "text")}_Found_ints"]
-            x_values_pv = curve_fittings[sample_index][f"{grand_parent_text}+{parent_text_adduct}_{chromatograms_list.item(selected_item_chromatograms, "text")}_RTs"]
+        parent_text_split_zero = parent_text.split(" ")[0]
+        if f"{grand_parent_text}+{parent_text_split_zero}_{chromatograms_list.item(selected_item_chromatograms, "text")}_RTs" in curve_fittings[sample_index]:
+            y_values_ideal = curve_fittings[sample_index][f"{grand_parent_text}+{parent_text_split_zero}_{chromatograms_list.item(selected_item_chromatograms, "text")}_Ideal_ints"]
+            y_values_found = curve_fittings[sample_index][f"{grand_parent_text}+{parent_text_split_zero}_{chromatograms_list.item(selected_item_chromatograms, "text")}_Found_ints"]
+            x_values_pv = curve_fittings[sample_index][f"{grand_parent_text}+{parent_text_split_zero}_{chromatograms_list.item(selected_item_chromatograms, "text")}_RTs"]
         peak_visualizer.title(f"Peak Visualizer - {grand_parent_text}-{parent_text}")
             
         ax_pv.plot(x_values_pv, y_values_ideal, marker="o", color="red", label = 'Ideal', picker=5)
@@ -3485,20 +3485,20 @@ def run_main_window():
         
         canvas_if.draw()
         
-        parent_text_adduct = parent_text.split(" ")[0]
+        parent_text_split_zero = parent_text.split(" ")[0]
         chromatogram_parent_item_adduct = chromatograms_list.item(parent_item, "text").split(" ")[0]
         
-        iso_fitting_score = glycans_per_sample[selected_item][grand_parent_text][parent_text_adduct]['iso'][glycans_per_sample[selected_item][chromatograms_list.item(grand_parent_item, "text")][chromatogram_parent_item_adduct]['peaks'].index(chromatograms_list.item(selected_item_chromatograms, "text"))]
+        iso_fitting_score = glycans_per_sample[selected_item][grand_parent_text][parent_text_split_zero]['iso'][glycans_per_sample[selected_item][chromatograms_list.item(grand_parent_item, "text")][chromatogram_parent_item_adduct]['peaks'].index(chromatograms_list.item(selected_item_chromatograms, "text"))]
         
-        curve_fitting_score = glycans_per_sample[selected_item][grand_parent_text][parent_text_adduct]['curve'][glycans_per_sample[selected_item][chromatograms_list.item(grand_parent_item, "text")][chromatogram_parent_item_adduct]['peaks'].index(chromatograms_list.item(selected_item_chromatograms, "text"))]
+        curve_fitting_score = glycans_per_sample[selected_item][grand_parent_text][parent_text_split_zero]['curve'][glycans_per_sample[selected_item][chromatograms_list.item(grand_parent_item, "text")][chromatogram_parent_item_adduct]['peaks'].index(chromatograms_list.item(selected_item_chromatograms, "text"))]
         
-        s_to_n_score = glycans_per_sample[selected_item][grand_parent_text][parent_text_adduct]['sn'][glycans_per_sample[selected_item][chromatograms_list.item(grand_parent_item, "text")][chromatogram_parent_item_adduct]['peaks'].index(chromatograms_list.item(selected_item_chromatograms, "text"))]
+        s_to_n_score = glycans_per_sample[selected_item][grand_parent_text][parent_text_split_zero]['sn'][glycans_per_sample[selected_item][chromatograms_list.item(grand_parent_item, "text")][chromatogram_parent_item_adduct]['peaks'].index(chromatograms_list.item(selected_item_chromatograms, "text"))]
         
-        ppm_score = glycans_per_sample[selected_item][grand_parent_text][parent_text_adduct]['ppm'][glycans_per_sample[selected_item][chromatograms_list.item(grand_parent_item, "text")][chromatogram_parent_item_adduct]['peaks'].index(chromatograms_list.item(selected_item_chromatograms, "text"))]
+        ppm_score = glycans_per_sample[selected_item][grand_parent_text][parent_text_split_zero]['ppm'][glycans_per_sample[selected_item][chromatograms_list.item(grand_parent_item, "text")][chromatogram_parent_item_adduct]['peaks'].index(chromatograms_list.item(selected_item_chromatograms, "text"))]
         
-        auc_for_label = f"{glycans_per_sample[selected_item][grand_parent_text][parent_text_adduct]['auc'][glycans_per_sample[selected_item][chromatograms_list.item(grand_parent_item, "text")][chromatogram_parent_item_adduct]['peaks'].index(chromatograms_list.item(selected_item_chromatograms, "text"))]:.1e}"
+        auc_for_label = f"{glycans_per_sample[selected_item][grand_parent_text][parent_text_split_zero]['auc'][glycans_per_sample[selected_item][chromatograms_list.item(grand_parent_item, "text")][chromatogram_parent_item_adduct]['peaks'].index(chromatograms_list.item(selected_item_chromatograms, "text"))]:.1e}"
         
-        ambiguities = f"{glycans_per_sample[selected_item][grand_parent_text][parent_text_adduct]['ambiguity']}"
+        ambiguities = f"{glycans_per_sample[selected_item][grand_parent_text][parent_text_split_zero]['ambiguity']}"
         
         peak_info = [("Isotopic Fitting Score:", iso_fitting_score),
                      ("Curve Fitting Score:", curve_fitting_score),
