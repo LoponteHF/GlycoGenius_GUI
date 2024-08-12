@@ -18,7 +18,7 @@
 
 global gg_version, GUI_version
 gg_version = '1.1.31'
-GUI_version = '0.0.38'
+GUI_version = '0.0.39'
 
 from PIL import Image, ImageTk
 import threading
@@ -5234,7 +5234,8 @@ def run_main_window():
             diagonal = True
         
         bar_graph = ax_plot_window.bar(glycans_keys, [glycans[i]['abundance'] for i in glycans], color = 'black')
-        ax_plot_window.set_xlabel(f"{"Samples" if mode == "compare_samples" else "Glycans"}")
+        ax_plot_window_xlabel = "Samples" if mode == "compare_samples" else "Glycans"
+        ax_plot_window.set_xlabel(f"{ax_plot_window_xlabel}")
         ax_plot_window.set_ylabel('Abundance (AUC)')
         ax_plot_window.set_yscale('log')
         ax_plot_window.set_xticks(range(len(glycans)))
