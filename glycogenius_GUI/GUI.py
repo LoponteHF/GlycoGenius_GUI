@@ -18,7 +18,7 @@
 
 global gg_version, GUI_version
 gg_version = '1.1.31'
-GUI_version = '0.0.29'
+GUI_version = '0.0.30'
 
 from PIL import Image, ImageTk
 import threading
@@ -3386,8 +3386,8 @@ def run_main_window():
                     ax_if.vlines(x_values_if_ideal, ymin=0, ymax=y_values_if_ideal, linewidth=3, colors='red')
                     ax_if.vlines(x_values_if_actual, ymin=0, ymax=y_values_if_actual, linewidth=3, colors='blue')
                     label_rt = float("%.2f" % round(x, 2))
-                    label_score = float("%.3f" % round(isotopic_fittings[sample_index][f"{grand_parent_text
-                    info_label.config(text=f"RT: {label_rt}    Score: {label_score}_{parent_text.split(" ")[0]}"][x][3], 3))}")
+                    label_score = float("%.3f" % round(isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text.split(" ")[0]}"][x][3], 3))
+                    info_label.config(text=f"RT: {label_rt}    Score: {label_score}")
                 else:
                     label_rt = float("%.2f" % round(x, 2))
                     info_label.config(text=f"RT: {label_rt}    Score: 0.0")
