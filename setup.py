@@ -31,7 +31,7 @@ with open("README.md", "r", encoding="utf-8") as f:
 
 setup(
     name='glycogenius_GUI',
-    version='0.0.40',
+    version='0.0.41',
     author='Hector Franco Loponte',
     author_email='hectorfloponte@gmail.com',
     description='Accessory GUI for Glycogenius',
@@ -47,13 +47,12 @@ setup(
         'License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)',
         'Operating System :: OS Independent',
     ],
-    python_requires='>=3.6',
-    install_requires=["pandas", "scipy", "pyteomics==4.6.3",
-                     "pillow", "ttkwidgets", "matplotlib",
-                     "dill", "numpy", "lxml",
-                     "openpyxl", "setuptools",
-                     "xlsxwriter", "psutil", "pyqt5",
-                     "glycogenius==1.1.32"],
+    python_requires='>=3.10',
+    install_requires=["pandas==2.1.3", "scipy==1.11.4", "pyteomics==4.6.3",
+                     "pillow==10.1.0", "ttkwidgets==0.13.0", "matplotlib==3.8.2",
+                     "dill==0.3.7", "numpy==1.26.4", "lxml==4.9.3",
+                     "openpyxl==3.1.2", "setuptools==69.1.1",
+                     "xlsxwriter==3.2.0", "psutil==5.9.8", "glycogenius==1.1.33"],
     entry_points={
         'gui_scripts': [
             'glycogenius_GUI = glycogenius_GUI:glycogenius_GUI',

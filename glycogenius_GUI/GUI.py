@@ -17,8 +17,8 @@
 # by typing 'glycogenius'. If not, see <https://www.gnu.org/licenses/>.
 
 global gg_version, GUI_version
-gg_version = '1.1.32'
-GUI_version = '0.0.40'
+gg_version = '1.1.33'
+GUI_version = '0.0.41'
 
 from PIL import Image, ImageTk
 import threading
