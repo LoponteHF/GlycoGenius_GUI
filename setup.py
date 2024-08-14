@@ -51,7 +51,7 @@ setup(
     install_requires=["pandas==2.1.3", "scipy==1.11.4", "pyteomics==4.6.3",
                      "pillow==10.4.0", "ttkwidgets==0.13.0", "matplotlib==3.8.2",
                      "dill==0.3.7", "numpy==1.26.4", "lxml==4.9.3",
-                     "openpyxl==3.1.2", "setuptools=72.2.0",
+                     "openpyxl==3.1.2", "setuptools==72.2.0",
                      "xlsxwriter==3.2.0", "psutil==5.9.8", "glycogenius==1.1.34"],
     entry_points={
         'gui_scripts': [
