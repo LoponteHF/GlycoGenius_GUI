@@ -17,8 +17,8 @@
 # by typing 'glycogenius'. If not, see <https://www.gnu.org/licenses/>.
 
 global gg_version, GUI_version
-gg_version = '1.1.31'
-GUI_version = '0.0.39'
+gg_version = '1.1.32'
+GUI_version = '0.0.40'
 
 from PIL import Image, ImageTk
 import threading
@@ -27,6 +27,7 @@ import pathlib
 import psutil
 import os
 import tempfile
+import platform
 
 # Get working directory
 global current_dir
@@ -36,6 +37,13 @@ for i_i, i in enumerate(current_dir):
     if i == "\\":
         current_dir = current_dir[:i_i]+"/"+current_dir[i_i+1:]
 
+global ico_image
+ico_path = current_dir+"/Assets/gg_icon.ico"
+ico_image = Image.open(ico_path)
+
+global curr_os
+curr_os = platform.system()
+
 exec_check_folder = os.path.join(tempfile.gettempdir())
 
 global number_executions
@@ -43,26 +51,23 @@ global number_executions
 def start_splash():
     global splash_screen
     
-    try:
-        this_process_id = os.getpid()
-        this_process = psutil.Process(this_process_id)
-        this_process_ppid = this_process.ppid()
-        with open(os.path.join(exec_check_folder, f"{this_process_ppid}.txt"), 'r') as f:
-            f.close()
-    except:
-        this_process_id = os.getpid()
-        # Creates a dummy file to check execution
+    this_process_id = os.getpid()
+    this_process = psutil.Process(this_process_id)
+    this_process_ppid = this_process.ppid()
+    if f"{this_process_ppid}.txt" not in os.listdir(exec_check_folder):
         with open(os.path.join(exec_check_folder, f"{this_process_id}.txt"), 'w') as f:
             f.write("Glycogenius has run")
             f.close()
             
         splash_screen = tk.Tk()
         splash_screen.withdraw()
-        splash_screen.iconbitmap(current_dir+"/Assets/gg_icon.ico")
+        icon = ImageTk.PhotoImage(ico_image)
+        splash_screen.iconphoto(False, icon)
         splash_screen.overrideredirect(True)
         splash_screen.resizable(False, False)
         splash_screen.attributes("-topmost", True)
-        splash_screen.attributes("-transparentcolor", "white")
+        if curr_os == "Windows":
+            splash_screen.attributes("-transparentcolor", "white")
         splash_screen.grab_set()
         
         splash_image = Image.open(current_dir+"/Assets/splash.png")
@@ -116,6 +121,9 @@ import copy
 import datetime
 import dill
 import random
+
+if platform.system() != 'Windows':
+    multiprocessing.set_start_method('spawn', force=True)
 
 #all the settings necessary to make a Glycogenius run
 global min_max_monos, min_max_hex, min_max_hexnac, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, force_nglycan, max_adducts, max_charges, tag_mass, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, fast_iso, high_res, number_cores, multithreaded_analysis
@@ -190,10 +198,15 @@ gg_file_name = ""
 global which_progress_bar
 which_progress_bar = 'ms1'
 
-global former_alignments
-former_alignments = [[], []]
+global qc_dist_opened
+qc_dist_opened = False
 
-global maximum_spectra, glycans_list_quickcheck
+global compare_samples_opened, former_alignments
+compare_samples_opened = False
+former_alignments = {}
+
+global max_spectrum_opened, maximum_spectra, glycans_list_quickcheck
+max_spectrum_opened = False
 maximum_spectra = {}
 glycans_list_quickcheck = {}
 glycans_list_quickcheck_save = {}
@@ -590,8 +603,8 @@ def make_total_glycans_df(df1,
     return total_dataframes    
         
 def pre_process(samples_list):
+    global samples_names
     sample_info = {}
-    samples_names = Execution_Functions.sample_names(samples_list)
     
     results = []
     bad = False
@@ -817,12 +830,8 @@ def kill_concurrent_futures():
             process = psutil.Process(p)
             name = process.name()
             ppid = process.ppid()
-            cmd_line = process.cmdline()
             if (name == 'python.exe' or name == this_process_name) and ppid == gui_id:
-                for i in cmd_line:
-                    if i == '--multiprocessing-fork':
-                        process.terminate()
-                        break
+                process.terminate()
         except:
             continue
                 
@@ -1529,7 +1538,8 @@ def run_main_window():
         lib_info_window.attributes("-topmost", True)
         lib_info_window.withdraw()
         lib_info_window.title("Library Information")
-        lib_info_window.iconbitmap(current_dir+"/Assets/gg_icon.ico")
+        icon = ImageTk.PhotoImage(ico_image)
+        lib_info_window.iconphoto(False, icon)
         lib_info_window.resizable(False, False)
         lib_info_window.grab_set()
 
@@ -1617,7 +1627,8 @@ def run_main_window():
             #progress_gen_lib.attributes("-topmost", True)
             progress_gen_lib.withdraw()
             progress_gen_lib.title("Generating Library")
-            progress_gen_lib.iconbitmap(current_dir+"/Assets/gg_icon.ico")
+            icon = ImageTk.PhotoImage(ico_image)
+            progress_gen_lib.iconphoto(False, icon)
             progress_gen_lib.resizable(False, False)
             progress_gen_lib.grab_set()
             progress_gen_lib.protocol("WM_DELETE_WINDOW", on_closing)
@@ -1855,7 +1866,8 @@ def run_main_window():
             # loading_files.attributes("-topmost", True)
             loading_files.withdraw()
             loading_files.title("Loading Files")
-            loading_files.iconbitmap(current_dir+"/Assets/gg_icon.ico")
+            icon = ImageTk.PhotoImage(ico_image)
+            loading_files.iconphoto(False, icon)
             loading_files.resizable(False, False)
             loading_files.grab_set()
             loading_files.protocol("WM_DELETE_WINDOW", on_closing)
@@ -1905,7 +1917,8 @@ def run_main_window():
             analysis_info_window = tk.Toplevel()
             analysis_info_window.withdraw()
             analysis_info_window.title("Analysis Parameters")
-            analysis_info_window.iconbitmap(current_dir+"/Assets/gg_icon.ico")
+            icon = ImageTk.PhotoImage(ico_image)
+            analysis_info_window.iconphoto(False, icon)
             analysis_info_window.resizable(False, False)
             analysis_info_window.grab_set()
 
@@ -2000,7 +2013,8 @@ def run_main_window():
             # run_analysis.attributes("-topmost", True)
             run_analysis.withdraw()
             run_analysis.title("Running Analysis")
-            run_analysis.iconbitmap(current_dir+"/Assets/gg_icon.ico")
+            icon = ImageTk.PhotoImage(ico_image)
+            run_analysis.iconphoto(False, icon)
             run_analysis.resizable(False, False)
             run_analysis.grab_set()
             run_analysis.protocol("WM_DELETE_WINDOW", on_closing)
@@ -2110,7 +2124,8 @@ def run_main_window():
         # about_window.attributes("-topmost", True)
         about_window.withdraw()
         about_window.title("About")
-        about_window.iconbitmap(current_dir+"/Assets/gg_icon.ico")
+        icon = ImageTk.PhotoImage(ico_image)
+        about_window.iconphoto(False, icon)
         about_window.resizable(False, False)
         about_window.grab_set()
         
@@ -2155,7 +2170,7 @@ def run_main_window():
             selected_chromatograms_list = chromatograms_list.selection()
             for selected_item_chromatograms in selected_chromatograms_list:
                 item_text = chromatograms_list.item(selected_item_chromatograms, "text")
-                if item_text != 'Base Peak Chromatogram':
+                if item_text != "Base Peak Chromatogram/Electropherogram":
                     level = 0
                     parent_item = selected_item_chromatograms
                     while parent_item:
@@ -2182,7 +2197,7 @@ def run_main_window():
         item_text = chromatograms_list.item(selected_item_chromatograms, "text")  # Get the text of the selected item
         last_xlims_chrom = None
         last_ylims_chrom = None
-        if item_text != 'Base Peak Chromatogram':
+        if item_text != 'Base Peak Chromatogram/Electropherogram':
             clear_plot(ax, canvas)
             level = 0
             parent_item = selected_item_chromatograms
@@ -2320,7 +2335,7 @@ def run_main_window():
             if item_text == "Base Peak Chromatogram/Electropherogram":
                 x_values = [i/60 for i in current_data['rt_array']] if current_data['time_unit'] == 'seconds' else current_data['rt_array']
                 y_values = current_data['bpc']
-                label_show_graph = 'Base Peak Chromatogram'
+                label_show_graph = "Base Peak Chromatogram/Electropherogram"
             elif level == 1 or level == 2 or level == 3:
                 sample_index = list(glycans_per_sample.keys()).index(selected_item)
                 if level == 1:
@@ -3246,8 +3261,7 @@ def run_main_window():
                         if isinstance(artist, matplotlib.lines.Line2D) and artist.get_linestyle() == '--':
                             artist.set_xdata([x_value])
                 else:
-                    remove_marker = threading.Thread(target=remove_marker)
-                    remove_marker.start()
+                    remove_marker()
                     marker = ax_here.plot(x_value, y_value, 'bo', markersize=4)
                 
                 canvas_here.draw_idle()
@@ -3302,16 +3316,11 @@ def run_main_window():
     def exit_window():
         def ok_close_main_window():
             shutil.rmtree(temp_folder)
-            try:
-                this_process_id = os.getpid()
-                os.remove(os.path.join(exec_check_folder, f"{this_process_id}.txt"))
-            except:
-                pass
+            this_process_id = os.getpid()
+            os.remove(os.path.join(exec_check_folder, f"{this_process_id}.txt"))
+            main_window.quit()
             main_window.destroy()
-            try:
-                sys.exit()
-            except:
-                print("GlycoGenius has closed.")
+            os._exit(0)
         
         def close_exit_window():
             exit_window.destroy()
@@ -3320,7 +3329,8 @@ def run_main_window():
         exit_window.attributes("-topmost", True)
         exit_window.withdraw()
         exit_window.title("Exit")
-        exit_window.iconbitmap(current_dir+"/Assets/gg_icon.ico")
+        icon = ImageTk.PhotoImage(ico_image)
+        exit_window.iconphoto(False, icon)
         exit_window.resizable(False, False)
         exit_window.grab_set()
         exit_window.protocol("WM_DELETE_WINDOW", on_closing)
@@ -3422,9 +3432,10 @@ def run_main_window():
         peak_visualizer.grid_rowconfigure(0, weight=1)
         peak_visualizer.grid_rowconfigure(1, weight=1)
         peak_visualizer.withdraw()
-        peak_visualizer.iconbitmap(current_dir+"/Assets/gg_icon.ico")
+        icon = ImageTk.PhotoImage(ico_image)
+        peak_visualizer.iconphoto(False, icon)
         peak_visualizer.resizable(False, False)
-        peak_visualizer.grab_set()
+        #peak_visualizer.grab_set()
         
         peak_area = ttk.Labelframe(peak_visualizer, text="Peak Visualization", style="chromatogram.TLabelframe")
         peak_area.grid(row=0, rowspan=2, column=0, columnspan=2, padx=10, pady=(10, 300), sticky="nsew")
@@ -3714,7 +3725,8 @@ def run_main_window():
             
         ms2_visualizer = tk.Toplevel()
         # ms2_visualizer.attributes("-topmost", True)
-        ms2_visualizer.iconbitmap(current_dir+"/Assets/gg_icon.ico")
+        icon = ImageTk.PhotoImage(ico_image)
+        ms2_visualizer.iconphoto(False, icon)
         ms2_visualizer.withdraw()
         ms2_visualizer.minsize(500, 400)
         ms2_visualizer.bind("<Configure>", on_resize)
@@ -3787,7 +3799,7 @@ def run_main_window():
             
         custom_font_annotation = {'family': 'sans-serif', 'color': 'black', 'size': 9}
         
-        if len(reanalysis_path) > 0 and chromatograms_list.item(selected_item_chromatograms, "text") != 'Base Peak Chromatogram':
+        if len(reanalysis_path) > 0 and chromatograms_list.item(selected_item_chromatograms, "text") != "Base Peak Chromatogram/Electropherogram":
             if level == 2:
                 parent_text = chromatograms_list.item(selected_item_chromatograms, "text").split(" ") #adduct
                 grand_parent_item = chromatograms_list.parent(selected_item_chromatograms)
@@ -3847,14 +3859,225 @@ def run_main_window():
         y_position = (screen_height - window_height) // 2
         ms2_visualizer.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
         
-    def draw_heatmap():
-        global draw_two_d, two_d
-        draw_two_d = threading.Thread(target=backend_heatmap)
-        draw_two_d.start()
-        two_d.config(state=tk.DISABLED)
-        
     def backend_heatmap():
         global current_data, ax, ax_spec, two_d
+            
+        def process_2d_plot():
+            def calculate_2d_plot():
+                global current_data, ax, ax_spec, two_d, rt_map, int_map, mz_map, two_d_plot, y_scale, x_scale, max_number_points, circle_y_radius, circle_x_radius
+                
+                if current_data['file_type'] == 'mzml':
+                    heatmap_data = mzml.MzML(current_data['file_path'])
+                else:
+                    heatmap_data = mzxml.MzXML(current_data['file_path'])
+                
+                x_lims = ax.get_xlim()
+                x_lims_spec = ax_spec.get_xlim()
+                x_scale = x_lims[1] - x_lims[0]
+                y_scale = x_lims_spec[1] - x_lims_spec[0]
+                    
+                rt_map = []
+                mz_map = []
+                int_map = []
+                
+                mz_map_cursor = []
+                rt_map_cursor = []
+                int_map_cursor = []
+
+                min_int = 9999999999
+                max_int = 0
+                
+                max_number_points = 250 #maximum number of points for mz axis
+                
+                for i_i, i in enumerate(heatmap_data):
+                    if current_data['file_type'] == 'mzml':
+                        if current_data['time_unit'] == 'seconds':
+                            rt = i['scanList']['scan'][0]['scan start time']/60
+                        else:
+                            rt = i['scanList']['scan'][0]['scan start time']
+                    else:
+                        rt = i['retentionTime']
+                    if rt > x_lims[1]:
+                        break
+                    if rt >= x_lims[0]:
+                        downsampling_factor = (x_lims_spec[1]-x_lims_spec[0])/max_number_points
+                        downsampled_int_array = []
+                        downsampled_mz_array = []
+                        current_bin = x_lims_spec[0]
+                        temp_bin_mz = []
+                        temp_bin_int = []
+                        mz_array = np.insert(i['m/z array'], 0, 0)
+                        int_array = np.insert(i['intensity array'], 0, 0)
+                        mz_array = np.append(mz_array, current_data['max_mz'])
+                        int_array = np.append(int_array, 0)
+                        mz_array_bottom_index = None
+                        mz_array_top_index = None
+                        for k_k, k in enumerate(mz_array):
+                            if k >= x_lims_spec[0]:
+                                if mz_array_bottom_index == None:
+                                    mz_array_bottom_index = k_k
+                                while k > current_bin+downsampling_factor:
+                                    if len(downsampled_mz_array) == max_number_points:
+                                        break
+                                    current_bin += downsampling_factor
+                                    if len(temp_bin_mz) > 0:
+                                        downsampled_int_array.append(np.mean(temp_bin_int))
+                                        downsampled_mz_array.append(np.mean(temp_bin_mz))
+                                    else:
+                                        downsampled_int_array.append(0.0)
+                                        downsampled_mz_array.append(0.0)
+                                    temp_bin_mz = []
+                                    temp_bin_int = []
+                                if k > x_lims_spec[1]:
+                                    mz_array_top_index = k_k
+                                    break
+                                temp_bin_mz.append(k)
+                                temp_bin_int.append(int_array[k_k])
+                        # Convert downsampled arrays to NumPy arrays
+                        downsampled_int_array = np.array(downsampled_int_array)
+                        downsampled_mz_array = np.array(downsampled_mz_array)
+                        if len(i['intensity array']) > 0:
+                            if len(i['intensity array'][mz_array_bottom_index:mz_array_top_index]) > 0 and np.min(i['intensity array'][mz_array_bottom_index:mz_array_top_index]) < min_int:
+                                min_int = np.min(i['intensity array'][mz_array_bottom_index:mz_array_top_index])
+                            if len(i['intensity array'][mz_array_bottom_index:mz_array_top_index]) > 0 and np.max(i['intensity array'][mz_array_bottom_index:mz_array_top_index]) > max_int:
+                                max_int = np.max(i['intensity array'][mz_array_bottom_index:mz_array_top_index])
+                        mz_map.append(downsampled_mz_array) #this is an np.array added to mz_map
+                        int_map.append(downsampled_int_array) #this is an np.array added to int_map
+                        rt_map.append(rt) #this is a single number, added to rt_map
+                        rt_map_cursor.append(rt)
+                        mz_map_cursor.append(i['m/z array'])
+                        int_map_cursor.append(i['intensity array'])
+                max_number_points = 450 #maximum number of points for RT axis
+                rt_map = np.array(rt_map)
+                downsampled_rt_map = []
+                double_downsampled_mz_map = []
+                double_downsampled_int_map = []
+                downsampling_factor = (x_lims[1]-x_lims[0])/max_number_points
+                current_bin = x_lims[0]
+                temp_rt_bin = []
+                temp_mz_bin = []
+                temp_int_bin = []
+                for index, rt in enumerate(rt_map):
+                    if rt > x_lims[1]:
+                        break
+                    if rt >= x_lims[0]:
+                        while rt > current_bin+downsampling_factor:
+                            current_bin += downsampling_factor
+                            if len(temp_rt_bin) == 0:
+                                continue
+                            downsampled_rt_map.append(np.mean(temp_rt_bin))
+                            new_mz_array = []
+                            new_int_array = []
+                            for i_i, i in enumerate(temp_mz_bin[0]):
+                                temp_mz_mean = []
+                                temp_int_mean = []
+                                for k_k, k in enumerate(temp_mz_bin):
+                                    temp_mz_mean.append(temp_mz_bin[k_k][i_i])
+                                    temp_int_mean.append(temp_int_bin[k_k][i_i])
+                                new_mz_array.append(np.mean(temp_mz_mean))
+                                new_int_array.append(np.mean(temp_int_mean))
+                            double_downsampled_int_map.append(new_int_array)
+                            double_downsampled_mz_map.append(new_mz_array)
+                            temp_rt_bin = []
+                            temp_int_bin = []
+                            temp_mz_bin = []
+                        temp_rt_bin.append(rt)
+                        temp_int_bin.append(int_map[index])
+                        temp_mz_bin.append(mz_map[index])
+                rt_map = downsampled_rt_map
+                mz_map = double_downsampled_mz_map
+                int_map = double_downsampled_int_map
+        
+                scatter_collection = []
+                
+                window_width = two_d_plot.winfo_width()
+                window_height = two_d_plot.winfo_height()
+                
+                marker_size = (y_scale/max_number_points)*(window_height*0.0005)
+                
+                # Plot the data
+                if min_int == 0:
+                    min_int = 1
+                for i, rt in enumerate(rt_map):
+                    scatter = ax_two_d.scatter(np.full_like(mz_map[i], rt), mz_map[i], c=int_map[i], cmap='inferno_r', s=marker_size, marker='s', norm=LogNorm(vmin=min_int, vmax=max_int), alpha=0.8)
+                    scatter_collection.append(scatter)
+                    
+                circle_collection = []    
+                lines_collection = []
+                
+                circle_y_radius = ((y_scale/max_number_points)*3)
+                circle_x_radius = (circle_y_radius*(x_scale/y_scale))*(window_height/window_width)
+                line_width_ms2 = 1
+                if len(processed_data[selected_item]['ms2']) > 0:
+                    for i in processed_data[selected_item]['ms2']:
+                        if processed_data[selected_item]['time_unit'] == 'seconds':
+                            i_mins = i/60
+                        else:
+                            i_mins = i
+                        if x_lims[0] < i_mins < x_lims[1]:
+                            for k in processed_data[selected_item]['ms2'][i]:
+                                if x_lims_spec[0] < processed_data[selected_item]['ms2'][i][k][0] < x_lims_spec[1]:
+                                    if processed_data[selected_item]['time_unit'] == 'seconds':
+                                        k_mins = k/60
+                                    else:
+                                        k_mins = k
+                                    circle = Ellipse((i_mins, processed_data[selected_item]['ms2'][i][k][0]), circle_x_radius, circle_y_radius, edgecolor='blue', facecolor='none')
+                                    circle_collection.append(circle)
+                                    ax_two_d.add_patch(circle)
+                                    line, = ax_two_d.plot([i_mins, k_mins], [processed_data[selected_item]['ms2'][i][k][0], processed_data[selected_item]['ms2'][i][k][0]], color='blue', linewidth=line_width_ms2)
+                                    lines_collection.append(line)
+        
+                ax_two_d.set_xlim(x_lims)
+                ax_two_d.set_ylim(x_lims_spec)
+                
+                two_d_plot.bind("<Configure>", lambda event, ax_two_d=ax_two_d: adjust_subplot_size_two_d(event, ax_two_d, canvas_two_d, scatter_collection, circle_collection, lines_collection))
+                canvas_two_d.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_two_d, canvas_two_d, True) if event.button == 3 else None)
+                canvas_two_d.mpl_connect('motion_notify_event', lambda event: on_plot_hover_two_d(event, ax_two_d, canvas_two_d, rt_map_cursor, mz_map_cursor, int_map_cursor, coordinate_label_two_d, horizontal_line, vertical_line))
+
+                left_margin = 65
+                right_margin = 10
+                top_margin = 20
+                bottom_margin = 45
+
+                subplot_width = (window_width - left_margin - right_margin) / window_width
+                subplot_height = (window_height - top_margin - bottom_margin) / window_height
+                subplot_left = left_margin / window_width
+                subplot_bottom = bottom_margin / window_height
+
+                ax_two_d.set_position([subplot_left, subplot_bottom, subplot_width, subplot_height])
+                
+                canvas_two_d.draw()
+                
+                processing_2d_plot.destroy()
+            
+            def wait_thread():
+                calculate_2d_plot()
+            
+            global processing_2d_plot
+            processing_2d_plot = tk.Toplevel()
+            processing_2d_plot.withdraw()
+            processing_2d_plot.title("Processing 2D Plot")
+            icon = ImageTk.PhotoImage(ico_image)
+            processing_2d_plot.iconphoto(False, icon)
+            processing_2d_plot.resizable(False, False)
+            processing_2d_plot.grab_set()
+            processing_2d_plot.protocol("WM_DELETE_WINDOW", on_closing)
+            
+            processing_max_spectrum_label = ttk.Label(processing_2d_plot, text="Processing 2D plot, please wait.", font=("Segoe UI", list_font_size))
+            processing_max_spectrum_label.pack(pady=35, padx=70)
+            
+            processing_2d_plot.update_idletasks()
+            processing_2d_plot.deiconify()
+            window_width = processing_2d_plot.winfo_width()
+            window_height = processing_2d_plot.winfo_height()
+            screen_width = processing_2d_plot.winfo_screenwidth()
+            screen_height = processing_2d_plot.winfo_screenheight()
+            x_position = (screen_width - window_width) // 2
+            y_position = (screen_height - window_height) // 2
+            processing_2d_plot.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
+            
+            t = threading.Thread(target=wait_thread)
+            t.start()
         
         def adjust_subplot_size_two_d(event, ax_here, canvas_here, scatter_collection, circle_collection, lines_collection):
             # Get the current size of the graph frame
@@ -3920,126 +4143,11 @@ def run_main_window():
                     canvas_here.draw_idle()
                 except:
                     pass
-            
-        if current_data['file_type'] == 'mzml':
-            heatmap_data = mzml.MzML(current_data['file_path'])
-        else:
-            heatmap_data = mzxml.MzXML(current_data['file_path'])
         
-        x_lims = ax.get_xlim()
-        x_lims_spec = ax_spec.get_xlim()
-        x_scale = x_lims[1] - x_lims[0]
-        y_scale = x_lims_spec[1] - x_lims_spec[0]
-            
-        rt_map = []
-        mz_map = []
-        int_map = []
-        
-        mz_map_cursor = []
-        rt_map_cursor = []
-        int_map_cursor = []
-
-        min_int = 9999999999
-        max_int = 0
-        
-        max_number_points = 250 #maximum number of points for mz axis
-        
-        for i_i, i in enumerate(heatmap_data):
-            if current_data['file_type'] == 'mzml':
-                if current_data['time_unit'] == 'seconds':
-                    rt = i['scanList']['scan'][0]['scan start time']/60
-                else:
-                    rt = i['scanList']['scan'][0]['scan start time']
-            else:
-                rt = i['retentionTime']
-            if rt > x_lims[1]:
-                break
-            if rt >= x_lims[0]:
-                downsampling_factor = (x_lims_spec[1]-x_lims_spec[0])/max_number_points
-                downsampled_int_array = []
-                downsampled_mz_array = []
-                current_bin = x_lims_spec[0]
-                temp_bin_mz = []
-                temp_bin_int = []
-                mz_array = np.insert(i['m/z array'], 0, 0)
-                int_array = np.insert(i['intensity array'], 0, 0)
-                mz_array = np.append(mz_array, current_data['max_mz'])
-                int_array = np.append(int_array, 0)
-                for k_k, k in enumerate(mz_array):
-                    if k >= x_lims_spec[0]:
-                        while k > current_bin+downsampling_factor:
-                            if len(downsampled_mz_array) == max_number_points:
-                                break
-                            current_bin += downsampling_factor
-                            if len(temp_bin_mz) > 0:
-                                downsampled_int_array.append(np.mean(temp_bin_int))
-                                downsampled_mz_array.append(np.mean(temp_bin_mz))
-                            else:
-                                downsampled_int_array.append(0.0)
-                                downsampled_mz_array.append(0.0)
-                            temp_bin_mz = []
-                            temp_bin_int = []
-                        if k > x_lims_spec[1]:
-                            break
-                        temp_bin_mz.append(k)
-                        temp_bin_int.append(int_array[k_k])
-                # Convert downsampled arrays to NumPy arrays
-                downsampled_int_array = np.array(downsampled_int_array)
-                downsampled_mz_array = np.array(downsampled_mz_array)
-                if len(i['intensity array']) > 0:
-                    if np.min(i['intensity array']) < min_int:
-                        min_int = np.min(i['intensity array'])
-                    if np.max(i['intensity array']) > max_int:
-                        max_int = np.max(i['intensity array'])
-                mz_map.append(downsampled_mz_array) #this is an np.array added to mz_map
-                int_map.append(downsampled_int_array) #this is an np.array added to int_map
-                rt_map.append(rt) #this is a single number, added to rt_map
-                rt_map_cursor.append(rt)
-                mz_map_cursor.append(i['m/z array'])
-                int_map_cursor.append(i['intensity array'])
-        max_number_points = 450 #maximum number of points for RT axis
-        rt_map = np.array(rt_map)
-        downsampled_rt_map = []
-        double_downsampled_mz_map = []
-        double_downsampled_int_map = []
-        downsampling_factor = (x_lims[1]-x_lims[0])/max_number_points
-        current_bin = x_lims[0]
-        temp_rt_bin = []
-        temp_mz_bin = []
-        temp_int_bin = []
-        for index, rt in enumerate(rt_map):
-            if rt > x_lims[1]:
-                break
-            if rt >= x_lims[0]:
-                while rt > current_bin+downsampling_factor:
-                    current_bin += downsampling_factor
-                    if len(temp_rt_bin) == 0:
-                        continue
-                    downsampled_rt_map.append(np.mean(temp_rt_bin))
-                    new_mz_array = []
-                    new_int_array = []
-                    for i_i, i in enumerate(temp_mz_bin[0]):
-                        temp_mz_mean = []
-                        temp_int_mean = []
-                        for k_k, k in enumerate(temp_mz_bin):
-                            temp_mz_mean.append(temp_mz_bin[k_k][i_i])
-                            temp_int_mean.append(temp_int_bin[k_k][i_i])
-                        new_mz_array.append(np.mean(temp_mz_mean))
-                        new_int_array.append(np.mean(temp_int_mean))
-                    double_downsampled_int_map.append(new_int_array)
-                    double_downsampled_mz_map.append(new_mz_array)
-                    temp_rt_bin = []
-                    temp_int_bin = []
-                    temp_mz_bin = []
-                temp_rt_bin.append(rt)
-                temp_int_bin.append(int_map[index])
-                temp_mz_bin.append(mz_map[index])
-        rt_map = downsampled_rt_map
-        mz_map = double_downsampled_mz_map
-        int_map = double_downsampled_int_map
-        
+        global two_d_plot
         two_d_plot = tk.Toplevel()
-        two_d_plot.iconbitmap(current_dir+"/Assets/gg_icon.ico")
+        icon = ImageTk.PhotoImage(ico_image)
+        two_d_plot.iconphoto(False, icon)
         two_d_plot.withdraw()
         two_d_plot.minsize(600, 400)
         two_d_plot.bind("<Configure>", on_resize)
@@ -4056,9 +4164,6 @@ def run_main_window():
         ax_two_d.set_xlabel('Retention/Migration Time (min)')
         ax_two_d.set_ylabel('m/z')
         
-        ax_two_d.set_xlim(x_lims)
-        ax_two_d.set_ylim(x_lims_spec)
-        
         horizontal_line = ax_two_d.axhline(y=-100, color='black', linestyle='--', linewidth=1, label='Horizontal Line')
         vertical_line = ax_two_d.axvline(x=-100, color='black', linestyle='--', linewidth=1, label='Vertical Line')
         
@@ -4066,60 +4171,6 @@ def run_main_window():
         coordinate_label_two_d.place(relx=1.0, rely=0, anchor='ne')
         
         coordinate_label_two_d.lift()
-        
-        scatter_collection = []
-        
-        window_width = two_d_plot.winfo_width()
-        window_height = two_d_plot.winfo_height()
-        
-        marker_size = (y_scale/max_number_points)*(window_height*0.0005)
-        
-        # Plot the data
-        if min_int == 0:
-            min_int = 1
-        for i, rt in enumerate(rt_map):
-            scatter = ax_two_d.scatter(np.full_like(mz_map[i], rt), mz_map[i], c=int_map[i], cmap='inferno_r', s=marker_size, marker='s', norm=LogNorm(vmin=min_int, vmax=max_int), alpha=0.8)
-            scatter_collection.append(scatter)
-            
-        circle_collection = []    
-        lines_collection = []
-        
-        circle_y_radius = ((y_scale/max_number_points)*3)
-        circle_x_radius = (circle_y_radius*(x_scale/y_scale))*(window_height/window_width)
-        line_width_ms2 = 1
-        if len(processed_data[selected_item]['ms2']) > 0:
-            for i in processed_data[selected_item]['ms2']:
-                if processed_data[selected_item]['time_unit'] == 'seconds':
-                    i_mins = i/60
-                else:
-                    i_mins = i
-                if x_lims[0] < i_mins < x_lims[1]:
-                    for k in processed_data[selected_item]['ms2'][i]:
-                        if x_lims_spec[0] < processed_data[selected_item]['ms2'][i][k][0] < x_lims_spec[1]:
-                            if processed_data[selected_item]['time_unit'] == 'seconds':
-                                k_mins = k/60
-                            else:
-                                k_mins = k
-                            circle = Ellipse((i_mins, processed_data[selected_item]['ms2'][i][k][0]), circle_x_radius, circle_y_radius, edgecolor='blue', facecolor='none')
-                            circle_collection.append(circle)
-                            ax_two_d.add_patch(circle)
-                            line, = ax_two_d.plot([i_mins, k_mins], [processed_data[selected_item]['ms2'][i][k][0], processed_data[selected_item]['ms2'][i][k][0]], color='blue', linewidth=line_width_ms2)
-                            lines_collection.append(line)
-        
-        if ax_spec.get_xlim()[1] != 1.0 and ax_spec.get_xlim()[0] != 0:
-            two_d.config(state=tk.NORMAL)
-
-        left_margin = 65
-        right_margin = 10
-        top_margin = 20
-        bottom_margin = 45
-
-        subplot_width = (window_width - left_margin - right_margin) / window_width
-        subplot_height = (window_height - top_margin - bottom_margin) / window_height
-        subplot_left = left_margin / window_width
-        subplot_bottom = bottom_margin / window_height
-
-        ax_two_d.set_position([subplot_left, subplot_bottom, subplot_width, subplot_height])
         
         two_d_plot.update_idletasks()
         two_d_plot.deiconify()
@@ -4131,42 +4182,129 @@ def run_main_window():
         y_position = (screen_height - window_height) // 2
         two_d_plot.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
         
-        two_d_plot.bind("<Configure>", lambda event, ax_two_d=ax_two_d: adjust_subplot_size_two_d(event, ax_two_d, canvas_two_d, scatter_collection, circle_collection, lines_collection))
-        canvas_two_d.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_two_d, canvas_two_d, True) if event.button == 3 else None)
-        canvas_two_d.mpl_connect('motion_notify_event', lambda event: on_plot_hover_two_d(event, ax_two_d, canvas_two_d, rt_map_cursor, mz_map_cursor, int_map_cursor, coordinate_label_two_d, horizontal_line, vertical_line))
-        
-    def aligning_samples_window():
-        def wait_thread():
-            compare_samples_window()
-        
-        global aligning_samples
-        aligning_samples = tk.Toplevel()
-        # aligning_samples.attributes("-topmost", True)
-        aligning_samples.withdraw()
-        aligning_samples.title("Aligning Samples")
-        aligning_samples.iconbitmap(current_dir+"/Assets/gg_icon.ico")
-        aligning_samples.resizable(False, False)
-        aligning_samples.grab_set()
-        aligning_samples.protocol("WM_DELETE_WINDOW", on_closing)
-        
-        aligning_samples_label = ttk.Label(aligning_samples, text="Aligning sample files, please wait.", font=("Segoe UI", list_font_size))
-        aligning_samples_label.pack(pady=35, padx=70)
-        
-        aligning_samples.update_idletasks()
-        aligning_samples.deiconify()
-        window_width = aligning_samples.winfo_width()
-        window_height = aligning_samples.winfo_height()
-        screen_width = aligning_samples.winfo_screenwidth()
-        screen_height = aligning_samples.winfo_screenheight()
-        x_position = (screen_width - window_width) // 2
-        y_position = (screen_height - window_height) // 2
-        aligning_samples.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
-        
-        t = threading.Thread(target=wait_thread)
-        t.start()
+        process_2d_plot()
         
     def compare_samples_window():
-        global selected_item_chromatograms, samples_dropdown_options, level, ret_time_interval, df1, df2, aligning_samples
+        global compare_samples, compare_samples_opened, selected_item_chromatograms, samples_dropdown_options, level, ret_time_interval, df1, df2, aligning_samples
+        
+        def aligning_samples_window():
+            def process_alignment():
+                global former_alignments, ax_comp, last_xlims_chrom, last_ylims_chrom
+                
+                if f"{iso_fit_score}{curve_fit_score}{max_ppm}{s_to_n}" not in former_alignments.keys():
+                    total_glycans_df = make_total_glycans_df(df1, df2)
+                    if len(total_glycans_df[0]['Glycan']) != 0:
+                        chromatograms_delta = Execution_Functions.align_assignments(total_glycans_df, "total_glycans", multithreaded_analysis, number_cores, rt_tol = ret_time_interval[2])
+                        chromatograms_aligned = Execution_Functions.align_assignments(chromatograms, 'chromatograms', multithreaded_analysis, number_cores, chromatograms_delta[1])
+                    else:
+                        chromatograms_aligned = chromatograms
+                    former_alignments[f"{iso_fit_score}{curve_fit_score}{max_ppm}{s_to_n}"] = chromatograms_aligned
+        
+                loops = 0
+                if level == 1:
+                    for i_i, i in enumerate(chromatograms_checkboxes.get_checked()):
+                        x_values_comp = chromatograms[int(i)][f"RTs_{int(i)}"]
+                        y_values_comp = []
+                        counter = 0
+                        for k in chromatograms[int(i)]:
+                            if k.split("+")[0] == item_text_comp:
+                                if counter == 0:
+                                    y_values_comp = chromatograms[int(i)][k]
+                                    counter+= 1
+                                else:
+                                    y_values_comp = [x + y for x, y in zip(y_values_comp, chromatograms[int(i)][k])]
+                        if i_i-(len(colors)*loops) == len(colors):
+                            loops+= 1
+                        color = colors[i_i-(len(colors)*loops)]
+                        ax_comp.plot(x_values_comp, y_values_comp, linewidth=1, color=color, label = chromatograms_checkboxes.item(i, "text"))
+                if level == 2:
+                    for i_i, i in enumerate(chromatograms_checkboxes.get_checked()):
+                        x_values_comp = chromatograms[int(i)][f"RTs_{i}"]
+                        y_values_comp = chromatograms[int(i)][f"{grand_parent_text_comp}+{parent_text_comp}"]
+                        if i_i-(len(colors)*loops) == len(colors):
+                            loops+= 1
+                        color = colors[i_i-(len(colors)*loops)]
+                        ax_comp.plot(x_values_comp, y_values_comp, linewidth=1, color=color, label = chromatograms_checkboxes.item(i, "text"))
+        
+                ax_comp.legend(fontsize=9)
+                        
+                try:
+                    lines = ax_comp.get_lines()
+
+                    # Initialize the maximum value to negative infinity
+                    max_value = float('-inf')
+
+                    # Iterate through each line
+                    for line in lines:
+                        # Get the y-data of the line
+                        y_data = line.get_ydata()
+                        
+                        # Find the maximum value in the y-data
+                        line_max_value = max(y_data)
+                        
+                        # Update the overall maximum value if needed
+                        max_value = max(max_value, line_max_value)
+                        
+                    x_min = min(x_values_comp)
+                    x_max = max(x_values_comp)
+                    og_x_range_comp = (x_min-0.5, x_max+0.5)
+                    og_y_range_comp = (0, max_value*1.1)
+                except:
+                    og_x_range_comp = (0, 1000)
+                    og_y_range_comp = (0, 1000)
+                    
+                ax_comp.set_xlim(og_x_range_comp)
+                ax_comp.set_ylim(og_y_range_comp)
+                
+                last_xlims_chrom = og_x_range_comp
+                last_ylims_chrom = og_y_range_comp
+                
+                canvas_comp.draw()
+                
+                canvas_comp.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_comp, canvas_comp, True) if event.button == 3 else None) 
+                zoom_selection_key_press_comp = canvas_comp.mpl_connect('key_press_event', lambda event: zoom_selection_compare(event, ax_comp, canvas_comp, type_coordinate_comp))
+                zoom_selection_key_release_comp = canvas_comp.mpl_connect('key_release_event', lambda event: zoom_selection_compare(event, ax_comp, canvas_comp, type_coordinate_comp))
+                zoom_selection_motion_notify_comp = canvas_comp.mpl_connect('motion_notify_event', lambda event: zoom_selection_compare(event, ax_comp, canvas_comp, type_coordinate_comp))
+                zoom_selection_button_press_comp = canvas_comp.mpl_connect('button_press_event', lambda event: zoom_selection_compare(event, ax_comp, canvas_comp, type_coordinate_comp) if event.button == 1 else None)
+                zoom_selection_button_release_comp = canvas_comp.mpl_connect('button_release_event', lambda event: zoom_selection_compare(event, ax_comp, canvas_comp, type_coordinate_comp) if event.button == 1 else None)
+                on_scroll_event_comp = canvas_comp.mpl_connect('scroll_event', lambda event: on_scroll(event, ax_comp, canvas_comp, type_coordinate_comp))
+                on_double_click_event_comp = canvas_comp.mpl_connect('button_press_event', lambda event: on_double_click(event, ax_comp, canvas_comp, og_x_range_comp, og_y_range_comp, type_coordinate_comp) if event.button == 1 else None)
+                on_plot_hover_motion_comp = canvas_comp.mpl_connect('motion_notify_event', lambda event: on_plot_hover(event, ax_comp, canvas_comp, x_values_comp, y_values_comp, coordinate_label_comp, type_coordinate_comp, vertical_line, True))
+                on_pan_press_comp = canvas_comp.mpl_connect('button_press_event', lambda event: on_pan(event, ax_comp, canvas_comp, type_coordinate_comp) if event.button == 1 else None)
+                on_pan_release_comp = canvas_comp.mpl_connect('button_release_event', lambda event: on_pan(event, ax_comp, canvas_comp, type_coordinate_comp) if event.button == 1 else None)
+                on_pan_motion_comp = canvas_comp.mpl_connect('motion_notify_event', lambda event: on_pan(event, ax_comp, canvas_comp, type_coordinate_comp))
+                on_pan_right_click_press_comp = canvas_comp.mpl_connect('button_press_event', lambda event: on_pan_right_click(event, ax_comp, canvas_comp, type_coordinate) if event.button == 3 else None)
+                on_pan_right_click_release_comp = canvas_comp.mpl_connect('button_release_event', lambda event: on_pan_right_click(event, ax_comp, canvas_comp, type_coordinate) if event.button == 3 else None)
+                on_pan_right_click_motion_comp = canvas_comp.mpl_connect('motion_notify_event', lambda event: on_pan_right_click(event, ax_comp, canvas_comp, type_coordinate))
+                
+                aligning_samples.destroy()
+            
+            global aligning_samples
+            aligning_samples = tk.Toplevel()
+            # aligning_samples.attributes("-topmost", True)
+            aligning_samples.withdraw()
+            aligning_samples.title("Aligning Samples")
+            icon = ImageTk.PhotoImage(ico_image)
+            aligning_samples.iconphoto(False, icon)
+            aligning_samples.resizable(False, False)
+            aligning_samples.grab_set()
+            aligning_samples.protocol("WM_DELETE_WINDOW", on_closing)
+            
+            aligning_samples_label = ttk.Label(aligning_samples, text="Aligning sample files, please wait.", font=("Segoe UI", list_font_size))
+            aligning_samples_label.pack(pady=35, padx=70)
+            
+            aligning_samples.update_idletasks()
+            aligning_samples.deiconify()
+            window_width = aligning_samples.winfo_width()
+            window_height = aligning_samples.winfo_height()
+            screen_width = aligning_samples.winfo_screenwidth()
+            screen_height = aligning_samples.winfo_screenheight()
+            x_position = (screen_width - window_width) // 2
+            y_position = (screen_height - window_height) // 2
+            aligning_samples.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
+            
+            t = threading.Thread(target=process_alignment)
+            t.start()
         
         def on_checkbox_click(event):
             """Check or uncheck box when clicked."""
@@ -4193,24 +4331,24 @@ def run_main_window():
             if align_chromatograms_checkbox_state.get():
                 if level == 1:
                     for i_i, i in enumerate(chromatograms_checkboxes.get_checked()):
-                        x_values_comp = chromatograms_aligned[int(i)][f"RTs_{int(i)}"]
+                        x_values_comp = former_alignments[f"{iso_fit_score}{curve_fit_score}{max_ppm}{s_to_n}"][int(i)][f"RTs_{int(i)}"]
                         y_values_comp = []
                         counter = 0
-                        for k in chromatograms_aligned[int(i)]:
-                            if k.split("+")[0] == item_text:
+                        for k in former_alignments[f"{iso_fit_score}{curve_fit_score}{max_ppm}{s_to_n}"][int(i)]:
+                            if k.split("+")[0] == item_text_comp:
                                 if counter == 0:
-                                    y_values_comp = chromatograms_aligned[int(i)][k]
+                                    y_values_comp = former_alignments[f"{iso_fit_score}{curve_fit_score}{max_ppm}{s_to_n}"][int(i)][k]
                                     counter+= 1
                                 else:
-                                    y_values_comp = [x + y for x, y in zip(y_values_comp, chromatograms_aligned[int(i)][k])]
+                                    y_values_comp = [x + y for x, y in zip(y_values_comp, former_alignments[f"{iso_fit_score}{curve_fit_score}{max_ppm}{s_to_n}"][int(i)][k])]
                         if i_i-(len(colors)*loops) == len(colors):
                             loops+= 1
                         color = colors[i_i-(len(colors)*loops)]
                         ax_comp.plot(x_values_comp, y_values_comp, linewidth=1, color=color, label = chromatograms_checkboxes.item(i, "text"))
                 if level == 2:
                     for i_i, i in enumerate(chromatograms_checkboxes.get_checked()):
-                        x_values_comp = chromatograms_aligned[int(i)][f"RTs_{i}"]
-                        y_values_comp = chromatograms_aligned[int(i)][f"{grand_parent_text}+{parent_text}"]
+                        x_values_comp = former_alignments[f"{iso_fit_score}{curve_fit_score}{max_ppm}{s_to_n}"][int(i)][f"RTs_{i}"]
+                        y_values_comp = former_alignments[f"{iso_fit_score}{curve_fit_score}{max_ppm}{s_to_n}"][int(i)][f"{grand_parent_text_comp}+{parent_text_comp}"]
                         if i_i-(len(colors)*loops) == len(colors):
                             loops+= 1
                         color = colors[i_i-(len(colors)*loops)]
@@ -4222,7 +4360,7 @@ def run_main_window():
                         y_values_comp = []
                         counter = 0
                         for k in chromatograms[int(i)]:
-                            if k.split("+")[0] == item_text:
+                            if k.split("+")[0] == item_text_comp:
                                 if counter == 0:
                                     y_values_comp = chromatograms[int(i)][k]
                                     counter+= 1
@@ -4262,24 +4400,24 @@ def run_main_window():
             if align_chromatograms_checkbox_state.get():
                 if level == 1:
                     for i_i, i in enumerate(chromatograms_checkboxes.get_checked()):
-                        x_values_comp = chromatograms_aligned[int(i)][f"RTs_{int(i)}"]
+                        x_values_comp = former_alignments[f"{iso_fit_score}{curve_fit_score}{max_ppm}{s_to_n}"][int(i)][f"RTs_{int(i)}"]
                         y_values_comp = []
                         counter = 0
-                        for k in chromatograms_aligned[int(i)]:
-                            if k.split("+")[0] == item_text:
+                        for k in former_alignments[f"{iso_fit_score}{curve_fit_score}{max_ppm}{s_to_n}"][int(i)]:
+                            if k.split("+")[0] == item_text_comp:
                                 if counter == 0:
-                                    y_values_comp = chromatograms_aligned[int(i)][k]
+                                    y_values_comp = former_alignments[f"{iso_fit_score}{curve_fit_score}{max_ppm}{s_to_n}"][int(i)][k]
                                     counter+= 1
                                 else:
-                                    y_values_comp = [x + y for x, y in zip(y_values_comp, chromatograms_aligned[int(i)][k])]
+                                    y_values_comp = [x + y for x, y in zip(y_values_comp, former_alignments[f"{iso_fit_score}{curve_fit_score}{max_ppm}{s_to_n}"][int(i)][k])]
                         if i_i-(len(colors)*loops) == len(colors):
                             loops+= 1
                         color = colors[i_i-(len(colors)*loops)]
                         ax_comp.plot(x_values_comp, y_values_comp, linewidth=1, color=color, label = chromatograms_checkboxes.item(i, "text"))
                 if level == 2:
                     for i_i, i in enumerate(chromatograms_checkboxes.get_checked()):
-                        x_values_comp = chromatograms_aligned[int(i)][f"RTs_{i}"]
-                        y_values_comp = chromatograms_aligned[int(i)][f"{grand_parent_text}+{parent_text}"]
+                        x_values_comp = former_alignments[f"{iso_fit_score}{curve_fit_score}{max_ppm}{s_to_n}"][int(i)][f"RTs_{i}"]
+                        y_values_comp = former_alignments[f"{iso_fit_score}{curve_fit_score}{max_ppm}{s_to_n}"][int(i)][f"{grand_parent_text}+{parent_text}"]
                         if i_i-(len(colors)*loops) == len(colors):
                             loops+= 1
                         color = colors[i_i-(len(colors)*loops)]
@@ -4291,7 +4429,7 @@ def run_main_window():
                         y_values_comp = []
                         counter = 0
                         for k in chromatograms[int(i)]:
-                            if k.split("+")[0] == item_text:
+                            if k.split("+")[0] == item_text_comp:
                                 if counter == 0:
                                     y_values_comp = chromatograms[int(i)][k]
                                     counter+= 1
@@ -4332,45 +4470,45 @@ def run_main_window():
             ax_comp.set_ylim(0, max_value*1.1)
             
             canvas_comp.draw_idle()
+            
+        def exit_compare_samples():
+            global compare_samples_opened
+            compare_samples_opened = False
+            compare_samples.destroy()
         
-        global former_alignments
-        if f"{iso_fit_score}{curve_fit_score}{max_ppm}{s_to_n}" not in former_alignments[0]:
-            total_glycans_df = make_total_glycans_df(df1, df2)
-            if len(total_glycans_df[0]['Glycan']) != 0:
-                chromatograms_delta = Execution_Functions.align_assignments(total_glycans_df, "total_glycans", multithreaded_analysis, number_cores, rt_tol = ret_time_interval[2])
-                chromatograms_aligned = Execution_Functions.align_assignments(chromatograms, 'chromatograms', multithreaded_analysis, number_cores, chromatograms_delta[1])
-            else:
-                chromatograms_aligned = chromatograms
-            former_alignments[0].append(f"{iso_fit_score}{curve_fit_score}{max_ppm}{s_to_n}")
-            former_alignments[1].append(chromatograms_aligned)
-        else:
-            chromatograms_aligned = former_alignments[1][former_alignments[0].index(f"{iso_fit_score}{curve_fit_score}{max_ppm}{s_to_n}")]
+        if compare_samples_opened:
+            compare_samples.deiconify()
+            compare_samples.lift()
+            compare_samples.focus_set()
+            return
         
-        aligning_samples.destroy()
+        compare_samples_opened = True
         
+        global item_text_comp, parent_text_comp, grand_parent_item_comp, grand_parent_text_comp
         if level == 1:
-            item_text = chromatograms_list.item(selected_item_chromatograms, "text")
+            item_text_comp = chromatograms_list.item(selected_item_chromatograms, "text")
         if level == 2:
-            parent_text = chromatograms_list.item(selected_item_chromatograms, "text")
-            grand_parent_item = chromatograms_list.parent(selected_item_chromatograms)
-            grand_parent_text = chromatograms_list.item(grand_parent_item, "text")
+            parent_text_comp = chromatograms_list.item(selected_item_chromatograms, "text")
+            grand_parent_item_comp = chromatograms_list.parent(selected_item_chromatograms)
+            grand_parent_text_comp = chromatograms_list.item(grand_parent_item, "text")
     
         compare_samples = tk.Toplevel()
-        # compare_samples.attributes("-topmost", True)
-        compare_samples.iconbitmap(current_dir+"/Assets/gg_icon.ico")
+        icon = ImageTk.PhotoImage(ico_image)
+        compare_samples.iconphoto(False, icon)
         compare_samples.withdraw()
         compare_samples.minsize(720, 480)
         compare_samples.bind("<Configure>", on_resize)
         if level == 1:
-            compare_samples.title(f"Samples Comparison - {item_text}")
+            compare_samples.title(f"Samples Comparison - {item_text_comp}")
         else:
-            compare_samples.title(f"Samples Comparison - {grand_parent_text} - {parent_text}")
+            compare_samples.title(f"Samples Comparison - {grand_parent_text_comp} - {parent_text_comp}")
         compare_samples.resizable(True, True)
         compare_samples.grid_rowconfigure(0, weight=0)
         compare_samples.grid_rowconfigure(1, weight=1)
         compare_samples.grid_columnconfigure(0, weight=0)
         compare_samples.grid_columnconfigure(1, weight=1)
         compare_samples.grab_set()
+        compare_samples.protocol("WM_DELETE_WINDOW", exit_compare_samples)
         
         align_chromatograms_checkbox_state = tk.BooleanVar(value=False)
         align_chromatograms_checkbox = ttk.Checkbutton(compare_samples, text="Align Chromatograms/Electropherograms", variable=align_chromatograms_checkbox_state, command=align_chromatograms_checkbox_state_check)
@@ -4395,69 +4533,8 @@ def run_main_window():
         for i_i, i in enumerate(samples_dropdown_options):
             chromatograms_checkboxes.insert("", "end", i_i, text=i)
             chromatograms_checkboxes.change_state(i_i, "checked")
-        
-        loops = 0
-        if level == 1:
-            for i_i, i in enumerate(chromatograms_checkboxes.get_checked()):
-                x_values_comp = chromatograms[int(i)][f"RTs_{int(i)}"]
-                y_values_comp = []
-                counter = 0
-                for k in chromatograms[int(i)]:
-                    if k.split("+")[0] == item_text:
-                        if counter == 0:
-                            y_values_comp = chromatograms[int(i)][k]
-                            counter+= 1
-                        else:
-                            y_values_comp = [x + y for x, y in zip(y_values_comp, chromatograms[int(i)][k])]
-                if i_i-(len(colors)*loops) == len(colors):
-                    loops+= 1
-                color = colors[i_i-(len(colors)*loops)]
-                ax_comp.plot(x_values_comp, y_values_comp, linewidth=1, color=color, label = chromatograms_checkboxes.item(i, "text"))
-        if level == 2:
-            for i_i, i in enumerate(chromatograms_checkboxes.get_checked()):
-                x_values_comp = chromatograms[int(i)][f"RTs_{i}"]
-                y_values_comp = chromatograms[int(i)][f"{grand_parent_text}+{parent_text}"]
-                if i_i-(len(colors)*loops) == len(colors):
-                    loops+= 1
-                color = colors[i_i-(len(colors)*loops)]
-                ax_comp.plot(x_values_comp, y_values_comp, linewidth=1, color=color, label = chromatograms_checkboxes.item(i, "text"))
             
         vertical_line = ax_comp.axvline(x=-10000, color='black', linestyle='--', linewidth=1)
-        
-        ax_comp.legend(fontsize=9)
-                
-        try:
-            lines = ax_comp.get_lines()
-
-            # Initialize the maximum value to negative infinity
-            max_value = float('-inf')
-
-            # Iterate through each line
-            for line in lines:
-                # Get the y-data of the line
-                y_data = line.get_ydata()
-                
-                # Find the maximum value in the y-data
-                line_max_value = max(y_data)
-                
-                # Update the overall maximum value if needed
-                max_value = max(max_value, line_max_value)
-                
-            x_min = min(x_values_comp)
-            x_max = max(x_values_comp)
-            og_x_range_comp = (x_min-0.5, x_max+0.5)
-            og_y_range_comp = (0, max_value*1.1)
-        except:
-            og_x_range_comp = (0, 1000)
-            og_y_range_comp = (0, 1000)
-            
-        ax_comp.set_xlim(og_x_range_comp)
-        ax_comp.set_ylim(og_y_range_comp)
-        
-        last_xlims_chrom = og_x_range_comp
-        last_ylims_chrom = og_y_range_comp
-        
-        canvas_comp.draw()
         
         coordinate_label_comp = tk.Label(chromatogram_plots_compare_frame, text="", anchor="e", font=("Segoe UI", 8), bg="white")
         coordinate_label_comp.place(relx=1.0, rely=0, anchor='ne')
@@ -4481,21 +4558,6 @@ def run_main_window():
         
         chromatograms_checkboxes.bind("<Button-1>", on_checkbox_click)
         chromatogram_plots_compare_frame.bind("<Configure>", lambda event, ax=ax_comp: adjust_subplot_size(event, ax_comp, canvas_comp))
-        canvas_comp.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_comp, canvas_comp, True) if event.button == 3 else None) 
-        zoom_selection_key_press_comp = canvas_comp.mpl_connect('key_press_event', lambda event: zoom_selection_compare(event, ax_comp, canvas_comp, type_coordinate_comp))
-        zoom_selection_key_release_comp = canvas_comp.mpl_connect('key_release_event', lambda event: zoom_selection_compare(event, ax_comp, canvas_comp, type_coordinate_comp))
-        zoom_selection_motion_notify_comp = canvas_comp.mpl_connect('motion_notify_event', lambda event: zoom_selection_compare(event, ax_comp, canvas_comp, type_coordinate_comp))
-        zoom_selection_button_press_comp = canvas_comp.mpl_connect('button_press_event', lambda event: zoom_selection_compare(event, ax_comp, canvas_comp, type_coordinate_comp) if event.button == 1 else None)
-        zoom_selection_button_release_comp = canvas_comp.mpl_connect('button_release_event', lambda event: zoom_selection_compare(event, ax_comp, canvas_comp, type_coordinate_comp) if event.button == 1 else None)
-        on_scroll_event_comp = canvas_comp.mpl_connect('scroll_event', lambda event: on_scroll(event, ax_comp, canvas_comp, type_coordinate_comp))
-        on_double_click_event_comp = canvas_comp.mpl_connect('button_press_event', lambda event: on_double_click(event, ax_comp, canvas_comp, og_x_range_comp, og_y_range_comp, type_coordinate_comp) if event.button == 1 else None)
-        on_plot_hover_motion_comp = canvas_comp.mpl_connect('motion_notify_event', lambda event: on_plot_hover(event, ax_comp, canvas_comp, x_values_comp, y_values_comp, coordinate_label_comp, type_coordinate_comp, vertical_line, True))
-        on_pan_press_comp = canvas_comp.mpl_connect('button_press_event', lambda event: on_pan(event, ax_comp, canvas_comp, type_coordinate_comp) if event.button == 1 else None)
-        on_pan_release_comp = canvas_comp.mpl_connect('button_release_event', lambda event: on_pan(event, ax_comp, canvas_comp, type_coordinate_comp) if event.button == 1 else None)
-        on_pan_motion_comp = canvas_comp.mpl_connect('motion_notify_event', lambda event: on_pan(event, ax_comp, canvas_comp, type_coordinate_comp))
-        on_pan_right_click_press_comp = canvas_comp.mpl_connect('button_press_event', lambda event: on_pan_right_click(event, ax_comp, canvas_comp, type_coordinate) if event.button == 3 else None)
-        on_pan_right_click_release_comp = canvas_comp.mpl_connect('button_release_event', lambda event: on_pan_right_click(event, ax_comp, canvas_comp, type_coordinate) if event.button == 3 else None)
-        on_pan_right_click_motion_comp = canvas_comp.mpl_connect('motion_notify_event', lambda event: on_pan_right_click(event, ax_comp, canvas_comp, type_coordinate))
         
         compare_samples.update_idletasks()
         compare_samples.deiconify()
@@ -4507,8 +4569,14 @@ def run_main_window():
         y_position = (screen_height - window_height) // 2
         compare_samples.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
         
+        aligning_samples_window()
+        
     def check_qc_dist():
+        global sample_for_qc_dist, qc_dist_opened, qc_dist
+        
         def exit_check_qc_dist():
+            global qc_dist_opened
+            qc_dist_opened = False
             qc_dist.destroy()
             
         def on_hover_qc_plot(event, canvas, ax, scatter, x_values, y_values, tooltip):
@@ -4614,19 +4682,19 @@ def run_main_window():
                 mass_list = []
                 me_list = []
                 rt_list = []
-                for i in glycans_per_sample[selected_item]:
-                    for j in glycans_per_sample[selected_item][i]:
-                        for k_k, k in enumerate(glycans_per_sample[selected_item][i][j]['peaks']):
+                for i in glycans_per_sample[sample_for_qc_dist]:
+                    for j in glycans_per_sample[sample_for_qc_dist][i]:
+                        for k_k, k in enumerate(glycans_per_sample[sample_for_qc_dist][i][j]['peaks']):
                             glycans_list.append(f"{i}_{j}_{k}")
                             
                             fails = 0
-                            if glycans_per_sample[selected_item][i][j]['ppm'][k_k] < max_ppm[0] or glycans_per_sample[selected_item][i][j]['ppm'][k_k] > max_ppm[1]:
+                            if glycans_per_sample[sample_for_qc_dist][i][j]['ppm'][k_k] < max_ppm[0] or glycans_per_sample[sample_for_qc_dist][i][j]['ppm'][k_k] > max_ppm[1]:
                                 fails += 1
-                            if glycans_per_sample[selected_item][i][j]['iso'][k_k] < iso_fit_score:
+                            if glycans_per_sample[sample_for_qc_dist][i][j]['iso'][k_k] < iso_fit_score:
                                 fails += 1
-                            if glycans_per_sample[selected_item][i][j]['curve'][k_k] < curve_fit_score:
+                            if glycans_per_sample[sample_for_qc_dist][i][j]['curve'][k_k] < curve_fit_score:
                                 fails += 1
-                            if glycans_per_sample[selected_item][i][j]['sn'][k_k] < s_to_n:
+                            if glycans_per_sample[sample_for_qc_dist][i][j]['sn'][k_k] < s_to_n:
                                 fails += 1
                             if fails == 0:
                                 quality_colors.append('green')
@@ -4643,7 +4711,7 @@ def run_main_window():
                             if 'G' in composition.keys():
                                 q -= (composition['G']*(1/(1+10**(2.92-float(ph_entry.get())))))
                             q_list.append(q)
-                            mass_list.append(float(glycans_per_sample[selected_item][i][j]['mz'])*charge)
+                            mass_list.append(float(glycans_per_sample[sample_for_qc_dist][i][j]['mz'])*charge)
                             me_list.append(q_list[-1]/(mass_list[-1]**1/2))
                             rt_list.append(k)
                 reference_rt_id = mass_list.index(max(mass_list))
@@ -4654,11 +4722,12 @@ def run_main_window():
                 return glycans_list, quality_colors, q_list, mass_list, me_list, rt_list
                     
             electro_migrations = tk.Toplevel()
-            electro_migrations.iconbitmap(current_dir+"/Assets/gg_icon.ico")
+            icon = ImageTk.PhotoImage(ico_image)
+            electro_migrations.iconphoto(False, icon)
             electro_migrations.withdraw()
             electro_migrations.minsize(500, 500)
             electro_migrations.bind("<Configure>", on_resize)
-            electro_migrations.title(f"Electrophoretic Migration Modelling - {selected_item}")
+            electro_migrations.title(f"Electrophoretic Migration Modelling - {sample_for_qc_dist}")
             electro_migrations.resizable(True, True)
             electro_migrations.protocol("WM_DELETE_WINDOW", exit_check_electro_mig)
             
@@ -4731,13 +4800,24 @@ def run_main_window():
             x_position = (screen_width - window_width) // 2
             y_position = (screen_height - window_height) // 2
             electro_migrations.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
-                    
+        
+        if qc_dist_opened:
+            qc_dist.deiconify()
+            qc_dist.lift()
+            qc_dist.focus_set()
+            return
+        
+        qc_dist_opened = True
+        
+        sample_for_qc_dist = selected_item
+            
         qc_dist = tk.Toplevel()
-        qc_dist.iconbitmap(current_dir+"/Assets/gg_icon.ico")
+        icon = ImageTk.PhotoImage(ico_image)
+        qc_dist.iconphoto(False, icon)
         qc_dist.withdraw()
         qc_dist.minsize(300, 300)
         qc_dist.bind("<Configure>", on_resize)
-        qc_dist.title(f"QC Scores Distribution - {selected_item}")
+        qc_dist.title(f"QC Scores Distribution - {sample_for_qc_dist}")
         qc_dist.resizable(True, True)
         qc_dist.protocol("WM_DELETE_WINDOW", exit_check_qc_dist)
         
@@ -4755,18 +4835,18 @@ def run_main_window():
         curve_fit_list = []
         sn_list = []
         
-        for i in glycans_per_sample[selected_item]: #going through glycans
-            for k in glycans_per_sample[selected_item][i]: #going through adducts
-                for j_j, j in enumerate(glycans_per_sample[selected_item][i][k]['peaks']):
+        for i in glycans_per_sample[sample_for_qc_dist]: #going through glycans
+            for k in glycans_per_sample[sample_for_qc_dist][i]: #going through adducts
+                for j_j, j in enumerate(glycans_per_sample[sample_for_qc_dist][i][k]['peaks']):
                     names.append(f"{i}_{k}_{j}")
                     fails = 0
-                    if glycans_per_sample[selected_item][i][k]['ppm'][j_j] < max_ppm[0] or glycans_per_sample[selected_item][i][k]['ppm'][j_j] > max_ppm[1]:
+                    if glycans_per_sample[sample_for_qc_dist][i][k]['ppm'][j_j] < max_ppm[0] or glycans_per_sample[sample_for_qc_dist][i][k]['ppm'][j_j] > max_ppm[1]:
                         fails += 1
-                    if glycans_per_sample[selected_item][i][k]['iso'][j_j] < iso_fit_score:
+                    if glycans_per_sample[sample_for_qc_dist][i][k]['iso'][j_j] < iso_fit_score:
                         fails += 1
-                    if glycans_per_sample[selected_item][i][k]['curve'][j_j] < curve_fit_score:
+                    if glycans_per_sample[sample_for_qc_dist][i][k]['curve'][j_j] < curve_fit_score:
                         fails += 1
-                    if glycans_per_sample[selected_item][i][k]['sn'][j_j] < s_to_n:
+                    if glycans_per_sample[sample_for_qc_dist][i][k]['sn'][j_j] < s_to_n:
                         fails += 1
                     if fails == 0:
                         quality_colors.append('green')
@@ -4774,10 +4854,10 @@ def run_main_window():
                         quality_colors.append('#c7af12')
                     else:
                         quality_colors.append('red')
-                ppm_list+=glycans_per_sample[selected_item][i][k]['ppm']
-                iso_fit_list+=glycans_per_sample[selected_item][i][k]['iso']
-                curve_fit_list+=glycans_per_sample[selected_item][i][k]['curve']
-                sn_list+=glycans_per_sample[selected_item][i][k]['sn']
+                ppm_list+=glycans_per_sample[sample_for_qc_dist][i][k]['ppm']
+                iso_fit_list+=glycans_per_sample[sample_for_qc_dist][i][k]['iso']
+                curve_fit_list+=glycans_per_sample[sample_for_qc_dist][i][k]['curve']
+                sn_list+=glycans_per_sample[sample_for_qc_dist][i][k]['sn']
         
         global qc_ppm_line1, qc_ppm_line2, qc_curvefit_line, qc_sn_line, qc_isofit_line, canvas_ppmplot, canvas_curvefitplot, canvas_isofitplot, canvas_snplot, ppm_scatter, isofitplot_scatter, curvefitplot_scatter, snplot_scatter
         #PPM plot
@@ -4976,17 +5056,17 @@ def run_main_window():
             qc_sn_line.set_ydata([s_to_n])
             
             new_colors = []
-            for i in glycans_per_sample[selected_item]: #going through glycans
-                for k in glycans_per_sample[selected_item][i]: #going through adducts
-                    for j_j, j in enumerate(glycans_per_sample[selected_item][i][k]['peaks']):
+            for i in glycans_per_sample[sample_for_qc_dist]: #going through glycans
+                for k in glycans_per_sample[sample_for_qc_dist][i]: #going through adducts
+                    for j_j, j in enumerate(glycans_per_sample[sample_for_qc_dist][i][k]['peaks']):
                         fails = 0
-                        if glycans_per_sample[selected_item][i][k]['ppm'][j_j] < max_ppm[0] or glycans_per_sample[selected_item][i][k]['ppm'][j_j] > max_ppm[1]:
+                        if glycans_per_sample[sample_for_qc_dist][i][k]['ppm'][j_j] < max_ppm[0] or glycans_per_sample[sample_for_qc_dist][i][k]['ppm'][j_j] > max_ppm[1]:
                             fails += 1
-                        if glycans_per_sample[selected_item][i][k]['iso'][j_j] < iso_fit_score:
+                        if glycans_per_sample[sample_for_qc_dist][i][k]['iso'][j_j] < iso_fit_score:
                             fails += 1
-                        if glycans_per_sample[selected_item][i][k]['curve'][j_j] < curve_fit_score:
+                        if glycans_per_sample[sample_for_qc_dist][i][k]['curve'][j_j] < curve_fit_score:
                             fails += 1
-                        if glycans_per_sample[selected_item][i][k]['sn'][j_j] < s_to_n:
+                        if glycans_per_sample[sample_for_qc_dist][i][k]['sn'][j_j] < s_to_n:
                             fails += 1
                         if fails == 0:
                             new_colors.append('green')
@@ -5206,7 +5286,8 @@ def run_main_window():
                     return
                     
         plot_window = tk.Toplevel()
-        plot_window.iconbitmap(current_dir+"/Assets/gg_icon.ico")
+        icon = ImageTk.PhotoImage(ico_image)
+        plot_window.iconphoto(False, icon)
         plot_window.minsize(900, 900)
         plot_window.withdraw()
         plot_window.bind("<Configure>", on_resize)
@@ -5294,48 +5375,111 @@ def run_main_window():
         x_position = (screen_width - window_width) // 2
         y_position = (screen_height - window_height) // 2
         plot_window.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
-                            
-    def process_maximum_spectrum():
-        def wait_thread():
-            quick_check_window()
-        
-        global processing_max_spectrum
-        processing_max_spectrum = tk.Toplevel()
-        # processing_max_spectrum.attributes("-topmost", True)
-        processing_max_spectrum.withdraw()
-        processing_max_spectrum.title("Processing Maximum Intensity Spectrum")
-        processing_max_spectrum.iconbitmap(current_dir+"/Assets/gg_icon.ico")
-        processing_max_spectrum.resizable(False, False)
-        processing_max_spectrum.grab_set()
-        processing_max_spectrum.protocol("WM_DELETE_WINDOW", on_closing)
-        
-        processing_max_spectrum_label = ttk.Label(processing_max_spectrum, text="Processing the Maximum Intensity Spectrum\nfor this sample, please wait.", font=("Segoe UI", list_font_size))
-        processing_max_spectrum_label.pack(pady=35, padx=70)
-        
-        processing_max_spectrum.update_idletasks()
-        processing_max_spectrum.deiconify()
-        window_width = processing_max_spectrum.winfo_width()
-        window_height = processing_max_spectrum.winfo_height()
-        screen_width = processing_max_spectrum.winfo_screenwidth()
-        screen_height = processing_max_spectrum.winfo_screenheight()
-        x_position = (screen_width - window_width) // 2
-        y_position = (screen_height - window_height) // 2
-        processing_max_spectrum.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
-        
-        t = threading.Thread(target=wait_thread)
-        t.start()
         
     def quick_check_window():
-        global maximum_spectra, current_data, selected_item
-        
+        global max_spectrum_window, max_spectrum_opened, maximum_spectra, current_data, selected_item, samples_names
+            
+        def process_maximum_spectrum():
+            def calculate_maximum_spectrum():
+                global maximum_spectra, ax_mis, canvas_mis, coordinate_label_mis, type_coordinate_mis, selected_item
+                
+                if selected_item in maximum_spectra.keys():
+                    maximum_spectrum = maximum_spectra[selected_item]
+                else:
+                    maximum = defaultdict(list)
+                    
+                    cpu_count = (os.cpu_count())-2 if os.cpu_count() < 60 else 60
+                    interval_len = float(current_data['access'][-1]['scanList']['scan'][0]['scan start time'])//cpu_count if current_data['file_type'] == 'mzml' else float(current_data['access'][-1]['retentionTime'])//cpu_count
+                    indexes = []
+
+                    for i in range(cpu_count):
+                        indexes.append(current_data['access'].time[i*interval_len]['index'] if current_data['file_type'] == 'mzml' else int(current_data['access'].time[i*interval_len]['num'])-1)
+                    indexes.append(current_data['access'][-1]['index']+1 if current_data['file_type'] == 'mzml' else int(current_data['access'][-1]['num']))
+
+                    results = []
+                    with concurrent.futures.ProcessPoolExecutor(max_workers = cpu_count) as executor:
+                        for i_i, i in enumerate(indexes):
+                            if i_i == len(indexes)-1:
+                                break
+                            min_max_index = [i, indexes[i_i+1]]
+                            result = executor.submit(analyze_fraction, current_data['access'], 'ms level' if current_data['file_type'] == 'mzml' else 'msLevel', min_max_index)
+                            results.append(result)
+                            
+                        for i in results:
+                            result = i.result()
+                            for i in result:
+                                maximum[i].extend(result[i])
+
+                    for i in maximum:
+                        maximum[i] = max(maximum[i])
+                        
+                    sorted_maximum = {key: maximum[key] for key in sorted(maximum)}
+                    maximum = sorted_maximum
+                    
+                    maximum_spectrum = maximum
+                    maximum_spectra[selected_item] = maximum_spectrum
+                    
+                x_data_mis = []
+                y_data_mis = []
+                for x in maximum_spectrum:
+                    x_data_mis.extend([x - 0.000001, x, x + 0.000001])
+                    y_data_mis.extend([0, maximum_spectrum[x], 0])
+                    
+                ax_mis.plot(x_data_mis, y_data_mis, marker='None', linewidth=1, color='black')
+                
+                annotate_top_y_values(ax_mis, canvas_mis)
+                
+                global og_x_range_mis, og_y_range_mis
+                og_x_range_mis = [x_data_mis[0], x_data_mis[-1]]
+                og_y_range_mis = [-1, max(y_data_mis)*1.1]
+                ax_mis.set_xlim(og_x_range_mis)
+                ax_mis.set_ylim(og_y_range_mis)
+                
+                canvas_mis.draw()
+                
+                on_plot_hover_motion_mis = canvas_mis.mpl_connect('motion_notify_event', lambda event: on_plot_hover(event, ax_mis, canvas_mis, list(maximum_spectrum.keys()), list(maximum_spectrum.values()), coordinate_label_mis, type_coordinate_mis))
+                
+                processing_max_spectrum.destroy()
+            
+            def wait_thread():
+                calculate_maximum_spectrum()
+            
+            global processing_max_spectrum
+            processing_max_spectrum = tk.Toplevel()
+            # processing_max_spectrum.attributes("-topmost", True)
+            processing_max_spectrum.withdraw()
+            processing_max_spectrum.title("Processing Maximum Intensity Spectrum")
+            icon = ImageTk.PhotoImage(ico_image)
+            processing_max_spectrum.iconphoto(False, icon)
+            processing_max_spectrum.resizable(False, False)
+            processing_max_spectrum.grab_set()
+            processing_max_spectrum.protocol("WM_DELETE_WINDOW", on_closing)
+            
+            processing_max_spectrum_label = ttk.Label(processing_max_spectrum, text="Processing the Maximum Intensity Spectrum\nfor this sample, please wait.", font=("Segoe UI", list_font_size))
+            processing_max_spectrum_label.pack(pady=35, padx=70)
+            
+            processing_max_spectrum.update_idletasks()
+            processing_max_spectrum.deiconify()
+            window_width = processing_max_spectrum.winfo_width()
+            window_height = processing_max_spectrum.winfo_height()
+            screen_width = processing_max_spectrum.winfo_screenwidth()
+            screen_height = processing_max_spectrum.winfo_screenheight()
+            x_position = (screen_width - window_width) // 2
+            y_position = (screen_height - window_height) // 2
+            processing_max_spectrum.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
+            
+            t = threading.Thread(target=wait_thread)
+            t.start()
+            
         def exit_window_qcw():
-            global glycans_list_quickcheck_save
+            global max_spectrum_opened, glycans_list_quickcheck_save
             values_list = []
             for item_id in glycans_list.get_children():
                 values = glycans_list.item(item_id, "values")
                 values_list.append(values)
             library_name_from_path = library_path.split("/")[-1]
             glycans_list_quickcheck_save[f"{selected_item}_{tolerance}_{library_name_from_path}"] = values_list
+            max_spectrum_opened = False
             max_spectrum_window.destroy()
         
         def glycans_list_sort(tv, col, reverse):
@@ -5409,8 +5553,8 @@ def run_main_window():
                     max_int = i[2]
                     break
             
-            mz_array = list(maximum_spectrum.keys())
-            int_array = list(maximum_spectrum.values())
+            mz_array = list(maximum_spectra[selected_item].keys())
+            int_array = list(maximum_spectra[selected_item].values())
             
             ax_mis.set_xlim(mz_list[0]-2, mz_list[-1]+2)
             ax_mis.set_ylim(0, max_int*1.1)
@@ -5419,39 +5563,6 @@ def run_main_window():
                 rectangles.append(ax_mis.add_patch(Rectangle((i-0.1, ax_mis.get_ylim()[0]), (i+0.1) - (i-0.1), 1000000000000, color='#FEB7A1', alpha=0.3)))
                 
             canvas_mis.draw_idle()
-        
-        def calculate_maximum_spectrum(access, file_type):
-            maximum = defaultdict(list)
-            
-            cpu_count = (os.cpu_count())-2 if os.cpu_count() < 60 else 60
-            interval_len = float(access[-1]['scanList']['scan'][0]['scan start time'])//cpu_count if file_type == 'mzml' else float(access[-1]['retentionTime'])//cpu_count
-            indexes = []
-
-            for i in range(cpu_count):
-                indexes.append(access.time[i*interval_len]['index'] if file_type == 'mzml' else int(access.time[i*interval_len]['num'])-1)
-            indexes.append(access[-1]['index']+1 if file_type == 'mzml' else int(access[-1]['num']))
-
-            results = []
-            with concurrent.futures.ProcessPoolExecutor(max_workers = cpu_count) as executor:
-                for i_i, i in enumerate(indexes):
-                    if i_i == len(indexes)-1:
-                        break
-                    min_max_index = [i, indexes[i_i+1]]
-                    result = executor.submit(analyze_fraction, access, 'ms level' if file_type == 'mzml' else 'msLevel', min_max_index)
-                    results.append(result)
-                    
-                for i in results:
-                    result = i.result()
-                    for i in result:
-                        maximum[i].extend(result[i])
-
-            for i in maximum:
-                maximum[i] = max(maximum[i])
-                
-            sorted_maximum = {key: maximum[key] for key in sorted(maximum)}
-            maximum = sorted_maximum
-                
-            return maximum
             
         def analyze_glycan(mz_array, int_array, glycan_info, target_mz, tolerance, max_charges, adduct_charge):
             mz_array_len = len(mz_array)-1
@@ -5591,8 +5702,8 @@ def run_main_window():
                 
                 glycans_list_temp = []
                 
-                mz_array = list(maximum_spectrum.keys())
-                int_array = list(maximum_spectrum.values())
+                mz_array = list(maximum_spectra[selected_item].keys())
+                int_array = list(maximum_spectra[selected_item].values())
                 
                 for i in library:
                     for j in library[i]['Adducts_mz']:
@@ -5607,24 +5718,22 @@ def run_main_window():
                 glycans_list.delete(item)        
             for i in glycans_list_temp:
                 glycans_list.insert("", "end", values=i[0])
-            
-        if selected_item in maximum_spectra.keys():
-            maximum_spectrum = maximum_spectra[selected_item]
-        else:
-            maximum_spectrum = calculate_maximum_spectrum(current_data['access'], current_data['file_type'])
-            maximum_spectra[selected_item] = maximum_spectrum
-            
-        x_data_mis = []
-        y_data_mis = []
-        for x in maximum_spectrum:
-            x_data_mis.extend([x - 0.000001, x, x + 0.000001])
-            y_data_mis.extend([0, maximum_spectrum[x], 0])
+                
+        if selected_item not in samples_names:
+            error_window("Raw spectra file is not loaded for this sample. Load it in the 'Select Files' menu and try again.")
+            return
         
-        processing_max_spectrum.destroy()
-    
+        if max_spectrum_opened:
+            max_spectrum_window.deiconify()
+            max_spectrum_window.lift()
+            max_spectrum_window.focus_set()
+            return
+        
+        max_spectrum_opened = True
+        
         max_spectrum_window = tk.Toplevel()
-        # max_spectrum_window.attributes("-topmost", True)
-        max_spectrum_window.iconbitmap(current_dir+"/Assets/gg_icon.ico")
+        icon = ImageTk.PhotoImage(ico_image)
+        max_spectrum_window.iconphoto(False, icon)
         max_spectrum_window.withdraw()
         max_spectrum_window.minsize(900, 480)
         max_spectrum_window.bind("<Configure>", on_resize)
@@ -5679,19 +5788,9 @@ def run_main_window():
         canvas_mis.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         ax_mis.set_xlabel('m/z')
         ax_mis.set_ylabel('Intensity (AU)')
-        ax_mis.plot(x_data_mis, y_data_mis, marker='None', linewidth=1, color='black')
-        
-        annotate_top_y_values(ax_mis, canvas_mis)
         
         global rectangles
         rectangles = []
-        
-        og_x_range_mis = [x_data_mis[0], x_data_mis[-1]]
-        og_y_range_mis = [-1, max(y_data_mis)*1.1]
-        ax_mis.set_xlim(og_x_range_mis)
-        ax_mis.set_ylim(og_y_range_mis)
-        
-        canvas_mis.draw()
         
         coordinate_label_mis = tk.Label(max_spectrum_plot_frame, text="", anchor="e", font=("Segoe UI", 8), bg="white")
         coordinate_label_mis.place(relx=1.0, rely=0, anchor='ne')
@@ -5722,7 +5821,6 @@ def run_main_window():
         zoom_selection_button_release_mis = canvas_mis.mpl_connect('button_release_event', lambda event: zoom_selection_compare(event, ax_mis, canvas_mis, type_coordinate_mis) if event.button == 1 else None)
         on_scroll_event_mis = canvas_mis.mpl_connect('scroll_event', lambda event: on_scroll(event, ax_mis, canvas_mis, type_coordinate_mis))
         on_double_click_event_mis = canvas_mis.mpl_connect('button_press_event', lambda event: on_double_click(event, ax_mis, canvas_mis, og_x_range_mis, og_y_range_mis, type_coordinate_mis) if event.button == 1 else None)
-        on_plot_hover_motion_mis = canvas_mis.mpl_connect('motion_notify_event', lambda event: on_plot_hover(event, ax_mis, canvas_mis, list(maximum_spectrum.keys()), list(maximum_spectrum.values()), coordinate_label_mis, type_coordinate_mis))
         on_pan_press_mis = canvas_mis.mpl_connect('button_press_event', lambda event: on_pan(event, ax_mis, canvas_mis, type_coordinate_mis) if event.button == 1 else None)
         on_pan_release_mis = canvas_mis.mpl_connect('button_release_event', lambda event: on_pan(event, ax_mis, canvas_mis, type_coordinate_mis) if event.button == 1 else None)
         on_pan_motion_mis = canvas_mis.mpl_connect('motion_notify_event', lambda event: on_pan(event, ax_mis, canvas_mis, type_coordinate_mis))
@@ -5739,8 +5837,10 @@ def run_main_window():
         x_position = (screen_width - window_width) // 2
         y_position = (screen_height - window_height) // 2
         max_spectrum_window.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
+        
+        process_maximum_spectrum()
     
-    def quick_trace_window():
+    def run_quick_trace_window():
         global quick_trace_opened, quick_trace_window, colors, current_data, selected_item, quick_traces_all, quick_traces_list_save, samples_list
                     
         def trace_loading():
@@ -5748,7 +5848,8 @@ def run_main_window():
             loading_eic_window = tk.Toplevel()
             loading_eic_window.withdraw()
             loading_eic_window.title("Tracing the EIC/EIE")
-            loading_eic_window.iconbitmap(current_dir+"/Assets/gg_icon.ico")
+            icon = ImageTk.PhotoImage(ico_image)
+            loading_eic_window.iconphoto(False, icon)
             loading_eic_window.resizable(False, False)
             loading_eic_window.grab_set()
             loading_eic_window.protocol("WM_DELETE_WINDOW", on_closing)
@@ -5910,6 +6011,7 @@ def run_main_window():
                 quick_trace_list.insert("", "end", values=("███████████████", f"{mz_entry.get()}", f"{tol_entry.get()}", "❌"), tags=(random_color,))
         
         if quick_trace_opened:
+            quick_trace_window.deiconify()
             quick_trace_window.lift()
             quick_trace_window.focus_set()
             return
@@ -5919,7 +6021,8 @@ def run_main_window():
         small_button_qtw_style1 = ttk.Style().configure("small_button_qtw_style1.TButton", font=("Segoe UI", list_font_size), relief="raised", padding = (0, 0), justify="center")
         
         quick_trace_window = tk.Toplevel()
-        quick_trace_window.iconbitmap(current_dir+"/Assets/gg_icon.ico")
+        icon = ImageTk.PhotoImage(ico_image)
+        quick_trace_window.iconphoto(False, icon)
         quick_trace_window.withdraw()
         quick_trace_window.minsize(380, 480)
         quick_trace_window.bind("<Configure>", on_resize)
@@ -5993,7 +6096,8 @@ def run_main_window():
 
     # Configure window properties
     main_window.title("GlycoGenius")
-    main_window.iconbitmap(current_dir+"/Assets/gg_icon.ico")
+    icon = ImageTk.PhotoImage(ico_image)
+    main_window.iconphoto(False, icon)
     main_window.minsize(1025, 720)
     main_window.bind("<Configure>", on_resize)
     main_window.grid_columnconfigure(0, weight=0)
@@ -6121,17 +6225,17 @@ def run_main_window():
     about.grid(row=0, column=11, padx=(10,10), sticky='e')
     
     global two_d
-    two_d = ttk.Button(main_window, image=photo_two_d, style="two_d_button_style.TButton", command=draw_heatmap, state=tk.DISABLED)
+    two_d = ttk.Button(main_window, image=photo_two_d, style="two_d_button_style.TButton", command=backend_heatmap, state=tk.DISABLED)
     two_d.grid(row=0, column=0, columnspan = 12, padx=(10,20), sticky='se')
     ToolTip(two_d, "Creates a 2D-Plot (Retention/Migration Time x m/z) of the current axis ranges of the displayed chromatogram/electropherogram and spectrum in a new window. Wider ranges will take longer to load.")
     
     global quick_check
-    quick_check = ttk.Button(main_window, image=photo_mis, style="two_d_button_style.TButton", command=process_maximum_spectrum, state=tk.DISABLED)
+    quick_check = ttk.Button(main_window, image=photo_mis, style="two_d_button_style.TButton", command=quick_check_window, state=tk.DISABLED)
     quick_check.grid(row=0, column=0, columnspan = 12, padx=(10,55), sticky='se')
     ToolTip(quick_check, "Calculates an aggregated spectra called Maximum Intensity Spectrum (MIS) of the whole chromatographic/electropherographic run based on the maximum intensity values each m/z achieves. The sample can be quickly checked for the presence of glycans on the MIS window, if you have a library loaded.\nThe first time you click on this button for a given sample it will take up to a few minutes to calculate the MIS. Subsequent times will load instantly.")
     
     global quick_trace
-    quick_trace = ttk.Button(main_window, image=photo_eic, style="two_d_button_style.TButton", command=quick_trace_window, state=tk.NORMAL)
+    quick_trace = ttk.Button(main_window, image=photo_eic, style="two_d_button_style.TButton", command=run_quick_trace_window, state=tk.NORMAL)
     quick_trace.grid(row=0, column=0, columnspan = 12, padx=(10,90), sticky='se')
     ToolTip(quick_trace, "Opens a small window that allows you to create custom Extracted Ion Chromatograms/Electropherograms for your samples.")
     
@@ -6163,7 +6267,7 @@ def run_main_window():
     chromatograms_list.bind("<Motion>", on_treeview_motion)
     
     global compare_samples_button
-    compare_samples_button = ttk.Button(main_window, text="Compare samples", style="small_button_style1.TButton", command=aligning_samples_window, state=tk.DISABLED)
+    compare_samples_button = ttk.Button(main_window, text="Compare samples", style="small_button_style1.TButton", command=compare_samples_window, state=tk.DISABLED)
     compare_samples_button.grid(row=1, rowspan=2, column=0, padx=(10, 115), pady=(10, 235), sticky="sew")
     ToolTip(compare_samples_button, "Opens a window for comparing the chromatograms/electropherograms for the selected compound on different samples. It features an option for alignment of the chromatograms/electropherograms and, due to that, and depending on the number of samples you have, this may take a while to load the first time with a given set of QC parameters.")
     
@@ -6289,7 +6393,8 @@ def run_select_files_window(samples_dropdown):
         file_dialog.withdraw()
         file_dialog.grab_set()
         
-        file_path = filedialog.askopenfilenames(filetypes=[("MzXML or MzML files", "*.mzxml;*.mzml"), ("All files", "*.*")])
+        file_path = filedialog.askopenfilenames(filetypes=[("MzXML or MzML files", "*.mzML *.mzXML"), ("All files", "*.*")])
+            
         for i in file_path:
             files_list.insert('', 'end', text=i)
         longest_len = 0
@@ -6519,7 +6624,8 @@ def run_select_files_window(samples_dropdown):
         # loading_files.attributes("-topmost", True)
         loading_files.withdraw()
         loading_files.title("Loading Files")
-        loading_files.iconbitmap(current_dir+"/Assets/gg_icon.ico")
+        icon = ImageTk.PhotoImage(ico_image)
+        loading_files.iconphoto(False, icon)
         loading_files.resizable(False, False)
         loading_files.grab_set()
         loading_files.protocol("WM_DELETE_WINDOW", on_closing)
@@ -6598,8 +6704,8 @@ def run_select_files_window(samples_dropdown):
             run_analysis_button.config(state=tk.NORMAL)
             generate_library.config(state=tk.NORMAL)
             import_library.config(state=tk.NORMAL)
+            samples_names = Execution_Functions.sample_names(samples_list)
             if len(reanalysis_path) == 0:
-                samples_names = Execution_Functions.sample_names(samples_list)
                 samples_dropdown_options = samples_names
                 samples_dropdown['values'] = samples_dropdown_options
             quick_check.config(state=tk.NORMAL)
@@ -6609,7 +6715,7 @@ def run_select_files_window(samples_dropdown):
             quick_check.config(state=tk.DISABLED)
             samples_dropdown['values'] = []
         loading_files()
-        former_alignments = [[], []]
+        former_alignments = {}
         close_sf_window()
         
     def get_gg_parameters():
@@ -6623,7 +6729,8 @@ def run_select_files_window(samples_dropdown):
         analysis_info_window.attributes("-topmost", True)
         analysis_info_window.withdraw()
         analysis_info_window.title("Analysis Information")
-        analysis_info_window.iconbitmap(current_dir+"/Assets/gg_icon.ico")
+        icon = ImageTk.PhotoImage(ico_image)
+        analysis_info_window.iconphoto(False, icon)
         analysis_info_window.resizable(False, False)
         analysis_info_window.grab_set()
 
@@ -6692,7 +6799,8 @@ def run_select_files_window(samples_dropdown):
     #select_files_window.attributes("-topmost", True)
     select_files_window.withdraw()
     select_files_window.title("Select Files")
-    select_files_window.iconbitmap(current_dir+"/Assets/gg_icon.ico")
+    icon = ImageTk.PhotoImage(ico_image)
+    select_files_window.iconphoto(False, icon)
     select_files_window.resizable(False, False)
     select_files_window.grab_set()
     
@@ -7536,7 +7644,8 @@ def run_set_parameters_window():
         #custom_glycans_window.attributes("-topmost", True)
         custom_glycans_window.withdraw()
         custom_glycans_window.title("Custom Glycans List")
-        custom_glycans_window.iconbitmap(current_dir+"/Assets/gg_icon.ico")
+        icon = ImageTk.PhotoImage(ico_image)
+        custom_glycans_window.iconphoto(False, icon)
         custom_glycans_window.resizable(False, False)
         custom_glycans_window.grab_set()
         custom_glycans_window.geometry("600x610")
@@ -7574,7 +7683,8 @@ def run_set_parameters_window():
     #set_parameters_window.attributes("-topmost", True)
     set_parameters_window.withdraw()
     set_parameters_window.title("Set Parameters")
-    set_parameters_window.iconbitmap(current_dir+"/Assets/gg_icon.ico")
+    icon = ImageTk.PhotoImage(ico_image)
+    set_parameters_window.iconphoto(False, icon)
     set_parameters_window.resizable(False, False)
     set_parameters_window.grab_set()
     
@@ -8198,7 +8308,8 @@ def save_results_window():
             # progress_save_result.attributes("-topmost", True)
             progress_save_result.withdraw()
             progress_save_result.title("Saving Results")
-            progress_save_result.iconbitmap(current_dir+"/Assets/gg_icon.ico")
+            icon = ImageTk.PhotoImage(ico_image)
+            progress_save_result.iconphoto(False, icon)
             progress_save_result.resizable(False, False)
             progress_save_result.grab_set()
             progress_save_result.protocol("WM_DELETE_WINDOW", on_closing)
@@ -8273,7 +8384,8 @@ def save_results_window():
         # groups_window.attributes("-topmost", True)
         groups_window.withdraw()
         groups_window.title("Sample Groups")
-        groups_window.iconbitmap(current_dir+"/Assets/gg_icon.ico")
+        icon = ImageTk.PhotoImage(ico_image)
+        groups_window.iconphoto(False, icon)
         #groups_window.resizable(True, False)
         groups_window.grab_set()
         groups_window.columnconfigure(0, weight=1)
@@ -8339,7 +8451,8 @@ def save_results_window():
     #sr_window.attributes("-topmost", True)
     sr_window.withdraw()
     sr_window.title("Save Results")
-    sr_window.iconbitmap(current_dir+"/Assets/gg_icon.ico")
+    icon = ImageTk.PhotoImage(ico_image)
+    sr_window.iconphoto(False, icon)
     sr_window.resizable(False, False)
     sr_window.grab_set()
     
@@ -8461,7 +8574,7 @@ def save_results_window():
 if __name__ == "__main__":
     global splash_screen
     multiprocessing.freeze_support()
-    matplotlib.use("Qt5Agg")
+    matplotlib.use("TkAgg")
     date = datetime.datetime.now()
     begin_time = str(date)[2:4]+str(date)[5:7]+str(date)[8:10]+"_"+str(date)[11:13]+str(date)[14:16]+str(date)[17:19]
     list_font_size = 10
@@ -8479,7 +8592,7 @@ if __name__ == "__main__":
 def main():
     global splash_screen
     multiprocessing.freeze_support()
-    matplotlib.use("Qt5Agg")
+    matplotlib.use("TkAgg")
     global date, begin_time, temp_folder
     date = datetime.datetime.now()
     begin_time = str(date)[2:4]+str(date)[5:7]+str(date)[8:10]+"_"+str(date)[11:13]+str(date)[14:16]+str(date)[17:19]
