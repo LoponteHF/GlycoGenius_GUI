@@ -17,8 +17,8 @@
 # by typing 'glycogenius'. If not, see <https://www.gnu.org/licenses/>.
 
 global gg_version, GUI_version
-gg_version = '1.1.34'
-GUI_version = '0.0.42'
+gg_version = '1.1.35'
+GUI_version = '0.0.43'
 
 from PIL import Image, ImageTk
 import threading
@@ -216,7 +216,7 @@ quick_trace_opened = False
 quick_traces_all = {}
 quick_traces_list_save = []
 
-suppressed_prints = ["remaining parameters.", "set 'only_gen_lib' to False and input", "If you wish to analyze files,", "Press Enter to exit.", "Close the window or press CTRL+C to exit.", "File name is"]
+suppressed_prints = ["remaining parameters.", "set 'only_gen_lib' to False and input", "If you wish to analyze files,", "Press Enter to exit.", "Close the window or press CTRL+C to exit."]
 
 bpc = {}
 
@@ -299,10 +299,10 @@ class TextRedirector_Gen_Lib(object):
             if i in s:
                 found = True
                 break
-        if "Check it in" in s:
+        if "File name is" in s:
             global library_name
             ok_lib_gen_button.config(state=tk.NORMAL)
-            library_name = s.split(" ")[-1][:-1]
+            library_name = s.split(" ")[-1].split(".")[0]
         if not found:
             self.widget.config(state=tk.NORMAL)
             self.widget.insert(tk.END, s, (self.tag,))
@@ -328,15 +328,15 @@ class TextRedirector_Run_Analysis(object):
             which_progress_bar = 'ms1'
         if "MS2" in s:
             which_progress_bar = 'ms2'
-        if "MS1 analysis done" in s:
+        if "MS1 tracing done" in s:
             progress_bar_run_analysis["value"] = 100
             progress_bar_ms1_label.config(text=f"MS1 Analysis Progress: {100}%")
         if "MS2 analysis done" in s:
             progress_bar_run_analysis2["value"] = 100
             progress_bar_ms2_label.config(text=f"MS2 Analysis Progress: {100}%")
-        if "Execution complete" in s:
+        if "Finished" in s:
             ok_run_analysis_button.config(state=tk.NORMAL)
-        if "Analyzing glycan " in s:
+        if "Tracing glycan " in s or "Analyzing glycan " in s:
             if multithreaded_analysis:
                 if number_cores == 'all':
                     cpu_count = (os.cpu_count())-2
@@ -384,7 +384,7 @@ class TextRedirector_save_result(object):
             if i in s:
                 found = True
                 break
-        if "Execution complete" in s:
+        if "Finished" in s:
             ok_save_result_button.config(state=tk.NORMAL)
         if not found:
             self.widget.config(state=tk.NORMAL)
@@ -736,7 +736,7 @@ def calculate_ambiguities(df1):
                 i['Ambiguity'][j_j] = 'No'
     
 def load_reanalysis(reanalysis_path):
-    global glycans_per_sample, chromatograms, curve_fittings, isotopic_fittings, samples_dropdown_options, df1, df2
+    global glycans_per_sample, chromatograms, curve_fittings, isotopic_fittings, samples_dropdown_options, df1, df2, gg_analysis_tolerance
     General_Functions.open_gg(reanalysis_path, temp_folder)
     try:
         with open(os.path.join(temp_folder, 'raw_data_1'), 'rb') as f:
@@ -795,8 +795,13 @@ def load_reanalysis(reanalysis_path):
     with open(os.path.join(temp_folder, 'raw_data_6'), 'rb') as f:
         isotopic_fittings = dill.load(f)
         f.close()
+    load_gg_parameters(reanalysis_path, True)
+    if gg_file_state:
+        gg_analysis_tolerance = parameters_gg[1][4]
+    else:
+        gg_analysis_tolerance = None
         
-def load_gg_parameters(path):
+def load_gg_parameters(path, suppress_error = False):
     global parameters_gg, samples_info_gg, version_gg, gg_file_state
     General_Functions.open_gg(path, temp_folder)
     with open(os.path.join(temp_folder, 'raw_data_1'), 'rb') as f:
@@ -808,7 +813,8 @@ def load_gg_parameters(path):
             version_gg = file[2]
         f.close()
     if float(".".join(version_gg.split(".")[:2])) < 1.2 and int(version_gg.split(".")[-1]) < 11:
-        error_window(".gg file is too old and doesn't contain analysis information.")
+        if not suppress_error:
+            error_window(".gg file is too old and doesn't contain analysis information.")
         gg_file_state = False
         return
     else:
@@ -1668,7 +1674,7 @@ def run_main_window():
 
             index_spectra_from_file_ms2_args = [None, 2, multithreaded_analysis, number_cores]
 
-            analyze_files_args = [None, None, None, None, tolerance, ret_time_interval, min_isotopologue_peaks, min_ppp, max_charges, custom_noise, close_peaks, multithreaded_analysis, number_cores]
+            analyze_files_args = [None, None, None, None, tolerance, ret_time_interval, min_isotopologue_peaks, min_ppp, max_charges, custom_noise, close_peaks, multithreaded_analysis, number_cores, None]
 
             analyze_ms2_args = [None, None, None, ret_time_interval, tolerance, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl,  min_max_sia, min_max_fuc, min_max_ac, min_max_gc, max_charges, reducing_end_tag, force_nglycan, permethylated, reduced, lactonized_ethyl_esterified, analyze_ms2[1], analyze_ms2[2], ret_time_interval[2], multithreaded_analysis, number_cores]
 
@@ -2099,7 +2105,7 @@ def run_main_window():
 
             index_spectra_from_file_ms2_args = [None, 2, multithreaded_analysis, number_cores]
 
-            analyze_files_args = [None, None, None, None, tolerance, ret_time_interval, min_isotopologue_peaks, min_ppp, max_charges, custom_noise, close_peaks, multithreaded_analysis, number_cores, True]
+            analyze_files_args = [None, None, None, None, tolerance, ret_time_interval, min_isotopologue_peaks, min_ppp, max_charges, custom_noise, close_peaks, multithreaded_analysis, number_cores, None, True]
 
             analyze_ms2_args = [None, None, None, ret_time_interval, tolerance, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl,  min_max_sia, min_max_fuc, min_max_ac, min_max_gc, max_charges, reducing_end_tag, force_nglycan, permethylated, reduced, lactonized_ethyl_esterified, analyze_ms2[1], analyze_ms2[2], ret_time_interval[2], multithreaded_analysis, number_cores, True]
 
@@ -2231,7 +2237,7 @@ def run_main_window():
             show_graph(item_text, clear)
         
     def show_graph(item_text, clear = True, level = 0):
-        global current_data, coordinate_label, ax, canvas, type_coordinate, zoom_selection_key_press, zoom_selection_key_release, zoom_selection_motion_notify, zoom_selection_button_press, zoom_selection_button_release, on_scroll_event, on_double_click_event, on_pan_press, on_pan_release, on_pan_motion, on_plot_hover_motion, on_click_press, on_click_release, right_move_spectra, left_move_spectra, on_pan_right_click_motion, on_pan_right_click_press, on_pan_right_click_release, zoom_selection_key_press_spec, zoom_selection_key_release_spec, zoom_selection_motion_notify_spec, zoom_selection_button_press_spec, zoom_selection_button_release_spec, on_scroll_event_spec, on_double_click_event_spec, on_pan_press_spec, on_pan_release_spec, on_pan_motion_spec, on_plot_hover_motion_spec, on_pan_right_click_motion_spec, on_pan_right_click_press_spec, on_pan_right_click_release_spec, pick_event_spec, hand_hover_spec, colors, color_number, ms2_precursors_actual, spectra_indexes, last_xlims_chrom, last_ylims_chrom
+        global current_data, coordinate_label, ax, canvas, type_coordinate, zoom_selection_key_press, zoom_selection_key_release, zoom_selection_motion_notify, zoom_selection_button_press, zoom_selection_button_release, on_scroll_event, on_double_click_event, on_pan_press, on_pan_release, on_pan_motion, on_plot_hover_motion, on_click_press, on_click_release, right_move_spectra, left_move_spectra, on_pan_right_click_motion, on_pan_right_click_press, on_pan_right_click_release, zoom_selection_key_press_spec, zoom_selection_key_release_spec, zoom_selection_motion_notify_spec, zoom_selection_button_press_spec, zoom_selection_button_release_spec, on_scroll_event_spec, on_double_click_event_spec, on_pan_press_spec, on_pan_release_spec, on_pan_motion_spec, on_plot_hover_motion_spec, on_pan_right_click_motion_spec, on_pan_right_click_press_spec, on_pan_right_click_release_spec, pick_event_spec, hand_hover_spec, colors, color_number, ms2_precursors_actual, spectra_indexes, last_xlims_chrom, last_ylims_chrom, og_x_range, og_y_range
         
         if clear:
             clear_plot(ax, canvas)
@@ -2640,7 +2646,7 @@ def run_main_window():
                 if rt_minutes in isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text_split_zero}"]:
                     peaks = isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text_split_zero}"][rt_minutes][0]
                     if len(peaks) != 0:
-                        ax_spec.set_xlim(peaks[0]-5, peaks[0]+10)
+                        ax_spec.set_xlim(peaks[0]-2, peaks[-1]+2)
                         highest = 0
                         for i_i, i in enumerate(x_values_spec):
                             if i > peaks[-1]:
@@ -2651,7 +2657,8 @@ def run_main_window():
                         if highest != 0:
                             ax_spec.set_ylim(0, highest*1.1)
                             for i in peaks:
-                                ax_spec.add_patch(Rectangle((i-0.1, ax_spec.get_ylim()[0]), (i+0.1) - (i-0.1), 1000000000000, color='#FEB7A1', alpha=0.3))
+                                calculated_width = (0.1 if gg_analysis_tolerance == None else General_Functions.tolerance_calc(gg_analysis_tolerance[0], gg_analysis_tolerance[1], i))
+                                ax_spec.add_patch(Rectangle((i-calculated_width, ax_spec.get_ylim()[0]), (i+calculated_width) - (i-calculated_width), 1000000000000, color='#FEB7A1', alpha=0.3))
         
         if len(processed_data[selected_item]['ms2']) > 0:
             get_ms2(rt, ax_spec, canvas_spec, x_values_spec, y_values_spec)
@@ -3562,6 +3569,18 @@ def run_main_window():
 
     def click_treeview(event):
         global ctrl_pressed, shift_pressed, chromatograms_list, selected_item, selected_item_chromatograms, samples_list
+        
+        if event.keysym == "Escape": #removes selection and clears zoom and rectangles
+            selected_items = chromatograms_list.selection()
+            if len(selected_items) > 0:
+                chromatograms_list.selection_remove(selected_items)
+                ax.set_xlim(og_x_range)
+                ax.set_ylim(og_y_range)
+                selected_item_chromatograms = ''
+                plot_graph_button.config(state=tk.NORMAL)
+                canvas.draw_idle()
+            return 
+            
         region = chromatograms_list.identify_region(event.x, event.y)
         column = chromatograms_list.identify_column(event.x)
         item = chromatograms_list.identify_row(event.y)
@@ -4373,7 +4392,7 @@ def run_main_window():
                 if level == 2:
                     for i_i, i in enumerate(chromatograms_checkboxes.get_checked()):
                         x_values_comp = chromatograms[int(i)][f"RTs_{i}"]
-                        y_values_comp = chromatograms[int(i)][f"{grand_parent_text}+{parent_text}"]
+                        y_values_comp = chromatograms[int(i)][f"{grand_parent_text_comp}+{parent_text_comp}"]
                         if i_i-(len(colors)*loops) == len(colors):
                             loops+= 1
                         color = colors[i_i-(len(colors)*loops)]
@@ -4417,7 +4436,7 @@ def run_main_window():
                 if level == 2:
                     for i_i, i in enumerate(chromatograms_checkboxes.get_checked()):
                         x_values_comp = former_alignments[f"{iso_fit_score}{curve_fit_score}{max_ppm}{s_to_n}"][int(i)][f"RTs_{i}"]
-                        y_values_comp = former_alignments[f"{iso_fit_score}{curve_fit_score}{max_ppm}{s_to_n}"][int(i)][f"{grand_parent_text}+{parent_text}"]
+                        y_values_comp = former_alignments[f"{iso_fit_score}{curve_fit_score}{max_ppm}{s_to_n}"][int(i)][f"{grand_parent_text_comp}+{parent_text_comp}"]
                         if i_i-(len(colors)*loops) == len(colors):
                             loops+= 1
                         color = colors[i_i-(len(colors)*loops)]
@@ -4442,7 +4461,7 @@ def run_main_window():
                 if level == 2:
                     for i_i, i in enumerate(chromatograms_checkboxes.get_checked()):
                         x_values_comp = chromatograms[int(i)][f"RTs_{i}"]
-                        y_values_comp = chromatograms[int(i)][f"{grand_parent_text}+{parent_text}"]
+                        y_values_comp = chromatograms[int(i)][f"{grand_parent_text_comp}+{parent_text_comp}"]
                         if i_i-(len(colors)*loops) == len(colors):
                             loops+= 1
                         color = colors[i_i-(len(colors)*loops)]
@@ -4490,7 +4509,7 @@ def run_main_window():
         if level == 2:
             parent_text_comp = chromatograms_list.item(selected_item_chromatograms, "text")
             grand_parent_item_comp = chromatograms_list.parent(selected_item_chromatograms)
-            grand_parent_text_comp = chromatograms_list.item(grand_parent_item, "text")
+            grand_parent_text_comp = chromatograms_list.item(grand_parent_item_comp, "text")
     
         compare_samples = tk.Toplevel()
         icon = ImageTk.PhotoImage(ico_image)
@@ -5560,7 +5579,8 @@ def run_main_window():
             ax_mis.set_ylim(0, max_int*1.1)
             
             for i in mz_list:
-                rectangles.append(ax_mis.add_patch(Rectangle((i-0.1, ax_mis.get_ylim()[0]), (i+0.1) - (i-0.1), 1000000000000, color='#FEB7A1', alpha=0.3)))
+                calculated_width = General_Functions.tolerance_calc(tolerance[0], tolerance[1], i)
+                rectangles.append(ax_mis.add_patch(Rectangle((i-calculated_width, ax_mis.get_ylim()[0]), (i+calculated_width) - (i-calculated_width), 1000000000000, color='#FEB7A1', alpha=0.3)))
                 
             canvas_mis.draw_idle()
             
@@ -6105,6 +6125,7 @@ def run_main_window():
     main_window.grid_rowconfigure(0, weight=0)
     main_window.grid_rowconfigure(1, weight=1)
     main_window.grid_rowconfigure(2, weight=1)
+    main_window.bind("<KeyRelease-Escape>", click_treeview)
     main_window.protocol("WM_DELETE_WINDOW", exit_window)
     
     global background_color
@@ -8356,7 +8377,7 @@ def save_results_window():
 
             index_spectra_from_file_ms2_args = [None, 2, multithreaded_analysis, number_cores]
 
-            analyze_files_args = [None, None, None, None, tolerance, ret_time_interval, min_isotopologue_peaks, min_ppp, max_charges, custom_noise, close_peaks, multithreaded_analysis, number_cores]
+            analyze_files_args = [None, None, None, None, tolerance, ret_time_interval, min_isotopologue_peaks, min_ppp, max_charges, custom_noise, close_peaks, multithreaded_analysis, number_cores, None]
 
             analyze_ms2_args = [None, None, None, ret_time_interval, tolerance, min_max_monos, min_max_hex, min_max_hexnac,  min_max_sia, min_max_fuc, min_max_ac, min_max_gc, max_charges, reducing_end_tag, force_nglycan, permethylated, reduced, lactonized_ethyl_esterified, analyze_ms2[1], analyze_ms2[2], ret_time_interval[2], multithreaded_analysis, number_cores]
 
