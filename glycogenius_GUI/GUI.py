@@ -17,8 +17,8 @@
 # by typing 'glycogenius'. If not, see <https://www.gnu.org/licenses/>.
 
 global gg_version, GUI_version
-gg_version = '1.1.35'
-GUI_version = '0.0.43'
+gg_version = '1.1.36'
+GUI_version = '0.0.44'
 
 from PIL import Image, ImageTk
 import threading
@@ -126,17 +126,19 @@ if platform.system() != 'Windows':
     multiprocessing.set_start_method('spawn', force=True)
 
 #all the settings necessary to make a Glycogenius run
-global min_max_monos, min_max_hex, min_max_hexnac, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, force_nglycan, max_adducts, max_charges, tag_mass, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, fast_iso, high_res, number_cores, multithreaded_analysis
+global min_max_monos, min_max_hex, min_max_hn, min_max_hexnac, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, min_max_ua, force_nglycan, max_adducts, max_charges, tag_mass, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, fast_iso, high_res, number_cores, multithreaded_analysis
 
 custom_glycans_list = [False, '']
 min_max_monos = [5, 22]
 min_max_hex = [3, 10]
+min_max_hn = [0, 0]
 min_max_hexnac = [2, 8]
 min_max_xyl = [0, 0]
 min_max_sia = [0, 4]
 min_max_fuc = [0, 2]
 min_max_ac = [0, 4]
 min_max_gc = [0, 0]
+min_max_ua = [0, 0]
 force_nglycan = True
 max_adducts = {}
 adducts_exclusion = []
@@ -145,6 +147,8 @@ reducing_end_tag = 0.0
 permethylated = False
 reduced = False
 lactonized_ethyl_esterified = False
+min_max_sulfation = [0, 0]
+min_max_phosphorylation = [0, 0]
 fast_iso = True
 high_res = False
 internal_standard = 0.0
@@ -194,6 +198,14 @@ li_adduct = [0, 0]
 
 library_name = ""
 gg_file_name = ""
+
+reducing_end_tags = {
+    '2-AB': 'C7H8N2', 
+    '2-AA': 'C7H7N1O1',
+    'ProA': 'C13H21N3', 
+    'GirP': 'C7H7N3',
+    'APTS': 'C16H11N1O8S3'
+    }
 
 global which_progress_bar
 which_progress_bar = 'ms1'
@@ -1212,9 +1224,9 @@ def color_treeview():
                 final_warning+=1
     
     if len(all_items) > 1:
-        chromatograms_qc_numbers.config(text=f"Compositions Quality Control:\n        Good: {final_good}    Average: {final_warning}    Bad: {final_bad}\n        Ambiguities: {ambiguity_count[list(glycans_per_sample.keys()).index(selected_item)]}")
+        chromatograms_qc_numbers.config(text=f"Compositions Quality:\n        Good: {final_good}    Average: {final_warning}    Bad: {final_bad}\n        Ambiguities: {ambiguity_count[list(glycans_per_sample.keys()).index(selected_item)]}")
     else:
-        chromatograms_qc_numbers.config(text=f"Compositions Quality Control:\n        Good: {0}    Average: {0}    Bad: {0}\n        Ambiguities: {0}")
+        chromatograms_qc_numbers.config(text=f"Compositions Quality:\n        Good: {0}    Average: {0}    Bad: {0}\n        Ambiguities: {0}")
         
     chromatograms_list.tag_configure('bad', background='#FED5CD')
     chromatograms_list.tag_configure('warning', background='#FEFACD')
@@ -1570,11 +1582,16 @@ def run_main_window():
                 information_text.insert(tk.END, f"Permethylated: {library_metadata[12]}\n")
                 information_text.insert(tk.END, f"Amidated/Ethyl-Esterified: {library_metadata[13]}\n")
                 information_text.insert(tk.END, f"Reduced end: {library_metadata[14]}\n")
+                if len(library_metadata) > 19:
+                    information_text.insert(tk.END, f"Min/Max number of Sulfations: {library_metadata[21][0]}/{library_metadata[21][1]}\n")
+                    information_text.insert(tk.END, f"Min/Max number of Phosphorylations: {library_metadata[22][0]}/{library_metadata[22][1]}\n")
                 information_text.insert(tk.END, f"Fast isotopic distribution calculation: {library_metadata[15]}\n")
                 information_text.insert(tk.END, f"High resolution isotopic distribution: {library_metadata[16]}")
             else:
                 information_text.insert(tk.END, f"Min/Max number of monosaccharides: {library_metadata[0][0]}/{library_metadata[0][1]}\n")
                 information_text.insert(tk.END, f"Min/Max number of Hexoses: {library_metadata[1][0]}/{library_metadata[1][1]}\n")
+                if len(library_metadata) > 19:
+                    information_text.insert(tk.END, f"Min/Max number of Hexosamines: {library_metadata[19][0]}/{library_metadata[19][1]}\n")
                 information_text.insert(tk.END, f"Min/Max number of N-Acetylhexosamines: {library_metadata[2][0]}/{library_metadata[2][1]}\n")
                 if len(library_metadata) > 18:
                     information_text.insert(tk.END, f"Min/Max number of Xyloses: {library_metadata[18][0]}/{library_metadata[18][1]}\n")
@@ -1582,6 +1599,8 @@ def run_main_window():
                 information_text.insert(tk.END, f"Min/Max number of Sialic Acids: {library_metadata[4][0]}/{library_metadata[4][1]}\n")
                 information_text.insert(tk.END, f"Min/Max number of N-Acetylneuraminic Acids: {library_metadata[5][0]}/{library_metadata[5][1]}\n")
                 information_text.insert(tk.END, f"Min/Max number of N-Glycolylneuraminic Acids: {library_metadata[6][0]}/{library_metadata[6][1]}\n")
+                if len(library_metadata) > 19:
+                    information_text.insert(tk.END, f"Min/Max number of Uronic Acids: {library_metadata[20][0]}/{library_metadata[20][1]}\n")
                 information_text.insert(tk.END, f"Force N-Glycans compositions: {library_metadata[7]}\n")
                 information_text.insert(tk.END, f"Maximum adducts: {library_metadata[8]}\n")
                 information_text.insert(tk.END, f"Maximum charges: {library_metadata[9]}\n")
@@ -1590,6 +1609,9 @@ def run_main_window():
                 information_text.insert(tk.END, f"Permethylated: {library_metadata[12]}\n")
                 information_text.insert(tk.END, f"Amidated/Ethyl-Esterified: {library_metadata[13]}\n")
                 information_text.insert(tk.END, f"Reduced end: {library_metadata[14]}\n")
+                if len(library_metadata) > 19:
+                    information_text.insert(tk.END, f"Min/Max number of Sulfations: {library_metadata[21][0]}/{library_metadata[21][1]}\n")
+                    information_text.insert(tk.END, f"Min/Max number of Phosphorylations: {library_metadata[22][0]}/{library_metadata[22][1]}\n")
                 information_text.insert(tk.END, f"Fast isotopic distribution calculation: {library_metadata[15]}\n")
                 information_text.insert(tk.END, f"High resolution isotopic distribution: {library_metadata[16]}")
         else:
@@ -1662,11 +1684,11 @@ def run_main_window():
             original_stdout = sys.stdout
             sys.stdout = TextRedirector_Gen_Lib(output_text)
             
-            global min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, force_nglycan, max_adducts, max_charges, tag_mass, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, fast_iso, high_res
+            global min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, min_max_hn, min_max_ua, force_nglycan, max_adducts, max_charges, tag_mass, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, fast_iso, high_res
             
             output_filtered_data_args = [curve_fit_score, iso_fit_score, s_to_n, max_ppm, percentage_auc, reanalysis, reanalysis_path, save_path, analyze_ms2[0], analyze_ms2[2], reporter_ions, plot_metaboanalyst, compositions, align_chromatograms, force_nglycan, ret_time_interval[2], rt_tolerance_frag, iso_fittings, output_plot_data, multithreaded_analysis, number_cores]
-
-            imp_exp_gen_library_args = [custom_glycans_list, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_sia, min_max_fuc, min_max_ac, min_max_gc, force_nglycan, max_adducts, adducts_exclusion, max_charges, reducing_end_tag, fast_iso, high_res, [False, False], library_path, exp_lib_name, True, save_path, internal_standard, permethylated, lactonized_ethyl_esterified, reduced]
+            
+            imp_exp_gen_library_args = [custom_glycans_list, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_sia, min_max_fuc, min_max_ac, min_max_gc, min_max_hn, min_max_ua, force_nglycan, max_adducts, adducts_exclusion, max_charges, reducing_end_tag, fast_iso, high_res, [False, False], library_path, exp_lib_name, True, save_path, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, min_max_sulfation, min_max_phosphorylation]
 
             list_of_data_args = [samples_list]
 
@@ -1676,7 +1698,7 @@ def run_main_window():
 
             analyze_files_args = [None, None, None, None, tolerance, ret_time_interval, min_isotopologue_peaks, min_ppp, max_charges, custom_noise, close_peaks, multithreaded_analysis, number_cores, None]
 
-            analyze_ms2_args = [None, None, None, ret_time_interval, tolerance, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl,  min_max_sia, min_max_fuc, min_max_ac, min_max_gc, max_charges, reducing_end_tag, force_nglycan, permethylated, reduced, lactonized_ethyl_esterified, analyze_ms2[1], analyze_ms2[2], ret_time_interval[2], multithreaded_analysis, number_cores]
+            analyze_ms2_args = [None, None, None, ret_time_interval, tolerance, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl,  min_max_sia, min_max_fuc, min_max_ac, min_max_gc, min_max_hn, min_max_ua, max_charges, reducing_end_tag, force_nglycan, permethylated, reduced, lactonized_ethyl_esterified, analyze_ms2[1], analyze_ms2[2], ret_time_interval[2], multithreaded_analysis, number_cores]
 
             arrange_raw_data_args = [None, samples_names, analyze_ms2[0], save_path, []]
             
@@ -1969,12 +1991,22 @@ def run_main_window():
                     min_max_xyl = library_metadata[18]
                 else:
                     min_max_xyl = 'unavailable'
+                if len(library_metadata) > 19:
+                    min_max_hn = library_metadata[19]
+                    min_max_ua = library_metadata[20]
+                    min_max_sulfation = library_metadata[21]
+                    min_max_phosphorylation = library_metadata[22]
+                else:
+                    min_max_hn = 'unavailable'
+                    min_max_ua = 'unavailable'
+                    min_max_sulfation = [0, 0]
+                    min_max_phosphorylation = [0, 0]
             if custom_glycans[0]:
                 library_type = f" - Custom glycans: {str(custom_glycans[1])[1:-1]}"
             else:
-                library_type = f" - Monosaccharides: {str(min_max_monos)[1:-1]}\n - Hexoses: {str(min_max_hex)[1:-1]}\n - HexNAcs: {str(min_max_hexnac)[1:-1]}\n - Xyloses: {str(min_max_xyl)[1:-1]}\n - Sialic Acids: {str(min_max_sia)[1:-1]}\n - dHex: {str(min_max_fuc)[1:-1]}\n - Neu5Acs: {str(min_max_ac)[1:-1]}\n - Neu5Gcs: {str(min_max_gc)[1:-1]}"
+                library_type = f" - Monosaccharides: {str(min_max_monos)[1:-1]}\n - Hexoses: {str(min_max_hex)[1:-1]}\n - Hexosamines: {str(min_max_hn)[1:-1]}\n - HexNAcs: {str(min_max_hexnac)[1:-1]}\n - Xyloses: {str(min_max_xyl)[1:-1]}\n - Sialic Acids: {str(min_max_sia)[1:-1]}\n - Uronic Acids: {str(min_max_ua)[1:-1]}\n - dHex: {str(min_max_fuc)[1:-1]}\n - Neu5Acs: {str(min_max_ac)[1:-1]}\n - Neu5Gcs: {str(min_max_gc)[1:-1]}"
 
-            additional_info = f" - Force N-Glycans composition: {force_nglycan}\n - Maximum adducts: {max_adducts}\n - Maximum charges: {max_charges}\n - Reducing end tag: {reducing_end_tag}\n - Permethylated: {permethylated}\n - Reduced end: {reduced}\n - Amidated/Ethyl-Esterified: {lactonized_ethyl_esterified}\n - Fast isotopic calculations: {fast_iso}\n - High resolution isotopic calculations: {high_res}"
+            additional_info = f" - Force N-Glycans composition: {force_nglycan}\n - Maximum adducts: {max_adducts}\n - Maximum charges: {max_charges}\n - Reducing end tag: {reducing_end_tag}\n - Permethylated: {permethylated}\n - Reduced end: {reduced}\n - Amidated/Ethyl-Esterified: {lactonized_ethyl_esterified}\n - Min/Max number of Sulfations: {min_max_sulfation}\n - Min/Max number of Phosphorylations: {min_max_phosphorylations}\n - Fast isotopic calculations: {fast_iso}\n - High resolution isotopic calculations: {high_res}"
                 
             information_text.insert(tk.END, f"{library_type}\n")
             information_text.insert(tk.END, "\n")
@@ -2063,7 +2095,7 @@ def run_main_window():
             original_stdout = sys.stdout
             sys.stdout = TextRedirector_Run_Analysis(output_text)
             
-            global min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, force_nglycan, max_adducts, max_charges, tag_mass, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, fast_iso, high_res
+            global min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, min_max_hn, min_max_gc, force_nglycan, max_adducts, max_charges, tag_mass, internal_standard, permethylated, lactonized_ethyl_esterified, min_max_sulfation, min_max_phosphorylation, reduced, fast_iso, high_res
             
             shutil.copy(library_path, os.path.join(temp_folder, 'glycans_library.py'))
             spec = importlib.util.spec_from_file_location("glycans_library", temp_folder+"/glycans_library.py")
@@ -2094,10 +2126,15 @@ def run_main_window():
                 high_res = library_metadata[16]
                 if len(library_metadata) > 18:
                     min_max_xyl = library_metadata[18]
+                if len(library_metadata) > 19:
+                    min_max_hn = library_metadata[19]
+                    min_max_ua = library_metadata[20]
+                    min_max_sulfation = library_metadata[21]
+                    min_max_phosphorylation = library_metadata[22]
                     
             output_filtered_data_args = [curve_fit_score, iso_fit_score, s_to_n, max_ppm, percentage_auc, reanalysis, reanalysis_path, save_path, analyze_ms2[0], analyze_ms2[2], reporter_ions, plot_metaboanalyst, compositions, align_chromatograms, force_nglycan, ret_time_interval[2], rt_tolerance_frag, iso_fittings, output_plot_data, multithreaded_analysis, number_cores, 0.0]
                         
-            imp_exp_gen_library_args = [custom_glycans_list, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_sia, min_max_fuc, min_max_ac, min_max_gc, force_nglycan, max_adducts, adducts_exclusion, max_charges, reducing_end_tag, fast_iso, high_res, [True, True], library_path, exp_lib_name, False, save_path, internal_standard, permethylated, lactonized_ethyl_esterified, reduced]
+            imp_exp_gen_library_args = [custom_glycans_list, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_sia, min_max_fuc, min_max_ac, min_max_gc, min_max_hn, min_max_ua, force_nglycan, max_adducts, adducts_exclusion, max_charges, reducing_end_tag, fast_iso, high_res, [True, True], library_path, exp_lib_name, False, save_path, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, min_max_sulfation, min_max_phosphorylation]
 
             list_of_data_args = [samples_list]
 
@@ -2107,9 +2144,9 @@ def run_main_window():
 
             analyze_files_args = [None, None, None, None, tolerance, ret_time_interval, min_isotopologue_peaks, min_ppp, max_charges, custom_noise, close_peaks, multithreaded_analysis, number_cores, None, True]
 
-            analyze_ms2_args = [None, None, None, ret_time_interval, tolerance, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl,  min_max_sia, min_max_fuc, min_max_ac, min_max_gc, max_charges, reducing_end_tag, force_nglycan, permethylated, reduced, lactonized_ethyl_esterified, analyze_ms2[1], analyze_ms2[2], ret_time_interval[2], multithreaded_analysis, number_cores, True]
+            analyze_ms2_args = [None, None, None, ret_time_interval, tolerance, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl,  min_max_sia, min_max_fuc, min_max_ac, min_max_gc, min_max_hn, min_max_ua, max_charges, reducing_end_tag, force_nglycan, permethylated, reduced, lactonized_ethyl_esterified, analyze_ms2[1], analyze_ms2[2], ret_time_interval[2], multithreaded_analysis, number_cores, True]
 
-            arrange_raw_data_args = [None, samples_names, analyze_ms2[0], save_path, [(custom_glycans_list, min_max_monos, min_max_hex, min_max_hexnac, min_max_sia, min_max_fuc, min_max_ac, min_max_gc, force_nglycan, max_adducts, adducts_exclusion, max_charges, reducing_end_tag, permethylated, reduced, lactonized_ethyl_esterified, fast_iso, high_res, internal_standard, imp_exp_library, exp_lib_name, library_path, only_gen_lib, min_max_xyl), (multithreaded_analysis, number_cores, analyze_ms2, reporter_ions, tolerance, ret_time_interval, rt_tolerance_frag, min_isotopologue_peaks, min_ppp, close_peaks, align_chromatograms, percentage_auc, max_ppm, iso_fit_score, curve_fit_score, s_to_n, custom_noise, samples_path, save_path, plot_metaboanalyst, compositions, iso_fittings, reanalysis, reanalysis_path, output_plot_data)], True]
+            arrange_raw_data_args = [None, samples_names, analyze_ms2[0], save_path, [(custom_glycans_list, min_max_monos, min_max_hex, min_max_hexnac, min_max_sia, min_max_fuc, min_max_ac, min_max_gc, force_nglycan, max_adducts, adducts_exclusion, max_charges, reducing_end_tag, permethylated, reduced, lactonized_ethyl_esterified, fast_iso, high_res, internal_standard, imp_exp_library, exp_lib_name, library_path, only_gen_lib, min_max_xyl, min_max_hn, min_max_ua, min_max_sulfation, min_max_phosphorylation), (multithreaded_analysis, number_cores, analyze_ms2, reporter_ions, tolerance, ret_time_interval, rt_tolerance_frag, min_isotopologue_peaks, min_ppp, close_peaks, align_chromatograms, percentage_auc, max_ppm, iso_fit_score, curve_fit_score, s_to_n, custom_noise, samples_path, save_path, plot_metaboanalyst, compositions, iso_fittings, reanalysis, reanalysis_path, output_plot_data)], True]
             
             t = threading.Thread(target=run_glycogenius, args=([(output_filtered_data_args, imp_exp_gen_library_args, list_of_data_args, index_spectra_from_file_ms1_args, index_spectra_from_file_ms2_args, analyze_files_args, analyze_ms2_args, arrange_raw_data_args, samples_names, reanalysis, analyze_ms2[0], True)]))
             t.start()
@@ -2349,7 +2386,7 @@ def run_main_window():
                     y_values = []
                     counter = 0
                     for i in chromatograms[sample_index]:
-                        if i.split("+")[0] == item_text:
+                        if "+".join(i.split("+")[:-1]) == item_text:
                             if counter == 0:
                                 y_values = chromatograms[sample_index][i]
                                 counter+= 1
@@ -2643,6 +2680,7 @@ def run_main_window():
                 grand_parent_item = chromatograms_list.parent(parent_item)
                 grand_parent_text = chromatograms_list.item(grand_parent_item, "text") #glycan
                 parent_text_split_zero = parent_text.split(" ")[0]
+                mz_parent_base = parent_text.split(" ")[-1]
                 if rt_minutes in isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text_split_zero}"]:
                     peaks = isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text_split_zero}"][rt_minutes][0]
                     if len(peaks) != 0:
@@ -2656,9 +2694,11 @@ def run_main_window():
                                     highest = y_values_spec[i_i]
                         if highest != 0:
                             ax_spec.set_ylim(0, highest*1.1)
-                            for i in peaks:
-                                calculated_width = (0.1 if gg_analysis_tolerance == None else General_Functions.tolerance_calc(gg_analysis_tolerance[0], gg_analysis_tolerance[1], i))
-                                ax_spec.add_patch(Rectangle((i-calculated_width, ax_spec.get_ylim()[0]), (i+calculated_width) - (i-calculated_width), 1000000000000, color='#FEB7A1', alpha=0.3))
+                            for index, i in enumerate(peaks):
+                                mz_chosen = float(mz_parent_base)+(General_Functions.h_mass/abs(General_Functions.form_to_charge(parent_text_split_zero)))*index
+                                calculated_width = (0.1 if gg_analysis_tolerance == None else General_Functions.tolerance_calc(gg_analysis_tolerance[0], gg_analysis_tolerance[1], mz_chosen))
+                                ax_spec.add_patch(Rectangle((mz_chosen-calculated_width, ax_spec.get_ylim()[0]), (mz_chosen+calculated_width) - (mz_chosen-calculated_width), 1000000000000, color='#FEB7A1', alpha=0.3))
+                                ax_spec.add_patch(Rectangle((i-0.001, ax_spec.get_ylim()[0]), (i+0.001) - (i-0.001), 1000000000000, color='#345eeb', alpha=0.3))
         
         if len(processed_data[selected_item]['ms2']) > 0:
             get_ms2(rt, ax_spec, canvas_spec, x_values_spec, y_values_spec)
@@ -3476,7 +3516,7 @@ def run_main_window():
             y_values_ideal = curve_fittings[sample_index][f"{grand_parent_text}+{parent_text_split_zero}_{chromatograms_list_selected_item_text}_Ideal_ints"]
             y_values_found = curve_fittings[sample_index][f"{grand_parent_text}+{parent_text_split_zero}_{chromatograms_list_selected_item_text}_Found_ints"]
             x_values_pv = curve_fittings[sample_index][f"{grand_parent_text}+{parent_text_split_zero}_{chromatograms_list_selected_item_text}_RTs"]
-        peak_visualizer.title(f"Peak Visualizer - {grand_parent_text}-{parent_text}")
+        peak_visualizer.title(f"Peak Visualizer - {grand_parent_text} - {parent_text}")
             
         ax_pv.plot(x_values_pv, y_values_ideal, marker="o", color="red", label = 'Ideal', picker=5)
         ax_pv.plot(x_values_pv, y_values_found, marker="o", color="blue", label = 'Found', picker=5)
@@ -3578,6 +3618,7 @@ def run_main_window():
                 ax.set_ylim(og_y_range)
                 selected_item_chromatograms = ''
                 plot_graph_button.config(state=tk.NORMAL)
+                compare_samples_button.config(state=tk.DISABLED)
                 canvas.draw_idle()
             return 
             
@@ -4226,7 +4267,7 @@ def run_main_window():
                         y_values_comp = []
                         counter = 0
                         for k in chromatograms[int(i)]:
-                            if k.split("+")[0] == item_text_comp:
+                            if "+".join(k.split("+")[:-1]) == item_text_comp:
                                 if counter == 0:
                                     y_values_comp = chromatograms[int(i)][k]
                                     counter+= 1
@@ -4354,7 +4395,7 @@ def run_main_window():
                         y_values_comp = []
                         counter = 0
                         for k in former_alignments[f"{iso_fit_score}{curve_fit_score}{max_ppm}{s_to_n}"][int(i)]:
-                            if k.split("+")[0] == item_text_comp:
+                            if "+".join(k.split("+")[:-1]) == item_text_comp:
                                 if counter == 0:
                                     y_values_comp = former_alignments[f"{iso_fit_score}{curve_fit_score}{max_ppm}{s_to_n}"][int(i)][k]
                                     counter+= 1
@@ -4379,7 +4420,7 @@ def run_main_window():
                         y_values_comp = []
                         counter = 0
                         for k in chromatograms[int(i)]:
-                            if k.split("+")[0] == item_text_comp:
+                            if "+".join(k.split("+")[:-1]) == item_text_comp:
                                 if counter == 0:
                                     y_values_comp = chromatograms[int(i)][k]
                                     counter+= 1
@@ -4423,7 +4464,7 @@ def run_main_window():
                         y_values_comp = []
                         counter = 0
                         for k in former_alignments[f"{iso_fit_score}{curve_fit_score}{max_ppm}{s_to_n}"][int(i)]:
-                            if k.split("+")[0] == item_text_comp:
+                            if "+".join(k.split("+")[:-1]) == item_text_comp:
                                 if counter == 0:
                                     y_values_comp = former_alignments[f"{iso_fit_score}{curve_fit_score}{max_ppm}{s_to_n}"][int(i)][k]
                                     counter+= 1
@@ -4448,7 +4489,7 @@ def run_main_window():
                         y_values_comp = []
                         counter = 0
                         for k in chromatograms[int(i)]:
-                            if k.split("+")[0] == item_text_comp:
+                            if "+".join(k.split("+")[:-1]) == item_text_comp:
                                 if counter == 0:
                                     y_values_comp = chromatograms[int(i)][k]
                                     counter+= 1
@@ -4599,13 +4640,18 @@ def run_main_window():
             qc_dist.destroy()
             
         def on_hover_qc_plot(event, canvas, ax, scatter, x_values, y_values, tooltip):
+            show_mz = sort_by_mz_checkbox_state.get()
+            
             if event.inaxes == ax:
                 cont, ind = scatter.contains(event)
                 if cont:
                     ind = ind['ind'][0]
                     name = names[ind]
                     x, y = x_values[ind], y_values[ind]
-                    tooltip.set_text(f'{name}\nY: {y}')
+                    if show_mz:
+                        tooltip.set_text(f'{name}\nm/z: {x}\nY: {y}')
+                    else:
+                        tooltip.set_text(f'{name}\nm/z: {mzs[x]}\nY: {y}')
                     tooltip.xy = (x, y)
                     tooltip.set_visible(True)
                     canvas.draw_idle()
@@ -4819,6 +4865,92 @@ def run_main_window():
             x_position = (screen_width - window_width) // 2
             y_position = (screen_height - window_height) // 2
             electro_migrations.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
+            
+        def sort_by_mz_checkbox_command():
+            global hover_tooltip_ppm, hover_tooltip_isofit, hover_tooltip_snplot, hover_tooltip_curvefitplot
+            state = sort_by_mz_checkbox_state.get()
+            
+            if state:
+                #adjust ppm_plot
+                canvas_ppmplot.mpl_disconnect(hover_tooltip_isofit)
+                
+                ppm_scatter.set_offsets(np.c_[mzs, ppm_list])
+                ax_ppmplot.set_xlim([min(mzs)-((max(mzs)-min(mzs))*0.05), max(mzs)*1.05])
+                
+                canvas_ppmplot.draw_idle()
+                
+                hover_tooltip_ppm = canvas_ppmplot.mpl_connect('motion_notify_event', lambda event: on_hover_qc_plot(event, canvas_ppmplot, ax_ppmplot, ppm_scatter, mzs, ppm_list, tooltip_ppmplot))
+                
+                #adjust isofit_plot
+                canvas_isofitplot.mpl_disconnect(hover_tooltip_ppm)
+                
+                isofitplot_scatter.set_offsets(np.c_[mzs, iso_fit_list])
+                ax_isofitplot.set_xlim([min(mzs)-((max(mzs)-min(mzs))*0.05), max(mzs)*1.05])
+                
+                canvas_isofitplot.draw_idle()
+                
+                hover_tooltip_isofit = canvas_isofitplot.mpl_connect('motion_notify_event', lambda event: on_hover_qc_plot(event, canvas_isofitplot, ax_isofitplot, isofitplot_scatter, mzs, iso_fit_list, tooltip_isofitplot))
+                
+                #adjust sn_plot
+                canvas_snplot.mpl_disconnect(hover_tooltip_snplot)
+                
+                snplot_scatter.set_offsets(np.c_[mzs, sn_list])
+                ax_snplot.set_xlim([min(mzs)-((max(mzs)-min(mzs))*0.05), max(mzs)*1.05])
+                
+                canvas_snplot.draw_idle()
+                
+                hover_tooltip_snplot = canvas_snplot.mpl_connect('motion_notify_event', lambda event: on_hover_qc_plot(event, canvas_snplot, ax_snplot, snplot_scatter, mzs, sn_list, tooltip_snplot))
+                
+                #adjust curvefit_plot
+                canvas_curvefitplot.mpl_disconnect(hover_tooltip_curvefitplot)
+                
+                curvefitplot_scatter.set_offsets(np.c_[mzs, curve_fit_list])
+                ax_curvefitplot.set_xlim([min(mzs)-((max(mzs)-min(mzs))*0.05), max(mzs)*1.05])
+                
+                canvas_curvefitplot.draw_idle()
+                
+                hover_tooltip_curvefitplot = canvas_curvefitplot.mpl_connect('motion_notify_event', lambda event: on_hover_qc_plot(event, canvas_curvefitplot, ax_curvefitplot, curvefitplot_scatter, mzs, curve_fit_list, tooltip_curvefitplot))
+            else:
+                #adjust ppm_plot
+                canvas_ppmplot.mpl_disconnect(hover_tooltip_ppm)
+                
+                ppm_scatter.set_offsets(np.c_[range(len(ppm_list)), ppm_list])
+                ax_ppmplot.set_xlim([-len(ppm_list)*0.05, len(ppm_list)*1.05])
+                
+                canvas_ppmplot.draw_idle()
+                
+                hover_tooltip_ppm = canvas_ppmplot.mpl_connect('motion_notify_event', lambda event: on_hover_qc_plot(event, canvas_ppmplot, ax_ppmplot, ppm_scatter, range(len(ppm_list)), ppm_list, tooltip_ppmplot))
+                
+                #adjust isofit_plot
+                canvas_isofitplot.mpl_disconnect(hover_tooltip_isofit)
+                
+                isofitplot_scatter.set_offsets(np.c_[range(len(iso_fit_list)), iso_fit_list])
+                ax_isofitplot.set_xlim([-len(iso_fit_list)*0.05, len(iso_fit_list)*1.05])
+                
+                canvas_isofitplot.draw_idle()
+                
+                hover_tooltip_isofit = canvas_isofitplot.mpl_connect('motion_notify_event', lambda event: on_hover_qc_plot(event, canvas_isofitplot, ax_isofitplot, isofitplot_scatter, range(len(iso_fit_list)), iso_fit_list, tooltip_isofitplot))
+                
+                #adjust sn_plot
+                canvas_snplot.mpl_disconnect(hover_tooltip_snplot)
+                
+                snplot_scatter.set_offsets(np.c_[range(len(sn_list)), sn_list])
+                ax_snplot.set_xlim([-len(sn_list)*0.05, len(sn_list)*1.05])
+                
+                canvas_snplot.draw_idle()
+                
+                hover_tooltip_snplot = canvas_snplot.mpl_connect('motion_notify_event', lambda event: on_hover_qc_plot(event, canvas_snplot, ax_snplot, snplot_scatter, range(len(sn_list)), sn_list, tooltip_snplot))
+                
+                #adjust sn_plot
+                canvas_curvefitplot.mpl_disconnect(hover_tooltip_curvefitplot)
+                
+                curvefitplot_scatter.set_offsets(np.c_[range(len(curve_fit_list)), curve_fit_list])
+                ax_curvefitplot.set_xlim([-len(curve_fit_list)*0.05, len(curve_fit_list)*1.05])
+                
+                canvas_curvefitplot.draw_idle()
+                
+                hover_tooltip_curvefitplot = canvas_curvefitplot.mpl_connect('motion_notify_event', lambda event: on_hover_qc_plot(event, canvas_curvefitplot, ax_curvefitplot, curvefitplot_scatter, range(len(curve_fit_list)), curve_fit_list, tooltip_curvefitplot))
+                
         
         if qc_dist_opened:
             qc_dist.deiconify()
@@ -4840,13 +4972,15 @@ def run_main_window():
         qc_dist.resizable(True, True)
         qc_dist.protocol("WM_DELETE_WINDOW", exit_check_qc_dist)
         
-        qc_dist.grid_rowconfigure(0, weight=1)
+        qc_dist.grid_rowconfigure(0, weight=0)
         qc_dist.grid_rowconfigure(1, weight=1)
-        qc_dist.grid_rowconfigure(2, weight=0)
+        qc_dist.grid_rowconfigure(2, weight=1)
+        qc_dist.grid_rowconfigure(3, weight=0)
         qc_dist.grid_columnconfigure(0, weight=1)
         qc_dist.grid_columnconfigure(1, weight=1)
             
         names = []
+        mzs = []
         quality_colors = []
         
         ppm_list = []
@@ -4857,6 +4991,7 @@ def run_main_window():
         for i in glycans_per_sample[sample_for_qc_dist]: #going through glycans
             for k in glycans_per_sample[sample_for_qc_dist][i]: #going through adducts
                 for j_j, j in enumerate(glycans_per_sample[sample_for_qc_dist][i][k]['peaks']):
+                    mzs.append(glycans_per_sample[sample_for_qc_dist][i][k]['mz'])
                     names.append(f"{i}_{k}_{j}")
                     fails = 0
                     if glycans_per_sample[sample_for_qc_dist][i][k]['ppm'][j_j] < max_ppm[0] or glycans_per_sample[sample_for_qc_dist][i][k]['ppm'][j_j] > max_ppm[1]:
@@ -4878,10 +5013,15 @@ def run_main_window():
                 curve_fit_list+=glycans_per_sample[sample_for_qc_dist][i][k]['curve']
                 sn_list+=glycans_per_sample[sample_for_qc_dist][i][k]['sn']
         
+        sort_by_mz_checkbox_state = tk.BooleanVar(value=False)
+        sort_by_mz_checkbox = ttk.Checkbutton(qc_dist, text="Sort peaks by m/z on the x-axis", variable=sort_by_mz_checkbox_state, command=sort_by_mz_checkbox_command)
+        sort_by_mz_checkbox.grid(row=0, column=1, padx=10, pady=10, sticky="ne")
+        ToolTip(sort_by_mz_checkbox, "The peaks are arranged by default by feature number. This provides an even distribution of the peaks along the x-axis. If you enable this option, they'll be distributed by m/z instead.")
+        
         global qc_ppm_line1, qc_ppm_line2, qc_curvefit_line, qc_sn_line, qc_isofit_line, canvas_ppmplot, canvas_curvefitplot, canvas_isofitplot, canvas_snplot, ppm_scatter, isofitplot_scatter, curvefitplot_scatter, snplot_scatter
         #PPM plot
         ppm_plot_frame = ttk.Labelframe(qc_dist, text="PPM:", style="qcp_frame.TLabelframe")
-        ppm_plot_frame.grid(row=0, column=0, padx=10, pady=(10, 10), sticky="nsew")
+        ppm_plot_frame.grid(row=1, column=0, padx=10, pady=(10, 10), sticky="nsew")
         
         fig_ppmplot = plt.figure(figsize=(4.5, 3.5))
         gs_ppmplot = fig.add_gridspec(1, 2, width_ratios=[5, 1])
@@ -4910,13 +5050,14 @@ def run_main_window():
         
         tooltip_ppmplot = ax_ppmplot.annotate('', xy=(0, 0), xytext=(10, -20), textcoords='offset points', bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.9), arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'))
         
-        canvas_ppmplot.mpl_connect('motion_notify_event', lambda event: on_hover_qc_plot(event, canvas_ppmplot, ax_ppmplot, ppm_scatter, range(len(ppm_list)), ppm_list, tooltip_ppmplot))
+        global hover_tooltip_ppm
+        hover_tooltip_ppm = canvas_ppmplot.mpl_connect('motion_notify_event', lambda event: on_hover_qc_plot(event, canvas_ppmplot, ax_ppmplot, ppm_scatter, range(len(ppm_list)), ppm_list, tooltip_ppmplot))
         canvas_ppmplot.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_ppmplot, canvas_ppmplot, False) if event.button == 3 else None)
         
         
         # Isotopic Fittings plot
         isofit_plot_frame = ttk.Labelframe(qc_dist, text="Isotopic Fittings:", style="qcp_frame.TLabelframe")
-        isofit_plot_frame.grid(row=1, column=0, padx=10, pady=(10, 10), sticky="nsew")
+        isofit_plot_frame.grid(row=2, column=0, padx=10, pady=(10, 10), sticky="nsew")
         
         fig_isofitplot = plt.figure(figsize=(4.5, 3.5))
         gs_isofitplot = fig.add_gridspec(1, 2, width_ratios=[5, 1])
@@ -4943,13 +5084,14 @@ def run_main_window():
         
         tooltip_isofitplot = ax_isofitplot.annotate('', xy=(0, 0), xytext=(10, -20), textcoords='offset points', bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.9), arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'))
         
-        canvas_isofitplot.mpl_connect('motion_notify_event', lambda event: on_hover_qc_plot(event, canvas_isofitplot, ax_isofitplot, isofitplot_scatter, range(len(iso_fit_list)), iso_fit_list, tooltip_isofitplot))
+        global hover_tooltip_isofit
+        hover_tooltip_isofit = canvas_isofitplot.mpl_connect('motion_notify_event', lambda event: on_hover_qc_plot(event, canvas_isofitplot, ax_isofitplot, isofitplot_scatter, range(len(iso_fit_list)), iso_fit_list, tooltip_isofitplot))
         canvas_isofitplot.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_isofitplot, canvas_isofitplot, False) if event.button == 3 else None)
         
         
         #Signal-to-Noise ratio plot
         sn_plot_frame = ttk.Labelframe(qc_dist, text="Signal-to-Noise Ratio:", style="qcp_frame.TLabelframe")
-        sn_plot_frame.grid(row=0, column=1, padx=10, pady=(10, 10), sticky="nsew")
+        sn_plot_frame.grid(row=1, column=1, padx=10, pady=(10, 10), sticky="nsew")
         
         fig_snplot = plt.figure(figsize=(4.5, 3.5))
         gs_snplot = fig.add_gridspec(1, 2, width_ratios=[5, 1])
@@ -4980,12 +5122,13 @@ def run_main_window():
         
         tooltip_snplot = ax_snplot.annotate('', xy=(0, 0), xytext=(10, -20), textcoords='offset points', bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.9), arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'))
         
-        canvas_snplot.mpl_connect('motion_notify_event', lambda event: on_hover_qc_plot(event, canvas_snplot, ax_snplot, snplot_scatter, range(len(sn_list)), sn_list, tooltip_snplot))
+        global hover_tooltip_snplot
+        hover_tooltip_snplot = canvas_snplot.mpl_connect('motion_notify_event', lambda event: on_hover_qc_plot(event, canvas_snplot, ax_snplot, snplot_scatter, range(len(sn_list)), sn_list, tooltip_snplot))
         canvas_snplot.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_snplot, canvas_snplot, False) if event.button == 3 else None)
         
         #Curve Fittings plot
         curvefit_plot_frame = ttk.Labelframe(qc_dist, text="Curve Fittings:", style="qcp_frame.TLabelframe")
-        curvefit_plot_frame.grid(row=1, column=1, padx=10, pady=(10, 10), sticky="nsew")
+        curvefit_plot_frame.grid(row=2, column=1, padx=10, pady=(10, 10), sticky="nsew")
         
         fig_curvefitplot = plt.figure(figsize=(4.5, 3.5))
         gs_curvefitplot = fig.add_gridspec(1, 2, width_ratios=[5, 1])
@@ -5012,14 +5155,15 @@ def run_main_window():
         
         tooltip_curvefitplot = ax_curvefitplot.annotate('', xy=(0, 0), xytext=(10, -20), textcoords='offset points', bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.9), arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'))
         
-        canvas_curvefitplot.mpl_connect('motion_notify_event', lambda event: on_hover_qc_plot(event, canvas_curvefitplot, ax_curvefitplot, curvefitplot_scatter, range(len(curve_fit_list)), curve_fit_list, tooltip_curvefitplot))
+        global hover_tooltip_curvefitplot
+        hover_tooltip_curvefitplot = canvas_curvefitplot.mpl_connect('motion_notify_event', lambda event: on_hover_qc_plot(event, canvas_curvefitplot, ax_curvefitplot, curvefitplot_scatter, range(len(curve_fit_list)), curve_fit_list, tooltip_curvefitplot))
         canvas_curvefitplot.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_curvefitplot, canvas_curvefitplot, False) if event.button == 3 else None)
         
         
         # Important discussion necessary for this button: The sialic acids are anionic, so it should be decreasing the charge value, instead of summing... but to do that reliably, you first need to also calculate the cationic charges, otherwise values are negative. How to deal with that? I managed to model PKa values of molecules using Python, but it needs the smiles structure... expect user to input that? Make a list of tags for that? What's the default charges for neutral glycans with reduced end? And without reducing end? Currently defaulting glycans without sialic acids to q=1, independent of tag charges and such...
         
         model_electro_button = ttk.Button(qc_dist, text="Model Electrophoretic Migrations", style="small_button_style1.TButton", command=model_electro_migrations, state=tk.NORMAL)
-        model_electro_button.grid(row=2, column=0, columnspan=2, padx=10, pady=(10, 10), sticky="nsw")
+        model_electro_button.grid(row=3, column=0, columnspan=2, padx=10, pady=(10, 10), sticky="nsw")
         ToolTip(model_electro_button, "Allows you to plot modelled electrophoretic migrations based on the Classical Polymer Model, as described in Barroso A et al., 2015 (Analytica Chimica Acta, Elsevier). EXPERIMENTAL.")
         
         qc_dist.update_idletasks()
@@ -5578,9 +5722,11 @@ def run_main_window():
             ax_mis.set_xlim(mz_list[0]-2, mz_list[-1]+2)
             ax_mis.set_ylim(0, max_int*1.1)
             
-            for i in mz_list:
-                calculated_width = General_Functions.tolerance_calc(tolerance[0], tolerance[1], i)
-                rectangles.append(ax_mis.add_patch(Rectangle((i-calculated_width, ax_mis.get_ylim()[0]), (i+calculated_width) - (i-calculated_width), 1000000000000, color='#FEB7A1', alpha=0.3)))
+            for index, i in enumerate(mz_list):
+                current_peak_found_mz = selected_glycan_list_content[2]+(General_Functions.h_mass/abs(General_Functions.form_to_charge(selected_glycan_list_content[1])))*index
+                calculated_width = General_Functions.tolerance_calc(tolerance[0], tolerance[1], current_peak_found_mz)
+                rectangles.append(ax_mis.add_patch(Rectangle((current_peak_found_mz-calculated_width, ax_mis.get_ylim()[0]), (current_peak_found_mz+calculated_width) - (current_peak_found_mz-calculated_width), 1000000000000, color='#FEB7A1', alpha=0.3)))
+                rectangles.append(ax_mis.add_patch(Rectangle((i-0.001, ax_mis.get_ylim()[0]), (i+0.001) - (i-0.001), 1000000000000, color='#345eeb', alpha=0.3)))
                 
             canvas_mis.draw_idle()
             
@@ -5674,12 +5820,12 @@ def run_main_window():
                     if len(iso_actual) == 2:
                         iso_quali = (iso_quali*0.8)
                             
-                    return [float("%.2f" % round(target_mz,2))]+mz_isos, iso_quali, ppm_error, max_int
+                    return [found_mz]+mz_isos, iso_quali, ppm_error, max_int
             else:
                 return "bad"
                 
         def quick_check_glycans():
-            global min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, force_nglycan, max_adducts, max_charges, tag_mass, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, fast_iso, high_res, glycans_list_quickcheck
+            global min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, min_max_hn, min_max_ua, force_nglycan, max_adducts, max_charges, tag_mass, internal_standard, permethylated, lactonized_ethyl_esterified, min_max_sulfation, min_max_phosphorylation, reduced, fast_iso, high_res, glycans_list_quickcheck
             
             if len(library_path) == 0:
                 error_window("You must first generate or import a library\nto do a quick check.")
@@ -5719,6 +5865,11 @@ def run_main_window():
                     high_res = library_metadata[16]
                     if len(library_metadata) > 18:
                         min_max_xyl = library_metadata[18]
+                    if len(library_metadata) > 19:
+                        min_max_hn = library_metadata[19]
+                        min_max_ua = library_metadata[20]
+                        min_max_sulfation = library_metadata[21]
+                        min_max_phosphorylation = library_metadata[22]
                 
                 glycans_list_temp = []
                 
@@ -6298,13 +6449,13 @@ def run_main_window():
     ToolTip(plot_graph_button, "Plots graphs of the selected glycans' abundance. If one glycan is selected and more than one sample is loaded, plots comparison between samples. If more than one glycan is selected, plots comparison between selected glycans within the same sample. If no glycans are selected, plots all the 'good' glycans for the current sample.")
     
     global s_n_entry, curve_fit_entry, ppm_error_min_entry, ppm_error_max_entry, iso_fit_entry
-    qcp_frame = ttk.Labelframe(main_window, text="Quality Control Parameters:", style="qcp_frame.TLabelframe")
+    qcp_frame = ttk.Labelframe(main_window, text="Quality Scores Thresholds:", style="qcp_frame.TLabelframe")
     qcp_frame.grid(row=1, rowspan=2, column=0, padx=10, pady=(10, 55), sticky="sew")
     
     global check_qc_dist_button
-    check_qc_dist_button = ttk.Button(qcp_frame, text="Check QC Distribution", style="small_button_style1.TButton", command=check_qc_dist, state=tk.DISABLED)
+    check_qc_dist_button = ttk.Button(qcp_frame, text="Check Scores Distribution", style="small_button_style1.TButton", command=check_qc_dist, state=tk.DISABLED)
     check_qc_dist_button.grid(row=0, column=0, columnspan=2, padx=10, pady=(5, 0), sticky="new")
-    ToolTip(check_qc_dist_button, "Plots all the quality control parameters of all the peaks identified for all the glycans in the analysis. This can work as a base for setting the Quality Control Parameters below.")
+    ToolTip(check_qc_dist_button, "Plots all the quality scores of all the peaks identified for all the glycans in the analysis. This can work as a base for setting the Quality Scores Criteria below.")
     
     iso_fit_label = ttk.Label(qcp_frame, text='Minimum Isotopic Fitting Score:', font=("Segoe UI", list_font_size_smaller))
     iso_fit_label.grid(row=1, column=0, padx=(10, 10), pady=(5, 0), sticky="w")
@@ -6352,9 +6503,9 @@ def run_main_window():
     ppm_error_max_entry.bind("<Return>", qcp_enter)
     
     global chromatograms_qc_numbers
-    chromatograms_qc_numbers = ttk.Label(main_window, text=f"Compositions Quality Control:\n        Good: {0}    Average: {0}    Bad: {0}\n        Ambiguities: {0}", font=("Segoe UI", list_font_size_smaller))
+    chromatograms_qc_numbers = ttk.Label(main_window, text=f"Compositions Quality:\n        Good: {0}    Average: {0}    Bad: {0}\n        Ambiguities: {0}", font=("Segoe UI", list_font_size_smaller))
     chromatograms_qc_numbers.grid(row=1, rowspan=2, column=0, padx=10, pady=10, sticky="sew")
-    ToolTip(chromatograms_qc_numbers, "Good compositions have at least one peak that matches all quality criteria set above; Average have at least one peak that fails only one criteria; Bad have all peaks failing at least two criterias.")
+    ToolTip(chromatograms_qc_numbers, "Good compositions have at least one peak that matches all quality scores criteria set above; Average have at least one peak that fails only one criteria; Bad have all peaks failing at least two criterias.")
 
     chromatogram_plot_frame = ttk.Labelframe(main_window, text="Chromatogram/Electropherogram Viewer", style="chromatogram.TLabelframe")
     chromatogram_plot_frame.grid(row=1, column=1, columnspan=11, padx=20, pady=(0, 0), sticky="nsew")
@@ -6702,8 +6853,6 @@ def run_select_files_window(samples_dropdown):
             select_files_frame.config(bg=background_color)
         if len(gg_file_label.cget("text")) > 0:
             run_analysis_button.config(state=tk.DISABLED)
-            generate_library.config(state=tk.DISABLED)
-            import_library.config(state=tk.DISABLED)
             check_qc_dist_button.config(state=tk.NORMAL)
             plot_graph_button.config(state=tk.NORMAL)
         else:
@@ -6723,8 +6872,6 @@ def run_select_files_window(samples_dropdown):
             reanalysis_file.start()
         if len(samples_list) > 0:
             run_analysis_button.config(state=tk.NORMAL)
-            generate_library.config(state=tk.NORMAL)
-            import_library.config(state=tk.NORMAL)
             samples_names = Execution_Functions.sample_names(samples_list)
             if len(reanalysis_path) == 0:
                 samples_dropdown_options = samples_names
@@ -6771,18 +6918,61 @@ def run_select_files_window(samples_dropdown):
         additional_info = ''
         if not parameters_gg[0][0][0]:
             library_type = 'Generated Library'
-            additional_info = f" - Monosaccharides: {str(parameters_gg[0][1])[1:-1]}\n - Hexoses: {str(parameters_gg[0][2])[1:-1]}\n - HexNAcs: {str(parameters_gg[0][3])[1:-1]}"
+            additional_info = f" - Monosaccharides: {str(parameters_gg[0][1])[1:-1]}\n - Hexoses: {str(parameters_gg[0][2])[1:-1]}"
+            
+            if len(parameters_gg[0]) > 24:
+                additional_info+= f"\n - Hexosamines: {str(parameters_gg[0][24])[1:-1]}"
+                
+            additional_info+= f"\n - HexNAcs: {str(parameters_gg[0][3])[1:-1]}"
             
             if len(parameters_gg[0]) > 23:
                 additional_info+= f"\n - Xyloses: {str(parameters_gg[0][23])[1:-1]}"
                 
-            additional_info+= f"\n - Sialic Acids: {str(parameters_gg[0][4])[1:-1]}\n - dHex: {str(parameters_gg[0][5])[1:-1]}\n - Neu5Acs: {str(parameters_gg[0][6])[1:-1]}\n - Neu5Gcs: {str(parameters_gg[0][7])[1:-1]}\n\n - Force N-Glycans composition: {parameters_gg[0][8]}\n - Maximum adducts: {parameters_gg[0][9]}\n - Adducts excluded: {parameters_gg[0][10]}\n - Maximum charges: {parameters_gg[0][11]}\n - Reducing end tag: {parameters_gg[0][12] if parameters_gg[0][12] != 0.0 else False}\n - Permethylated: {parameters_gg[0][13]}\n - Reduced end: {parameters_gg[0][14]}\n - Amidated/Ethyl-Esterified: {parameters_gg[0][15]}\n - Fast isotopic calculations: {parameters_gg[0][16]}\n - High resolution isotopic calculations: {parameters_gg[0][17]}\n - Internal standard: {parameters_gg[0][18] if parameters_gg[0][18] != 0.0 else False}"
+            additional_info+= f"\n - Sialic Acids: {str(parameters_gg[0][4])[1:-1]}\n - dHex: {str(parameters_gg[0][5])[1:-1]}\n - Neu5Acs: {str(parameters_gg[0][6])[1:-1]}\n - Neu5Gcs: {str(parameters_gg[0][7])[1:-1]}"
+            
+            if len(parameters_gg[0]) > 24:
+                additional_info+= f"\n - Uronic Acids: {str(parameters_gg[0][25])[1:-1]}"
+                
+            additional_info+= f"\n\n - Force N-Glycans composition: {parameters_gg[0][8]}\n - Maximum adducts: {parameters_gg[0][9]}\n - Adducts excluded: {parameters_gg[0][10]}\n - Maximum charges: {parameters_gg[0][11]}\n - Reducing end tag: {parameters_gg[0][12] if parameters_gg[0][12] != 0.0 else False}\n - Permethylated: {parameters_gg[0][13]}\n - Reduced end: {parameters_gg[0][14]}\n - Amidated/Ethyl-Esterified: {parameters_gg[0][15]}"
+            
+            if len(parameters_gg[0]) > 24:
+                additional_info+= f"\n - Min/Max number of Sulfations: {str(parameters_gg[0][26])[1:-1]}"
+                additional_info+= f"\n - Min/Max number of Phosphorylations: {str(parameters_gg[0][27])[1:-1]}"
+                
+            additional_info+= f"\n - Fast isotopic calculations: {parameters_gg[0][16]}\n - High resolution isotopic calculations: {parameters_gg[0][17]}\n - Internal standard: {parameters_gg[0][18] if parameters_gg[0][18] != 0.0 else False}"
         else:
             library_type = 'Custom glycans list'
-            additional_info = f" - Glycans list/path: {parameters_gg[0][0][1]}\n\n - Force N-Glycans composition: {parameters_gg[0][8]}\n - Maximum adducts: {parameters_gg[0][9]}\n - Adducts excluded: {parameters_gg[0][10]}\n - Maximum charges: {parameters_gg[0][11]}\n - Reducing end tag: {parameters_gg[0][12] if parameters_gg[0][12] != 0.0 else False}\n - Permethylated: {parameters_gg[0][13]}\n - Reduced end: {parameters_gg[0][14]}\n - Amidated/Ethyl-Esterified: {parameters_gg[0][15]}\n - Fast isotopic calculations: {parameters_gg[0][16]}\n - High resolution isotopic calculations: {parameters_gg[0][17]}"
+            additional_info = f" - Glycans list/path: {parameters_gg[0][0][1]}\n\n - Force N-Glycans composition: {parameters_gg[0][8]}\n - Maximum adducts: {parameters_gg[0][9]}\n - Adducts excluded: {parameters_gg[0][10]}\n - Maximum charges: {parameters_gg[0][11]}\n - Reducing end tag: {parameters_gg[0][12] if parameters_gg[0][12] != 0.0 else False}\n - Permethylated: {parameters_gg[0][13]}\n - Reduced end: {parameters_gg[0][14]}\n - Amidated/Ethyl-Esterified: {parameters_gg[0][15]}"
+            
+            if len(parameters_gg[0]) > 24:
+                additional_info+= f"\n - Min/Max number of Sulfations: {str(parameters_gg[0][26])[1:-1]}"
+                additional_info+= f"\n - Min/Max number of Phosphorylations: {str(parameters_gg[0][27])[1:-1]}"
+            
+            additional_info+= f"\n - Fast isotopic calculations: {parameters_gg[0][16]}\n - High resolution isotopic calculations: {parameters_gg[0][17]}"
         if parameters_gg[0][19][0]:
             library_type = 'Imported Library'
-            additional_info = f" - Library path: {parameters_gg[0][21]}"
+            additional_info = f" - Library path: {parameters_gg[0][21]}\n\n - Monosaccharides: {str(parameters_gg[0][1])[1:-1]}\n - Hexoses: {str(parameters_gg[0][2])[1:-1]}"
+            
+            if len(parameters_gg[0]) > 24:
+                additional_info+= f"\n - Hexosamines: {str(parameters_gg[0][24])[1:-1]}"
+                
+            additional_info+= f"\n - HexNAcs: {str(parameters_gg[0][3])[1:-1]}"
+            
+            if len(parameters_gg[0]) > 23:
+                additional_info+= f"\n - Xyloses: {str(parameters_gg[0][23])[1:-1]}"
+                
+            additional_info+= f"\n - Sialic Acids: {str(parameters_gg[0][4])[1:-1]}\n - dHex: {str(parameters_gg[0][5])[1:-1]}\n - Neu5Acs: {str(parameters_gg[0][6])[1:-1]}\n - Neu5Gcs: {str(parameters_gg[0][7])[1:-1]}"
+            
+            if len(parameters_gg[0]) > 24:
+                additional_info+= f"\n - Uronic Acids: {str(parameters_gg[0][25])[1:-1]}"
+                
+            additional_info+= f"\n\n - Force N-Glycans composition: {parameters_gg[0][8]}\n - Maximum adducts: {parameters_gg[0][9]}\n - Adducts excluded: {parameters_gg[0][10]}\n - Maximum charges: {parameters_gg[0][11]}\n - Reducing end tag: {parameters_gg[0][12] if parameters_gg[0][12] != 0.0 else False}\n - Permethylated: {parameters_gg[0][13]}\n - Reduced end: {parameters_gg[0][14]}\n - Amidated/Ethyl-Esterified: {parameters_gg[0][15]}"
+            
+            if len(parameters_gg[0]) > 24:
+                additional_info+= f"\n - Min/Max number of Sulfations: {str(parameters_gg[0][26])[1:-1]}"
+                additional_info+= f"\n - Min/Max number of Phosphorylations: {str(parameters_gg[0][27])[1:-1]}"
+                
+            additional_info+= f"\n - Fast isotopic calculations: {parameters_gg[0][16]}\n - High resolution isotopic calculations: {parameters_gg[0][17]}\n - Internal standard: {parameters_gg[0][18] if parameters_gg[0][18] != 0.0 else False}"
         information_text.insert(tk.END, f" - Library type: {library_type}\n")
         information_text.insert(tk.END, "\n")
         information_text.insert(tk.END, f"{additional_info}\n")
@@ -6930,6 +7120,8 @@ def run_set_parameters_window():
             max_monosaccharides_entry.config(state=tk.DISABLED)
             min_hex_entry.config(state=tk.DISABLED)
             max_hex_entry.config(state=tk.DISABLED)
+            min_hn_entry.config(state=tk.DISABLED)
+            max_hn_entry.config(state=tk.DISABLED)
             min_hexnac_entry.config(state=tk.DISABLED)
             max_hexnac_entry.config(state=tk.DISABLED)
             min_xyl_entry.config(state=tk.DISABLED)
@@ -6938,6 +7130,8 @@ def run_set_parameters_window():
             max_dhex_entry.config(state=tk.DISABLED)
             min_sia_entry.config(state=tk.DISABLED)
             max_sia_entry.config(state=tk.DISABLED)
+            min_ua_entry.config(state=tk.DISABLED)
+            max_ua_entry.config(state=tk.DISABLED)
             min_neu5ac_entry.config(state=tk.DISABLED)
             max_neu5ac_entry.config(state=tk.DISABLED)
             min_neu5gc_entry.config(state=tk.DISABLED)
@@ -6950,6 +7144,8 @@ def run_set_parameters_window():
             max_monosaccharides_entry.config(state=tk.NORMAL)
             min_hex_entry.config(state=tk.NORMAL)
             max_hex_entry.config(state=tk.NORMAL)
+            min_hn_entry.config(state=tk.NORMAL)
+            max_hn_entry.config(state=tk.NORMAL)
             min_hexnac_entry.config(state=tk.NORMAL)
             max_hexnac_entry.config(state=tk.NORMAL)
             min_xyl_entry.config(state=tk.NORMAL)
@@ -6958,6 +7154,8 @@ def run_set_parameters_window():
             max_dhex_entry.config(state=tk.NORMAL)
             min_sia_entry.config(state=tk.NORMAL)
             max_sia_entry.config(state=tk.NORMAL)
+            min_ua_entry.config(state=tk.NORMAL)
+            max_ua_entry.config(state=tk.NORMAL)
             min_neu5ac_entry.config(state=tk.NORMAL)
             max_neu5ac_entry.config(state=tk.NORMAL)
             min_neu5gc_entry.config(state=tk.NORMAL)
@@ -6967,13 +7165,24 @@ def run_set_parameters_window():
     def reducing_end_tag_checkbox_state_check():
         state = reducing_end_tag_checkbox_state.get()
         if int(state) == 1:
-            reducing_end_tag_entry.config(state=tk.NORMAL)   
+            reducing_end_tag_dropdown.state(['!disabled'])
             reduced_checkbox.config(state=tk.DISABLED)
         else:
             reducing_end_tag_entry.delete(0, tk.END)
             reducing_end_tag_entry.insert(0, '0.0')
             reducing_end_tag_entry.config(state=tk.DISABLED) 
+            reducing_end_tag_dropdown.state(['disabled'])
             reduced_checkbox.config(state=tk.NORMAL)
+            
+    def on_tag_selected(event):
+        selected_tag = reducing_end_tag_dropdown.get()
+        if selected_tag == 'Custom':
+            reducing_end_tag_entry.config(state=tk.NORMAL)
+        else:
+            reducing_end_tag_entry.config(state=tk.NORMAL)
+            reducing_end_tag_entry.delete(0, tk.END)
+            reducing_end_tag_entry.insert(0, reducing_end_tags[selected_tag])
+            reducing_end_tag_entry.config(state=tk.DISABLED)
             
     def permethylated_checkbox_state_check():
         state = permethylated_checkbox_state.get()
@@ -7054,50 +7263,22 @@ def run_set_parameters_window():
             close_peaks_entry.config(state=tk.DISABLED)
             
     def ok_sp_window():
-        global save_path
-        global min_max_monos
-        global min_max_hex
-        global min_max_hexnac
-        global min_max_xyl
-        global min_max_fuc
-        global min_max_sia
-        global min_max_ac
-        global min_max_gc
-        global internal_standard
-        global reducing_end_boolean
-        global reducing_end_tag
-        global permethylated
-        global reduced
-        global lactonized_ethyl_esterified
-        global force_nglycan
-        global fast_iso
-        global high_res
-        global multithreaded_analysis
-        global number_cores
-        global min_ppp
-        global close_peaks
-        global iso_fit_score
-        global curve_fit_score
-        global s_to_n
-        global max_ppm
-        global h_adduct
-        global na_adduct
-        global k_adduct
-        global li_adduct
-        global max_charges
-        global max_adducts
-        global adducts_exclusion
-        global custom_glycans_list
+        global save_path, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_fuc,  min_max_sia, min_max_ac, min_max_gc, min_max_hn, min_max_ua, internal_standard, reducing_end_boolean, reducing_end_tag, permethylated, reduced, lactonized_ethyl_esterified,  min_max_sulfation,  min_max_phosphorylation,  force_nglycan, fast_iso, high_res, multithreaded_analysis, number_cores, min_ppp,  close_peaks, iso_fit_score, curve_fit_score, s_to_n, max_ppm, h_adduct, na_adduct, k_adduct, li_adduct, max_charges, max_adducts, adducts_exclusion, custom_glycans_list
+        
         parameters_dict = {'Min. Monosaccharides':min_monosaccharides_entry.get(), 
                            'Max. Monosaccharides':max_monosaccharides_entry.get(), 
                            'Min. Hexoses':min_hex_entry.get(), 
                            'Max. Hexoses':max_hex_entry.get(), 
+                           'Min. Hexosamines':min_hn_entry.get(), 
+                           'Max. Hexosamines':max_hn_entry.get(), 
                            'Min. HexNAcs':min_hexnac_entry.get(), 
                            'Max. HexNAcs':max_hexnac_entry.get(),
                            'Min. Fucoses':min_dhex_entry.get(),
                            'Max. Fucoses':max_dhex_entry.get(),
                            'Min. Sialic Acids':min_sia_entry.get(),
                            'Max. Sialic Acids':max_sia_entry.get(),
+                           'Min. Uronic Acids':min_ua_entry.get(),
+                           'Max. Uronic Acids':max_ua_entry.get(),
                            'Min. Neu5Ac':min_neu5ac_entry.get(),
                            'Max. Neu5Ac':max_neu5ac_entry.get(),
                            'Min. Neu5Gc':min_neu5gc_entry.get(),
@@ -7116,6 +7297,10 @@ def run_set_parameters_window():
                            'Min. Li Adduct':lithium_min_entry.get(), 
                            'Max. Li Adduct':lithium_max_entry.get(), 
                            'Max. Charges':max_charges_entry.get(),
+                           'Min. Sulfation':min_sulfation_entry.get(),
+                           'Max. Sulfation':max_sulfation_entry.get(),
+                           'Min. Phosphorylation':min_phosphorylation_entry.get(),
+                           'Max. Phosphorylation':max_phosphorylation_entry.get(),
                            'Min. Retention/Migration Time':rt_int_min_entry.get(),
                            'Max. Retention/Migration Time':rt_int_max_entry.get(),
                            'Accuracy Value':acc_value_entry.get()}
@@ -7157,42 +7342,64 @@ def run_set_parameters_window():
                     if min_adducts[i] >= 1:
                         min_adducts[i]-= 1
                 adducts_exclusion = General_Functions.gen_adducts_combo(min_adducts, max_charge=max_charges)
+                if float(rt_int_max_entry.get()) < float(rt_int_min_entry.get()):
+                    error_window("Max. Retention/Migration Time value must be greater than min. Retention/Migration Time value.")
+                    return
                 ret_time_interval[0] = float(rt_int_min_entry.get())
                 ret_time_interval[1] = float(rt_int_max_entry.get())
                 tolerance[1] = float(acc_value_entry.get())
                 close_peaks = [close_peaks_checkbox_state.get(), int(close_peaks_entry.get())]
+                
                 if int(max_monosaccharides_entry.get()) < int(min_monosaccharides_entry.get()):
                     error_window("Max. Monosaccharides value must be greater than min. Monosaccharides value.")
                     return
                 min_max_monos = [int(min_monosaccharides_entry.get()), int(max_monosaccharides_entry.get())]
+                
                 if int(max_hex_entry.get()) < int(min_hex_entry.get()):
                     error_window("Max. Hexoses value must be greater than min. Hexoses value.")
                     return
                 min_max_hex = [int(min_hex_entry.get()), int(max_hex_entry.get())]
+                
                 if int(max_hexnac_entry.get()) < int(min_hexnac_entry.get()):
                     error_window("Max. HexNAc value must be greater than min. HexNAc value.")
                     return
                 min_max_hexnac = [int(min_hexnac_entry.get()), int(max_hexnac_entry.get())]
+                
                 if int(max_xyl_entry.get()) < int(min_xyl_entry.get()):
                     error_window("Max. Xyl value must be greater than min. Xyl value.")
                     return
                 min_max_xyl = [int(min_xyl_entry.get()), int(max_xyl_entry.get())]
+                
                 if int(max_dhex_entry.get()) < int(min_dhex_entry.get()):
                     error_window("Max. dHex value must be greater than min. dHex value.")
                     return
                 min_max_fuc = [int(min_dhex_entry.get()), int(max_dhex_entry.get())]
+                
                 if int(max_sia_entry.get()) < int(min_sia_entry.get()):
                     error_window("Max. Sialic Acids value must be greater than min. Sialic Acids value.")
                     return
                 min_max_sia = [int(min_sia_entry.get()), int(max_sia_entry.get())]
+                
                 if int(max_neu5ac_entry.get()) < int(min_neu5ac_entry.get()):
                     error_window("Max. Neu5Ac value must be greater than min. Neu5Ac value.")
                     return
                 min_max_ac = [int(min_neu5ac_entry.get()), int(max_neu5ac_entry.get())]
+                
                 if int(max_neu5gc_entry.get()) < int(min_neu5gc_entry.get()):
                     error_window("Max. Neu5Gc value must be greater than min. Neu5Gc value.")
                     return
                 min_max_gc = [int(min_neu5gc_entry.get()), int(max_neu5gc_entry.get())]
+                
+                if int(max_hn_entry.get()) < int(min_hn_entry.get()):
+                    error_window("Max. Hexosamines value must be greater than min. Hexosamines value.")
+                    return
+                min_max_hn = [int(min_hn_entry.get()), int(max_hn_entry.get())]
+                
+                if int(max_ua_entry.get()) < int(min_ua_entry.get()):
+                    error_window("Max. Uronic Acids value must be greater than min. Uronic Acids value.")
+                    return
+                min_max_ua = [int(min_ua_entry.get()), int(max_ua_entry.get())]
+                
                 internal_standard = float(intstandard_entry.get())
                 min_ppp = [custom_ppp_checkbox_state.get(), int(custom_ppp_entry.get())]
                 if acc_unit_dropdown.get() == 'PPM':
@@ -7212,6 +7419,17 @@ def run_set_parameters_window():
                 permethylated = permethylated_checkbox_state.get()
                 reduced = reduced_checkbox_state.get()
                 lactonized_ethyl_esterified = lac_ee_checkbox_state.get()
+                
+                if int(max_sulfation_entry.get()) < int(min_sulfation_entry.get()):
+                    error_window("Max. Sulfation value must be greater than min. Sulfation value.")
+                    return
+                min_max_sulfation = [int(min_sulfation_entry.get()), int(max_sulfation_entry.get())]
+                
+                if int(max_phosphorylation_entry.get()) < int(min_phosphorylation_entry.get()):
+                    error_window("Max. Phosphorylation value must be greater than min. Phosphorylation value.")
+                    return
+                min_max_phosphorylation = [int(min_phosphorylation_entry.get()), int(max_phosphorylation_entry.get())]
+                
                 force_nglycan = force_n_glycan_checkbox_state.get()
                 fast_iso = fast_iso_checkbox_state.get()
                 high_res = hires_iso_checkbox_state.get()
@@ -7271,9 +7489,11 @@ def run_set_parameters_window():
                 f.write(f"custom_glycans_list = \n")
                 f.write(f"total_monosaccharides = {int(min_monosaccharides_entry.get())}, {int(max_monosaccharides_entry.get())}\n")
                 f.write(f"hexoses = {int(min_hex_entry.get())}, {int(max_hex_entry.get())}\n")
+                f.write(f"hexosamines = {int(min_hn_entry.get())}, {int(max_hn_entry.get())}\n")
                 f.write(f"hexnacs = {int(min_hexnac_entry.get())}, {int(max_hexnac_entry.get())}\n")
                 f.write(f"xyloses = {int(min_xyl_entry.get())}, {int(max_xyl_entry.get())}\n")
                 f.write(f"sialic_acids = {int(min_sia_entry.get())}, {int(max_sia_entry.get())}\n")
+                f.write(f"uronic_acids = {int(min_ua_entry.get())}, {int(max_ua_entry.get())}\n")
                 f.write(f"fucoses = {int(min_dhex_entry.get())}, {int(max_dhex_entry.get())}\n")
                 f.write(f"neu5ac = {int(min_neu5ac_entry.get())}, {int(max_neu5ac_entry.get())}\n")
                 f.write(f"neu5gc = {int(min_neu5gc_entry.get())}, {int(max_neu5gc_entry.get())}\n")
@@ -7289,9 +7509,11 @@ def run_set_parameters_window():
                 f.write(f"custom_glycans_list = {custom_glycans_save_param[:-2]}\n")
                 f.write(f"total_monosaccharides = {int(min_monosaccharides_entry.get())}, {int(max_monosaccharides_entry.get())}\n")
                 f.write(f"hexoses = {int(min_hex_entry.get())}, {int(max_hex_entry.get())}\n")
+                f.write(f"hexosamines = {int(min_hn_entry.get())}, {int(max_hn_entry.get())}\n")
                 f.write(f"hexnacs = {int(min_hexnac_entry.get())}, {int(max_hexnac_entry.get())}\n")
                 f.write(f"xyloses = {int(min_xyl_entry.get())}, {int(max_xyl_entry.get())}\n")
                 f.write(f"sialic_acids = {int(min_sia_entry.get())}, {int(max_sia_entry.get())}\n")
+                f.write(f"uronic_acids = {int(min_ua_entry.get())}, {int(max_ua_entry.get())}\n")
                 f.write(f"fucoses = {int(min_dhex_entry.get())}, {int(max_dhex_entry.get())}\n")
                 f.write(f"neu5ac = {int(min_neu5ac_entry.get())}, {int(max_neu5ac_entry.get())}\n")
                 f.write(f"neu5gc = {int(min_neu5gc_entry.get())}, {int(max_neu5gc_entry.get())}\n")
@@ -7318,6 +7540,8 @@ def run_set_parameters_window():
             f.write(f"reducing_end_tag = {reducing_end_tag_entry.get()}\n")
             f.write(f"permethylated = {permethylated_checkbox_state.get()}\n")
             f.write(f"reduced = {reduced_checkbox_state.get()}\n")
+            f.write(f"min_max_sulfation_per_glycan = {min_sulfation_entry.get()}, {max_sulfation_entry.get()}\n")
+            f.write(f"min_max_phosphorylation_per_glycan = {min_phosphorylation_entry.get()}, {max_phosphorylation_entry.get()}\n")
             f.write(f"aminated_ethyl_esterified = {lac_ee_checkbox_state.get()}\n")
             f.write(f"fast_iso = {fast_iso_checkbox_state.get()}\n")
             f.write(f"high_resolution_isotopic_dist = {hires_iso_checkbox_state.get()}\n")
@@ -7346,7 +7570,7 @@ def run_set_parameters_window():
             f.write(f"filter_ms2_by_reporter_ions = \n")
             f.write(f"align_chromatograms = True\n")
             f.write(f"auc_percentage_threshold = 1\n")
-            f.write(f"max_ppm_threshold = ({float(ppm_error_min_entry.get())}, {float(ppm_error_max_entry.get())})\n")
+            f.write(f"max_ppm_threshold = {float(ppm_error_min_entry.get())}, {float(ppm_error_max_entry.get())}\n")
             f.write(f"isotopic_fitting_score_threshold = {float(iso_fit_entry.get())}\n")
             f.write(f"curve_fitting_score_threshold = {float(curve_fit_entry.get())}\n")
             f.write(f"signal_to_noise_threshold = {float(s_n_entry.get())}\n")
@@ -7473,6 +7697,10 @@ def run_set_parameters_window():
         min_hex_entry.insert(0, parameters[0][2][0])
         max_hex_entry.delete(0, tk.END)
         max_hex_entry.insert(0, parameters[0][2][1])
+        min_hn_entry.delete(0, tk.END)
+        min_hn_entry.insert(0, parameters[0][24][0])
+        max_hn_entry.delete(0, tk.END)
+        max_hn_entry.insert(0, parameters[0][24][1])
         min_hexnac_entry.delete(0, tk.END)
         min_hexnac_entry.insert(0, parameters[0][3][0])
         max_hexnac_entry.delete(0, tk.END)
@@ -7489,6 +7717,10 @@ def run_set_parameters_window():
         min_sia_entry.insert(0, parameters[0][4][0])
         max_sia_entry.delete(0, tk.END)
         max_sia_entry.insert(0, parameters[0][4][1])
+        min_ua_entry.delete(0, tk.END)
+        min_ua_entry.insert(0, parameters[0][25][0])
+        max_ua_entry.delete(0, tk.END)
+        max_ua_entry.insert(0, parameters[0][25][1])
         min_neu5ac_entry.delete(0, tk.END)
         min_neu5ac_entry.insert(0, parameters[0][6][0])
         max_neu5ac_entry.delete(0, tk.END)
@@ -7585,6 +7817,14 @@ def run_set_parameters_window():
             multithreaded_checkbox_state.set(False)
             number_cores_entry_state = tk.DISABLED
             number_cores_entry.config(state = number_cores_entry_state)
+        min_sulfation_entry.delete(0, tk.END)
+        min_sulfation_entry.insert(0, parameters[0][26][0])
+        max_sulfation_entry.delete(0, tk.END)
+        max_sulfation_entry.insert(0, parameters[0][26][1])
+        min_phosphorylation_entry.delete(0, tk.END)
+        min_phosphorylation_entry.insert(0, parameters[0][27][0])
+        max_phosphorylation_entry.delete(0, tk.END)
+        max_phosphorylation_entry.insert(0, parameters[0][27][1])
         file_dialog.destroy()
         set_parameters_window.grab_set()
         
@@ -7669,10 +7909,10 @@ def run_set_parameters_window():
         custom_glycans_window.iconphoto(False, icon)
         custom_glycans_window.resizable(False, False)
         custom_glycans_window.grab_set()
-        custom_glycans_window.geometry("600x610")
+        custom_glycans_window.geometry("600x625")
         custom_glycans_window.columnconfigure(0, weight=1)
         
-        description_custom_glycans_label = ttk.Label(custom_glycans_window, text="Here you can type in the glycans you wish to insert in the custom glycans list. Use the following nomenclature:\n\n    H: Hexose, N: HexNAc, X: Xylose, F: Deoxyhexose, S: Neu5Ac, G: Neu5Gc\n\nand in case of amidation/ethyl-esterification of sialic acids:\n\n    Am: Amidated Neu5Ac (alpha2,3), E: Ethyl-Esterified Neu5Ac (alpha2,6)\n    AmG: Amidated Neu5Gc (alpha2,3), EG: Ethyl-Esterified Neu5Gc (alpha2,6)\n\nExample: H5N4S2F1 refers to a glycan with 5 Hexoses, 4 HexNacs, 2 Neu5Ac and 1 Deoxyhexose", font=("Segoe UI", list_font_size), wraplength=600, justify = "left")
+        description_custom_glycans_label = ttk.Label(custom_glycans_window, text="Here you can type in the glycans you wish to insert in the custom glycans list. Use the following nomenclature:\n\n    H: Hexose, HN: Hexosamine, N: HexNAc, X: Xylose, F: Deoxyhexose, S: Neu5Ac, G: Neu5Gc, UA: Uronic Acid\n\nand in case of amidation/ethyl-esterification of sialic acids:\n\n    Am: Amidated Neu5Ac (alpha2,3), E: Ethyl-Esterified Neu5Ac (alpha2,6)\n    AmG: Amidated Neu5Gc (alpha2,3), EG: Ethyl-Esterified Neu5Gc (alpha2,6)\n\nExample: H5N4S2F1 refers to a glycan with 5 Hexoses, 4 HexNacs, 2 Neu5Ac and 1 Deoxyhexose", font=("Segoe UI", list_font_size), wraplength=600, justify = "left")
         description_custom_glycans_label.grid(row=0, column=0, padx=(10, 10), pady=(10, 10), sticky="nsew")
         
         custom_glycans_text = ScrolledText(custom_glycans_window, height=22, width=100)
@@ -7991,8 +8231,66 @@ def run_set_parameters_window():
     max_xyl_entry.grid(row=10, column=1, padx=(120, 0), pady=0, sticky='w')
     ToolTip(max_xyl_entry, "Insert the maximum number of Xylose in your glycans.")
     
+    hn_label = ttk.Label(library_building_frame, text='Hexosamines:', font=("Segoe UI", list_font_size))
+    hn_label.grid(row=11, column=0, padx=(10, 10), pady=(0, 0), sticky="w")
+    
+    min_hn_label = ttk.Label(library_building_frame, text='Min:', font=("Segoe UI", list_font_size))
+    min_hn_label.grid(row=12, column=0, padx=(10, 10), pady=(0, 0), sticky="w")
+    ToolTip(min_hn_label, "Insert the minimum number of Hexosamines in your glycans.")
+    
+    min_hn_entry_state = tk.NORMAL
+    if use_custom_library_checkbox_state.get():
+        min_hn_entry_state = tk.DISABLED
+    min_hn_entry = ttk.Entry(library_building_frame, width=5, state=tk.NORMAL)
+    min_hn_entry.insert(0, min_max_hn[0])
+    min_hn_entry.config(state=min_hn_entry_state)
+    min_hn_entry.grid(row=12, column=0, padx=(40, 0), pady=0, sticky='w')
+    ToolTip(min_hn_entry, "Insert the minimum number of Hexosamines in your glycans.")
+    
+    max_hn_label = ttk.Label(library_building_frame, text='Max:', font=("Segoe UI", list_font_size))
+    max_hn_label.grid(row=12, column=0, padx=(80, 10), pady=(0, 0), sticky="w")
+    ToolTip(max_hn_label, "Insert the maximum number of Hexosamines in your glycans.")
+    
+    max_hn_entry_state = tk.NORMAL
+    if use_custom_library_checkbox_state.get():
+        max_hn_entry_state = tk.DISABLED
+    max_hn_entry = ttk.Entry(library_building_frame, width=5, state=tk.NORMAL)
+    max_hn_entry.insert(0, min_max_hn[1])
+    max_hn_entry.config(state=max_hn_entry_state)
+    max_hn_entry.grid(row=12, column=0, padx=(120, 0), pady=0, sticky='w')
+    ToolTip(max_hn_entry, "Insert the maximum number of Hexosamines in your glycans.")
+    
+    ua_label = ttk.Label(library_building_frame, text='Uronic Acids:', font=("Segoe UI", list_font_size))
+    ua_label.grid(row=11, column=1, padx=(10, 10), pady=(0, 0), sticky="w")
+    
+    min_ua_label = ttk.Label(library_building_frame, text='Min:', font=("Segoe UI", list_font_size))
+    min_ua_label.grid(row=12, column=1, padx=(10, 10), pady=(0, 0), sticky="w")
+    ToolTip(min_ua_label, "Insert the minimum number of Uronic Acids in your glycans.")
+    
+    min_ua_entry_state = tk.NORMAL
+    if use_custom_library_checkbox_state.get():
+        min_ua_entry_state = tk.DISABLED
+    min_ua_entry = ttk.Entry(library_building_frame, width=5, state=tk.NORMAL)
+    min_ua_entry.insert(0, min_max_ua[0])
+    min_ua_entry.config(state=min_ua_entry_state)
+    min_ua_entry.grid(row=12, column=1, padx=(40, 0), pady=0, sticky='w')
+    ToolTip(min_ua_entry, "Insert the minimum number of Uronic Acids in your glycans.")
+    
+    max_ua_label = ttk.Label(library_building_frame, text='Max:', font=("Segoe UI", list_font_size))
+    max_ua_label.grid(row=12, column=1, padx=(80, 10), pady=(0, 0), sticky="w")
+    ToolTip(max_ua_label, "Insert the maximum number of Uronic Acids in your glycans.")
+    
+    max_ua_entry_state = tk.NORMAL
+    if use_custom_library_checkbox_state.get():
+        max_ua_entry_state = tk.DISABLED
+    max_ua_entry = ttk.Entry(library_building_frame, width=5, state=tk.NORMAL)
+    max_ua_entry.insert(0, min_max_ua[1])
+    max_ua_entry.config(state=max_ua_entry_state)
+    max_ua_entry.grid(row=12, column=1, padx=(120, 0), pady=0, sticky='w')
+    ToolTip(max_ua_entry, "Insert the maximum number of Uronic Acids in your glycans.")
+    
     intstandard_label = ttk.Label(library_building_frame, text='Internal Standard Mass:', font=("Segoe UI", list_font_size))
-    intstandard_label.grid(row=11, column=0, padx=(10, 10), pady=(0, 0), sticky="w")
+    intstandard_label.grid(row=13, column=0, padx=(10, 10), pady=(0, 0), sticky="w")
     ToolTip(intstandard_label, "Insert the mass of the internal standard used. If you added a reducing end tag to your samples, it will also be added to the internal standard. Leave at 0.0 if no internal standard is used.")
     
     intstandard_entry_state = tk.NORMAL
@@ -8001,36 +8299,43 @@ def run_set_parameters_window():
     intstandard_entry = ttk.Entry(library_building_frame, width=5, state=tk.NORMAL)
     intstandard_entry.insert(0, internal_standard)
     intstandard_entry.config(state=intstandard_entry_state)
-    intstandard_entry.grid(row=12, column=0, padx=(10, 10), pady=0, sticky='we')
+    intstandard_entry.grid(row=14, column=0, padx=(10, 10), pady=0, sticky='we')
     ToolTip(intstandard_entry, "Insert the mass of the internal standard used. If you added a reducing end tag to your samples, it will also be added to the internal standard. Leave at 0.0 if no internal standard is used.")
     
     modifications_label = ttk.Label(library_building_frame, text='Modifications:', font=("Segoe UI", list_font_size))
-    modifications_label.grid(row=13, column=0, columnspan=2, padx=(10, 10), pady=(10, 0), sticky="w")
+    modifications_label.grid(row=15, column=0, columnspan=2, padx=(10, 10), pady=(10, 0), sticky="w")
     
     reducing_end_tag_checkbox_activation_state = tk.NORMAL
     if reduced:
         reducing_end_tag_checkbox_activation_state = tk.DISABLED
     reducing_end_tag_checkbox_state = tk.BooleanVar(value=reducing_end_boolean)
     reducing_end_tag_checkbox = ttk.Checkbutton(library_building_frame, text="Reducing End Tag", variable=reducing_end_tag_checkbox_state, command=reducing_end_tag_checkbox_state_check, state=reducing_end_tag_checkbox_activation_state)
-    reducing_end_tag_checkbox.grid(row=14, column=0, padx=10, sticky="nw")
+    reducing_end_tag_checkbox.grid(row=16, column=0, padx=10, sticky="nw")
     ToolTip(reducing_end_tag_checkbox, "Select if you added a reducing end tag to your samples' glycans or if you're analyzing a glycopeptide.")
     
     reducing_end_tag_label = ttk.Label(library_building_frame, text='Tag:', font=("Segoe UI", list_font_size))
-    reducing_end_tag_label.grid(row=15, column=0, padx=(10, 10), pady=(0, 0), sticky="w")
-    ToolTip(reducing_end_tag_label, "Type in the ADDED mass of the reducing end tag (ie. 133.0644 for Girard Reagent P (GirP) tag or 219.1735 for Procainamide (ProA) tag), or type in the chemical formula of the reducing end tag (ie. C7H7N3 for GirP or C13H21N3 for ProA) or type in 'pep-' followed by a peptide sequence for analyzing a glycopeptide (ie. pep-NK for the dipeptide made out of an asparagine and a lysine residue).")
+    reducing_end_tag_label.grid(row=17, column=0, padx=(10, 10), pady=(0, 0), sticky="w")
+    ToolTip(reducing_end_tag_label, "Select the reducing end tag or type in the ADDED mass of the reducing end tag (ie. 133.0644 for Girard Reagent P (GirP) tag or 219.1735 for Procainamide (ProA) tag), or type in the chemical formula of the reducing end tag (ie. C7H7N3 for GirP or C13H21N3 for ProA) or type in 'pep-' followed by a peptide sequence for analyzing a glycopeptide (ie. pep-NK for the dipeptide made out of an asparagine and a lysine residue).")
+    
+    reducing_end_tag_options = list(reducing_end_tags.keys())+['Custom']
+    reducing_end_tag_dropdown = ttk.Combobox(library_building_frame, state="readonly", values=reducing_end_tag_options, width=7)
+    reducing_end_tag_dropdown.state(['disabled'])
+    reducing_end_tag_dropdown.bind("<<ComboboxSelected>>", on_tag_selected)
+    reducing_end_tag_dropdown.grid(row=17, column=0, padx=(40, 0), pady=0, sticky='w')
+    ToolTip(reducing_end_tag_dropdown, "Select the reducing end tag or type in the ADDED mass of the reducing end tag (ie. 133.0644 for Girard Reagent P (GirP) tag or 219.1735 for Procainamide (ProA) tag), or type in the chemical formula of the reducing end tag (ie. C7H7N3 for GirP or C13H21N3 for ProA) or type in 'pep-' followed by a peptide sequence for analyzing a glycopeptide (ie. pep-NK for the dipeptide made out of an asparagine and a lysine residue).")
     
     reducing_end_tag_entry_state = tk.DISABLED
     if reducing_end_tag_checkbox_state.get():
         reducing_end_tag_entry_state = tk.NORMAL
-    reducing_end_tag_entry = ttk.Entry(library_building_frame, width=20, state = tk.NORMAL)
+    reducing_end_tag_entry = ttk.Entry(library_building_frame, width=14, state = tk.NORMAL)
     reducing_end_tag_entry.insert(0, reducing_end_tag) 
     reducing_end_tag_entry.config(state = reducing_end_tag_entry_state)
-    reducing_end_tag_entry.grid(row=15, column=0, columnspan=2, padx=(50, 10), pady=0, sticky='w')
-    ToolTip(reducing_end_tag_entry, "Type in the ADDED mass of the reducing end tag (ie. 133.0644 for Girard Reagent P (GirP) tag or 219.1735 for Procainamide (ProA) tag), or type in the chemical formula of the reducing end tag (ie. C7H7N3 for GirP or C13H21N3 for ProA) or type in 'pep-' followed by a peptide sequence for analyzing a glycopeptide (ie. pep-NK for the dipeptide made out of an asparagine and a lysine residue).")
+    reducing_end_tag_entry.grid(row=17, column=0, columnspan=2, padx=(110, 10), pady=0, sticky='w')
+    ToolTip(reducing_end_tag_entry, "Select the reducing end tag or type in the ADDED mass of the reducing end tag (ie. 133.0644 for Girard Reagent P (GirP) tag or 219.1735 for Procainamide (ProA) tag), or type in the chemical formula of the reducing end tag (ie. C7H7N3 for GirP or C13H21N3 for ProA) or type in 'pep-' followed by a peptide sequence for analyzing a glycopeptide (ie. pep-NK for the dipeptide made out of an asparagine and a lysine residue).")
     
     permethylated_checkbox_state = tk.BooleanVar(value=permethylated)
     permethylated_checkbox = ttk.Checkbutton(library_building_frame, text="Permethylated", variable=permethylated_checkbox_state, command=permethylated_checkbox_state_check)
-    permethylated_checkbox.grid(row=16, column=0, padx=10, sticky="w")
+    permethylated_checkbox.grid(row=18, column=0, padx=10, sticky="w")
     ToolTip(permethylated_checkbox, "Select if the sample was permethylated.")
     
     reduced_checkbox_activation_state = tk.NORMAL
@@ -8038,30 +8343,61 @@ def run_set_parameters_window():
         reduced_checkbox_activation_state = tk.DISABLED
     reduced_checkbox_state = tk.BooleanVar(value=reduced)
     reduced_checkbox = ttk.Checkbutton(library_building_frame, text="Reduced End", variable=reduced_checkbox_state, command=reduced_checkbox_state_check, state = reduced_checkbox_activation_state)
-    reduced_checkbox.grid(row=17, column=0, padx=10, sticky="w")
+    reduced_checkbox.grid(row=19, column=0, padx=10, sticky="w")
     ToolTip(reduced_checkbox, "Select if the sample doesn't have a reducing end tag and had it's reducing end reduced.")
     
     lac_ee_checkbox_state = tk.BooleanVar(value=lactonized_ethyl_esterified)
     lac_ee_checkbox = ttk.Checkbutton(library_building_frame, text="Amidated/Ethyl-Esterified", variable=lac_ee_checkbox_state, command=lac_ee_checkbox_state_check)
-    lac_ee_checkbox.grid(row=18, column=0, padx=10, sticky="w")
+    lac_ee_checkbox.grid(row=20, column=0, padx=10, sticky="w")
     ToolTip(lac_ee_checkbox, "Select if the sample has been amidated and ethyl-esterified, allowing to distinguish between alpha-2,3 and alpha-2,6 N-Acetilneuraminic Acids.")
     
-    negative_mode_checkbox_state = tk.BooleanVar(value=(True if max_charges<0 else False))
-    negative_mode_checkbox = ttk.Checkbutton(library_building_frame, text="Negative Mode", variable=negative_mode_checkbox_state, command=negative_mode_checkbox_state_check)
-    negative_mode_checkbox.grid(row=20, column=0, padx=10, sticky="w")
-    ToolTip(negative_mode_checkbox, "Allows analysis of data acquired in negative mode. For now only supports proton adducts.")
+    sulfation_label = ttk.Label(library_building_frame, text='Sulfations:', font=("Segoe UI", list_font_size))
+    sulfation_label.grid(row=21, column=0, padx=10, sticky="w")
+    ToolTip(sulfation_label, "")
+    
+    min_sulfation_entry = ttk.Entry(library_building_frame, width=5)
+    min_sulfation_entry.grid(row=21, column=0, padx=(115, 0), sticky='w')
+    min_sulfation_entry.insert(0, min_max_sulfation[0])
+    ToolTip(min_sulfation_entry, "")
+    
+    sulfation_hyphen_label = ttk.Label(library_building_frame, text='-', font=("Segoe UI", list_font_size))
+    sulfation_hyphen_label.grid(row=21, column=0, padx=(150, 0), sticky="w")
+    ToolTip(sulfation_hyphen_label, "")
+    
+    max_sulfation_entry = ttk.Entry(library_building_frame, width=5)
+    max_sulfation_entry.grid(row=21, column=0, padx=(160, 0), sticky='w')
+    max_sulfation_entry.insert(0, min_max_sulfation[1])
+    ToolTip(max_sulfation_entry, "")
+    
+    phosphorylation_label = ttk.Label(library_building_frame, text='Phosphorylations:', font=("Segoe UI", list_font_size))
+    phosphorylation_label.grid(row=22, column=0, padx=10, sticky="w")
+    ToolTip(phosphorylation_label, "")
+    
+    min_phosphorylation_entry = ttk.Entry(library_building_frame, width=5)
+    min_phosphorylation_entry.grid(row=22, column=0, padx=(115, 0), sticky='w')
+    min_phosphorylation_entry.insert(0, min_max_phosphorylation[0])
+    ToolTip(min_phosphorylation_entry, "")
+    
+    phosphorylation_hyphen_label = ttk.Label(library_building_frame, text='-', font=("Segoe UI", list_font_size))
+    phosphorylation_hyphen_label.grid(row=22, column=0, padx=(150, 0), sticky="w")
+    ToolTip(phosphorylation_hyphen_label, "")
+    
+    max_phosphorylation_entry = ttk.Entry(library_building_frame, width=5)
+    max_phosphorylation_entry.grid(row=22, column=0, padx=(160, 0), sticky='w')
+    max_phosphorylation_entry.insert(0, min_max_phosphorylation[1])
+    ToolTip(max_phosphorylation_entry, "")
     
     add_settings_label = ttk.Label(library_building_frame, text='Additional Settings:', font=("Segoe UI", list_font_size))
-    add_settings_label.grid(row=21, column=0, columnspan=2, padx=(10, 10), pady=(0, 0), sticky="w")
+    add_settings_label.grid(row=24, column=0, columnspan=2, padx=(10, 10), pady=(0, 0), sticky="w")
     
     force_n_glycan_checkbox_state = tk.BooleanVar(value=force_nglycan)
     force_n_glycan_checkbox = ttk.Checkbutton(library_building_frame, text="Force N-Glycan Compositions", variable=force_n_glycan_checkbox_state, command=force_n_glycan_checkbox_state_check)
-    force_n_glycan_checkbox.grid(row=22, column=0, columnspan=2, padx=10, sticky="w")
+    force_n_glycan_checkbox.grid(row=25, column=0, columnspan=2, padx=10, sticky="w")
     ToolTip(force_n_glycan_checkbox, "If enabled, forces the compositions to match the known N-glycans' biological features, such as a minimum composition of H3N2 and avoidance of odd structures, such as more than one sialic acid per antennae.")
     
     fast_iso_checkbox_state = tk.BooleanVar(value=fast_iso)
     fast_iso_checkbox = ttk.Checkbutton(library_building_frame, text="Fast Isotopic Distribution Calculation", variable=fast_iso_checkbox_state, command=fast_iso_checkbox_state_check)
-    fast_iso_checkbox.grid(row=23, column=0, columnspan=2, padx=10, sticky="w")
+    fast_iso_checkbox.grid(row=26, column=0, columnspan=2, padx=10, sticky="w")
     ToolTip(fast_iso_checkbox, "If enabled, calculates the isotopic distribution only based on carbon atoms and corrects it to improve accuracy. If disabled, all atoms are considered in the isotopic distribution calculation and the library building process will take SIGNIFICANTLY longer.")
     
     hires_iso_checkbox_active_state = tk.NORMAL
@@ -8069,82 +8405,87 @@ def run_set_parameters_window():
         hires_iso_checkbox_active_state = tk.DISABLED
     hires_iso_checkbox_state = tk.BooleanVar(value=high_res)
     hires_iso_checkbox = ttk.Checkbutton(library_building_frame, text="High Resolution Distribution Calculation", variable=hires_iso_checkbox_state, command=hires_iso_checkbox_state_check, state=hires_iso_checkbox_active_state)
-    hires_iso_checkbox.grid(row=24, column=0, columnspan=2, padx=10, pady=(0, 10), sticky="w")
+    hires_iso_checkbox.grid(row=27, column=0, columnspan=2, padx=10, pady=(0, 10), sticky="w")
     ToolTip(hires_iso_checkbox, "Only available if fast isotopic distribution calculation is disabled. Calculates the isotopic distribution peaks in very high resolution. Useful for data acquired in very high resolution MS instruments, such as FT analyzers.")
     
     adducts_label = ttk.Label(library_building_frame, text='Adducts:', font=("Segoe UI", list_font_size))
-    adducts_label.grid(row=14, column=1, padx=(25, 10), pady=(0, 0), sticky="w")
+    adducts_label.grid(row=16, column=1, padx=(25, 10), pady=(0, 0), sticky="w")
     
     adducts_min_label = ttk.Label(library_building_frame, text='Min:', font=("Segoe UI", 9))
-    adducts_min_label.grid(row=15, column=1, padx=(35, 10), pady=(0, 0), sticky="w")
+    adducts_min_label.grid(row=17, column=1, padx=(35, 10), pady=(0, 0), sticky="w")
     
     adducts_max_label = ttk.Label(library_building_frame, text='Max:', font=("Segoe UI", 9))
-    adducts_max_label.grid(row=15, column=1, padx=(80, 10), pady=(0, 0), sticky="w")
+    adducts_max_label.grid(row=17, column=1, padx=(80, 10), pady=(0, 0), sticky="w")
     
     hydrogen_min_entry = ttk.Entry(library_building_frame, width=6)
-    hydrogen_min_entry.grid(row=16, column=1, padx=(25, 0), pady=(0, 0), sticky='w')
+    hydrogen_min_entry.grid(row=18, column=1, padx=(25, 0), pady=(0, 0), sticky='w')
     hydrogen_min_entry.insert(0, h_adduct[0])
     ToolTip(hydrogen_min_entry, "Set the minimum number of proton adducts.")
     
     hydrogen_max_entry = ttk.Entry(library_building_frame, width=6)
-    hydrogen_max_entry.grid(row=16, column=1, padx=(75, 0), pady=(0, 0), sticky='w')
+    hydrogen_max_entry.grid(row=18, column=1, padx=(75, 0), pady=(0, 0), sticky='w')
     hydrogen_max_entry.insert(0, h_adduct[1])
     ToolTip(hydrogen_max_entry, "Set the maximum number of proton adducts.")
     
     hydrogen_label = ttk.Label(library_building_frame, text='H', font=("Segoe UI", list_font_size))
-    hydrogen_label.grid(row=16, column=1, padx=(125, 10), pady=(0, 0), sticky="w")
+    hydrogen_label.grid(row=18, column=1, padx=(125, 10), pady=(0, 0), sticky="w")
     ToolTip(hydrogen_label, "Set the range of proton adducts.")
     
     sodium_min_entry = ttk.Entry(library_building_frame, width=6)
-    sodium_min_entry.grid(row=17, column=1, padx=(25, 0), pady=(5, 0), sticky='w')
+    sodium_min_entry.grid(row=19, column=1, padx=(25, 0), pady=(5, 0), sticky='w')
     sodium_min_entry.insert(0, na_adduct[0])
     ToolTip(sodium_min_entry, "Set the minimum number of sodium adducts.")
     
     sodium_max_entry = ttk.Entry(library_building_frame, width=6)
-    sodium_max_entry.grid(row=17, column=1, padx=(75, 0), pady=(5, 0), sticky='w')
+    sodium_max_entry.grid(row=19, column=1, padx=(75, 0), pady=(5, 0), sticky='w')
     sodium_max_entry.insert(0, na_adduct[1])
     ToolTip(sodium_max_entry, "Set the maximum number of sodium adducts.")
     
     sodium_label = ttk.Label(library_building_frame, text='Na', font=("Segoe UI", list_font_size))
-    sodium_label.grid(row=17, column=1, padx=(125, 10), pady=(5, 0), sticky="w")
+    sodium_label.grid(row=19, column=1, padx=(125, 10), pady=(5, 0), sticky="w")
     ToolTip(sodium_label, "Set the range of sodium adducts.")
     
     potassium_min_entry = ttk.Entry(library_building_frame, width=6)
-    potassium_min_entry.grid(row=18, column=1, padx=(25, 0), pady=(5, 0), sticky='w')
+    potassium_min_entry.grid(row=20, column=1, padx=(25, 0), pady=(5, 0), sticky='w')
     potassium_min_entry.insert(0, k_adduct[0])
     ToolTip(potassium_min_entry, "Set the minimum number of potassium adducts.")
     
     potassium_max_entry = ttk.Entry(library_building_frame, width=6)
-    potassium_max_entry.grid(row=18, column=1, padx=(75, 0), pady=(5, 0), sticky='w')
+    potassium_max_entry.grid(row=20, column=1, padx=(75, 0), pady=(5, 0), sticky='w')
     potassium_max_entry.insert(0, k_adduct[1])
     ToolTip(potassium_max_entry, "Set the maximum number of potassium adducts.")
     
     potassium_label = ttk.Label(library_building_frame, text='K', font=("Segoe UI", list_font_size))
-    potassium_label.grid(row=18, column=1, padx=(125, 10), pady=(5, 0), sticky="w")
+    potassium_label.grid(row=20, column=1, padx=(125, 10), pady=(5, 0), sticky="w")
     ToolTip(potassium_label, "Set the range of potassium adducts.")
     
     lithium_min_entry = ttk.Entry(library_building_frame, width=6)
-    lithium_min_entry.grid(row=19, column=1, padx=(25, 0), pady=(5, 0), sticky='w')
+    lithium_min_entry.grid(row=21, column=1, padx=(25, 0), pady=(5, 0), sticky='w')
     lithium_min_entry.insert(0, li_adduct[0])
     ToolTip(lithium_min_entry, "Set the minimum number of lithium adducts.")
     
     lithium_max_entry = ttk.Entry(library_building_frame, width=6)
-    lithium_max_entry.grid(row=19, column=1, padx=(75, 0), pady=(5, 0), sticky='w')
+    lithium_max_entry.grid(row=21, column=1, padx=(75, 0), pady=(5, 0), sticky='w')
     lithium_max_entry.insert(0, li_adduct[1])
     ToolTip(lithium_max_entry, "Set the maximum number of lithium adducts.")
     
     lithium_label = ttk.Label(library_building_frame, text='Li', font=("Segoe UI", list_font_size))
-    lithium_label.grid(row=19, column=1, padx=(125, 10), pady=(5, 0), sticky="w")
+    lithium_label.grid(row=21, column=1, padx=(125, 10), pady=(5, 0), sticky="w")
     ToolTip(lithium_label, "Set the range of lithium adducts.")
     
     max_charges_label = ttk.Label(library_building_frame, text='Max Charges:', font=("Segoe UI", list_font_size))
-    max_charges_label.grid(row=20, column=1, padx=(20, 10), pady=(5, 10), sticky="w")
+    max_charges_label.grid(row=22, column=1, padx=(20, 10), pady=(5, 10), sticky="w")
     ToolTip(max_charges_label, "Set the maximum amount of charges for any given combination of the adducts selected. Adducts combination that exceed this number won't be used for analysis.")
     
     max_charges_entry = ttk.Entry(library_building_frame, width=6)
-    max_charges_entry.grid(row=20, column=1, padx=(110, 0), pady=(5, 10), sticky='w')
+    max_charges_entry.grid(row=22, column=1, padx=(110, 0), pady=(5, 10), sticky='w')
     max_charges_entry.insert(0, abs(max_charges))
     ToolTip(max_charges_entry, "Set the maximum amount of charges for any given combination of the adducts selected. Adducts combination that exceed this number won't be used for analysis.")
+    
+    negative_mode_checkbox_state = tk.BooleanVar(value=(True if max_charges<0 else False))
+    negative_mode_checkbox = ttk.Checkbutton(library_building_frame, text="Negative Mode", variable=negative_mode_checkbox_state, command=negative_mode_checkbox_state_check)
+    negative_mode_checkbox.grid(row=23, column=1, padx=(20, 10), pady=(0, 10), sticky="w")
+    ToolTip(negative_mode_checkbox, "Allows analysis of data acquired in negative mode. For now only supports proton adducts.")
     
     # Widgets to analysis_frame
     multithreaded_checkbox_state = tk.BooleanVar(value=multithreaded_analysis)
@@ -8369,7 +8710,7 @@ def save_results_window():
             
             output_filtered_data_args = [float(curve_fit_sr_entry.get()), float(iso_fit_sr_entry.get()), float(s_n_sr_entry.get()), (float(ppm_error_min_sr_entry.get()), float(ppm_error_max_sr_entry.get())), float(auc_percentage_sr_entry.get())/100, True, reanalysis_path, save_path, analyze_ms2[0], analyze_ms2[2], reporter_ions, [metaboanalyst_checkbox_state.get(), []], save_composition_checkbox_state.get(), align_chromatograms_sr_checkbox_state.get(), n_glycans_class_checkbox_state.get(), ret_time_interval[2], rt_tolerance_frag, iso_fits_checkbox_state.get(), plot_data_checkbox_state.get(), multithreaded_analysis, number_cores, 0.0, True, metab_groups]
 
-            imp_exp_gen_library_args = [custom_glycans_list, min_max_monos, min_max_hex, min_max_hexnac, min_max_sia, min_max_fuc, min_max_ac, min_max_gc, force_nglycan, max_adducts, adducts_exclusion, max_charges, reducing_end_tag, fast_iso, high_res, imp_exp_library, library_path, exp_lib_name, False, save_path, internal_standard, permethylated, lactonized_ethyl_esterified, reduced]
+            imp_exp_gen_library_args = [custom_glycans_list, min_max_monos, min_max_hex, min_max_hexnac, min_max_sia, min_max_fuc, min_max_ac, min_max_gc, force_nglycan, max_adducts, adducts_exclusion, max_charges, reducing_end_tag, fast_iso, high_res, imp_exp_library, library_path, exp_lib_name, False, save_path, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, min_max_sulfation, min_max_phosphorylation]
 
             list_of_data_args = [samples_list]
 
