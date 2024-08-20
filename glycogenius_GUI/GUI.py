@@ -18,7 +18,7 @@
 
 global gg_version, GUI_version
 gg_version = '1.1.36'
-GUI_version = '0.0.44'
+GUI_version = '0.0.45'
 
 from PIL import Image, ImageTk
 import threading
@@ -2006,7 +2006,7 @@ def run_main_window():
             else:
                 library_type = f" - Monosaccharides: {str(min_max_monos)[1:-1]}\n - Hexoses: {str(min_max_hex)[1:-1]}\n - Hexosamines: {str(min_max_hn)[1:-1]}\n - HexNAcs: {str(min_max_hexnac)[1:-1]}\n - Xyloses: {str(min_max_xyl)[1:-1]}\n - Sialic Acids: {str(min_max_sia)[1:-1]}\n - Uronic Acids: {str(min_max_ua)[1:-1]}\n - dHex: {str(min_max_fuc)[1:-1]}\n - Neu5Acs: {str(min_max_ac)[1:-1]}\n - Neu5Gcs: {str(min_max_gc)[1:-1]}"
 
-            additional_info = f" - Force N-Glycans composition: {force_nglycan}\n - Maximum adducts: {max_adducts}\n - Maximum charges: {max_charges}\n - Reducing end tag: {reducing_end_tag}\n - Permethylated: {permethylated}\n - Reduced end: {reduced}\n - Amidated/Ethyl-Esterified: {lactonized_ethyl_esterified}\n - Min/Max number of Sulfations: {min_max_sulfation}\n - Min/Max number of Phosphorylations: {min_max_phosphorylations}\n - Fast isotopic calculations: {fast_iso}\n - High resolution isotopic calculations: {high_res}"
+            additional_info = f" - Force N-Glycans composition: {force_nglycan}\n - Maximum adducts: {max_adducts}\n - Maximum charges: {max_charges}\n - Reducing end tag: {reducing_end_tag}\n - Permethylated: {permethylated}\n - Reduced end: {reduced}\n - Amidated/Ethyl-Esterified: {lactonized_ethyl_esterified}\n - Min/Max number of Sulfations: {str(min_max_sulfation)[1:-1]}\n - Min/Max number of Phosphorylations: {str(min_max_phosphorylation)[1:-1]}\n - Fast isotopic calculations: {fast_iso}\n - High resolution isotopic calculations: {high_res}"
                 
             information_text.insert(tk.END, f"{library_type}\n")
             information_text.insert(tk.END, "\n")
@@ -8353,39 +8353,39 @@ def run_set_parameters_window():
     
     sulfation_label = ttk.Label(library_building_frame, text='Sulfations:', font=("Segoe UI", list_font_size))
     sulfation_label.grid(row=21, column=0, padx=10, sticky="w")
-    ToolTip(sulfation_label, "")
+    ToolTip(sulfation_label, "Input the minimum and maximum number of sulfations per glycan.")
     
     min_sulfation_entry = ttk.Entry(library_building_frame, width=5)
     min_sulfation_entry.grid(row=21, column=0, padx=(115, 0), sticky='w')
     min_sulfation_entry.insert(0, min_max_sulfation[0])
-    ToolTip(min_sulfation_entry, "")
+    ToolTip(min_sulfation_entry, "Input the minimum and maximum number of sulfations per glycan.")
     
     sulfation_hyphen_label = ttk.Label(library_building_frame, text='-', font=("Segoe UI", list_font_size))
     sulfation_hyphen_label.grid(row=21, column=0, padx=(150, 0), sticky="w")
-    ToolTip(sulfation_hyphen_label, "")
+    ToolTip(sulfation_hyphen_label, "Input the minimum and maximum number of sulfations per glycan.")
     
     max_sulfation_entry = ttk.Entry(library_building_frame, width=5)
     max_sulfation_entry.grid(row=21, column=0, padx=(160, 0), sticky='w')
     max_sulfation_entry.insert(0, min_max_sulfation[1])
-    ToolTip(max_sulfation_entry, "")
+    ToolTip(max_sulfation_entry, "Input the minimum and maximum number of sulfations per glycan.")
     
     phosphorylation_label = ttk.Label(library_building_frame, text='Phosphorylations:', font=("Segoe UI", list_font_size))
     phosphorylation_label.grid(row=22, column=0, padx=10, sticky="w")
-    ToolTip(phosphorylation_label, "")
+    ToolTip(phosphorylation_label, "Input the minimum and maximum number of phosphorylations per glycan.")
     
     min_phosphorylation_entry = ttk.Entry(library_building_frame, width=5)
     min_phosphorylation_entry.grid(row=22, column=0, padx=(115, 0), sticky='w')
     min_phosphorylation_entry.insert(0, min_max_phosphorylation[0])
-    ToolTip(min_phosphorylation_entry, "")
+    ToolTip(min_phosphorylation_entry, "Input the minimum and maximum number of phosphorylations per glycan.")
     
     phosphorylation_hyphen_label = ttk.Label(library_building_frame, text='-', font=("Segoe UI", list_font_size))
     phosphorylation_hyphen_label.grid(row=22, column=0, padx=(150, 0), sticky="w")
-    ToolTip(phosphorylation_hyphen_label, "")
+    ToolTip(phosphorylation_hyphen_label, "Input the minimum and maximum number of phosphorylations per glycan.")
     
     max_phosphorylation_entry = ttk.Entry(library_building_frame, width=5)
     max_phosphorylation_entry.grid(row=22, column=0, padx=(160, 0), sticky='w')
     max_phosphorylation_entry.insert(0, min_max_phosphorylation[1])
-    ToolTip(max_phosphorylation_entry, "")
+    ToolTip(max_phosphorylation_entry, "Input the minimum and maximum number of phosphorylations per glycan.")
     
     add_settings_label = ttk.Label(library_building_frame, text='Additional Settings:', font=("Segoe UI", list_font_size))
     add_settings_label.grid(row=24, column=0, columnspan=2, padx=(10, 10), pady=(0, 0), sticky="w")
