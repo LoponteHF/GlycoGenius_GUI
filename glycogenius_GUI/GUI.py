@@ -17,8 +17,8 @@
 # by typing 'glycogenius'. If not, see <https://www.gnu.org/licenses/>.
 
 global gg_version, GUI_version
-gg_version = '1.1.36'
-GUI_version = '0.0.45'
+gg_version = '1.1.37'
+GUI_version = '0.0.46'
 
 from PIL import Image, ImageTk
 import threading
@@ -715,13 +715,18 @@ def pre_process_one_sample(sample, sample_name):
 
 def analyze_fraction(access, ms_level, min_max_index, decimal_places = 2):
     maximum = defaultdict(list)
-    for i in access[min_max_index[0]:min_max_index[1]]:
+    for i_i, i in enumerate(access[min_max_index[0]:min_max_index[1]]):
         if i[ms_level] == 1:
             mz_array = i['m/z array']
             int_array = i['intensity array']
             for j_j, j in enumerate(mz_array):
                 value = round(j, decimal_places)
                 maximum[value].append(int_array[j_j])
+            if i_i%500 == 0:
+                for j in maximum:
+                    maximum[j] = [max(maximum[j])]
+    for i in maximum:
+        maximum[i] = [max(maximum[i])]
     return maximum
 
 def calculate_ambiguities(df1):
@@ -6040,13 +6045,13 @@ def run_main_window():
         
         def trace_mz():
             global loading_eic_window, quick_traces_all
-            if len(samples_list) == 0:
+            selected_items_qtl = quick_trace_list.selection()
+            if len(samples_list) == 0 or len(selected_items_qtl) == 0:
                 loading_eic_window.destroy()
                 quick_trace_window.lift()
                 quick_trace_list.focus_set()
                 return
                 
-            selected_items_qtl = quick_trace_list.selection()
             if len(selected_items_qtl) > 1:
                 clear_plot(ax, canvas)
                 
@@ -6103,7 +6108,6 @@ def run_main_window():
             
             if region == "cell" and (column == "#1" or column == "#4"):
                 values = quick_trace_list.item(item, "values")
-                # Change the cursor only if the cell value is "Value 5"
                 if "███████████████" in values or "❌" in values:
                     quick_trace_list.config(cursor="hand2")
                 else:
@@ -6889,7 +6893,7 @@ def run_select_files_window(samples_dropdown):
     def get_gg_parameters():
         global parameters_gg, samples_info_gg, version_gg, gg_file_state
         load_gg_parameters(gg_file_label.cget("text"))
-        
+        print(parameters_gg)
         if not gg_file_state:
             return
         
@@ -8944,7 +8948,7 @@ if __name__ == "__main__":
     button_font_size = 10
     big_button_size = (int(button_font_size), int(button_font_size*2))
     temp_folder = os.path.join(tempfile.gettempdir(), "gg_"+begin_time)
-    os.makedirs(temp_folder)
+    os.makedirs(temp_folder, exist_ok=True)
     try:
         splash_screen.destroy()
     except:
@@ -8959,7 +8963,7 @@ def main():
     date = datetime.datetime.now()
     begin_time = str(date)[2:4]+str(date)[5:7]+str(date)[8:10]+"_"+str(date)[11:13]+str(date)[14:16]+str(date)[17:19]
     temp_folder = os.path.join(tempfile.gettempdir(), "gg_"+begin_time)
-    os.makedirs(temp_folder)
+    os.makedirs(temp_folder, exist_ok=True)
     try:
         splash_screen.destroy()
     except:
