@@ -17,8 +17,8 @@
 # by typing 'glycogenius'. If not, see <https://www.gnu.org/licenses/>.
 
 global gg_version, GUI_version
-gg_version = '1.1.37'
-GUI_version = '0.0.46'
+gg_version = '1.1.38'
+GUI_version = '0.0.47'
 
 from PIL import Image, ImageTk
 import threading
@@ -1689,7 +1689,7 @@ def run_main_window():
             original_stdout = sys.stdout
             sys.stdout = TextRedirector_Gen_Lib(output_text)
             
-            global min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, min_max_hn, min_max_ua, force_nglycan, max_adducts, max_charges, tag_mass, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, fast_iso, high_res
+            global min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, min_max_hn, min_max_ua, force_nglycan, max_adducts, max_charges, tag_mass, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, min_max_sulfation, min_max_phosphorylation, fast_iso, high_res
             
             output_filtered_data_args = [curve_fit_score, iso_fit_score, s_to_n, max_ppm, percentage_auc, reanalysis, reanalysis_path, save_path, analyze_ms2[0], analyze_ms2[2], reporter_ions, plot_metaboanalyst, compositions, align_chromatograms, force_nglycan, ret_time_interval[2], rt_tolerance_frag, iso_fittings, output_plot_data, multithreaded_analysis, number_cores]
             
@@ -2100,7 +2100,7 @@ def run_main_window():
             original_stdout = sys.stdout
             sys.stdout = TextRedirector_Run_Analysis(output_text)
             
-            global min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, min_max_hn, min_max_gc, force_nglycan, max_adducts, max_charges, tag_mass, internal_standard, permethylated, lactonized_ethyl_esterified, min_max_sulfation, min_max_phosphorylation, reduced, fast_iso, high_res
+            global min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, min_max_hn, min_max_ua, min_max_gc, force_nglycan, max_adducts, max_charges, tag_mass, internal_standard, permethylated, lactonized_ethyl_esterified, min_max_sulfation, min_max_phosphorylation, reduced, fast_iso, high_res
             
             shutil.copy(library_path, os.path.join(temp_folder, 'glycans_library.py'))
             spec = importlib.util.spec_from_file_location("glycans_library", temp_folder+"/glycans_library.py")
@@ -6893,7 +6893,7 @@ def run_select_files_window(samples_dropdown):
     def get_gg_parameters():
         global parameters_gg, samples_info_gg, version_gg, gg_file_state
         load_gg_parameters(gg_file_label.cget("text"))
-        print(parameters_gg)
+        
         if not gg_file_state:
             return
         
@@ -6920,7 +6920,32 @@ def run_select_files_window(samples_dropdown):
         information_text.insert(tk.END, "Library properties:\n")
         library_type = ''
         additional_info = ''
-        if not parameters_gg[0][0][0]:
+        if parameters_gg[0][19][0]: #if imported
+            library_type = 'Imported Library'
+            additional_info = f" - Library path: {parameters_gg[0][21]}\n\n"
+
+            if parameters_gg[0][0][0]: #if custom and imported
+                additional_info+= f" - Glycans list/path: {str(parameters_gg[0][0][1])[1:-1]}"
+            else: #if generated and imported
+                additional_info+= f"- Monosaccharides: {str(parameters_gg[0][1])[1:-1]}\n - Hexoses: {str(parameters_gg[0][2])[1:-1]}"
+                
+                if len(parameters_gg[0]) > 24:
+                    additional_info+= f"\n - Hexosamines: {str(parameters_gg[0][24])[1:-1]}"
+                    
+                additional_info+= f"\n - HexNAcs: {str(parameters_gg[0][3])[1:-1]}"
+                
+                if len(parameters_gg[0]) > 23:
+                    additional_info+= f"\n - Xyloses: {str(parameters_gg[0][23])[1:-1]}"
+                    
+                additional_info+= f"\n - Sialic Acids: {str(parameters_gg[0][4])[1:-1]}\n - dHex: {str(parameters_gg[0][5])[1:-1]}\n - Neu5Acs: {str(parameters_gg[0][6])[1:-1]}\n - Neu5Gcs: {str(parameters_gg[0][7])[1:-1]}"
+                
+                if len(parameters_gg[0]) > 24:
+                    additional_info+= f"\n - Uronic Acids: {str(parameters_gg[0][25])[1:-1]}"
+            
+        elif parameters_gg[0][0][0]: #if custom and not imported
+            library_type = 'Custom glycans list'
+            additional_info = f" - Glycans list/path: {str(parameters_gg[0][0][1])[1:-1]}"
+        else: #if generated and not imported
             library_type = 'Generated Library'
             additional_info = f" - Monosaccharides: {str(parameters_gg[0][1])[1:-1]}\n - Hexoses: {str(parameters_gg[0][2])[1:-1]}"
             
@@ -6937,46 +6962,13 @@ def run_select_files_window(samples_dropdown):
             if len(parameters_gg[0]) > 24:
                 additional_info+= f"\n - Uronic Acids: {str(parameters_gg[0][25])[1:-1]}"
                 
-            additional_info+= f"\n\n - Force N-Glycans composition: {parameters_gg[0][8]}\n - Maximum adducts: {parameters_gg[0][9]}\n - Adducts excluded: {parameters_gg[0][10]}\n - Maximum charges: {parameters_gg[0][11]}\n - Reducing end tag: {parameters_gg[0][12] if parameters_gg[0][12] != 0.0 else False}\n - Permethylated: {parameters_gg[0][13]}\n - Reduced end: {parameters_gg[0][14]}\n - Amidated/Ethyl-Esterified: {parameters_gg[0][15]}"
+        additional_info+= f"\n\n - Force N-Glycans composition: {parameters_gg[0][8]}\n - Maximum adducts: {parameters_gg[0][9]}\n - Adducts excluded: {parameters_gg[0][10]}\n - Maximum charges: {parameters_gg[0][11]}\n - Reducing end tag: {parameters_gg[0][12] if parameters_gg[0][12] != 0.0 else False}\n - Permethylated: {parameters_gg[0][13]}\n - Reduced end: {parameters_gg[0][14]}\n - Amidated/Ethyl-Esterified: {parameters_gg[0][15]}"
+        
+        if len(parameters_gg[0]) > 24:
+            additional_info+= f"\n - Min/Max number of Sulfations: {str(parameters_gg[0][26])[1:-1]}"
+            additional_info+= f"\n - Min/Max number of Phosphorylations: {str(parameters_gg[0][27])[1:-1]}"
             
-            if len(parameters_gg[0]) > 24:
-                additional_info+= f"\n - Min/Max number of Sulfations: {str(parameters_gg[0][26])[1:-1]}"
-                additional_info+= f"\n - Min/Max number of Phosphorylations: {str(parameters_gg[0][27])[1:-1]}"
-                
-            additional_info+= f"\n - Fast isotopic calculations: {parameters_gg[0][16]}\n - High resolution isotopic calculations: {parameters_gg[0][17]}\n - Internal standard: {parameters_gg[0][18] if parameters_gg[0][18] != 0.0 else False}"
-        else:
-            library_type = 'Custom glycans list'
-            additional_info = f" - Glycans list/path: {parameters_gg[0][0][1]}\n\n - Force N-Glycans composition: {parameters_gg[0][8]}\n - Maximum adducts: {parameters_gg[0][9]}\n - Adducts excluded: {parameters_gg[0][10]}\n - Maximum charges: {parameters_gg[0][11]}\n - Reducing end tag: {parameters_gg[0][12] if parameters_gg[0][12] != 0.0 else False}\n - Permethylated: {parameters_gg[0][13]}\n - Reduced end: {parameters_gg[0][14]}\n - Amidated/Ethyl-Esterified: {parameters_gg[0][15]}"
-            
-            if len(parameters_gg[0]) > 24:
-                additional_info+= f"\n - Min/Max number of Sulfations: {str(parameters_gg[0][26])[1:-1]}"
-                additional_info+= f"\n - Min/Max number of Phosphorylations: {str(parameters_gg[0][27])[1:-1]}"
-            
-            additional_info+= f"\n - Fast isotopic calculations: {parameters_gg[0][16]}\n - High resolution isotopic calculations: {parameters_gg[0][17]}"
-        if parameters_gg[0][19][0]:
-            library_type = 'Imported Library'
-            additional_info = f" - Library path: {parameters_gg[0][21]}\n\n - Monosaccharides: {str(parameters_gg[0][1])[1:-1]}\n - Hexoses: {str(parameters_gg[0][2])[1:-1]}"
-            
-            if len(parameters_gg[0]) > 24:
-                additional_info+= f"\n - Hexosamines: {str(parameters_gg[0][24])[1:-1]}"
-                
-            additional_info+= f"\n - HexNAcs: {str(parameters_gg[0][3])[1:-1]}"
-            
-            if len(parameters_gg[0]) > 23:
-                additional_info+= f"\n - Xyloses: {str(parameters_gg[0][23])[1:-1]}"
-                
-            additional_info+= f"\n - Sialic Acids: {str(parameters_gg[0][4])[1:-1]}\n - dHex: {str(parameters_gg[0][5])[1:-1]}\n - Neu5Acs: {str(parameters_gg[0][6])[1:-1]}\n - Neu5Gcs: {str(parameters_gg[0][7])[1:-1]}"
-            
-            if len(parameters_gg[0]) > 24:
-                additional_info+= f"\n - Uronic Acids: {str(parameters_gg[0][25])[1:-1]}"
-                
-            additional_info+= f"\n\n - Force N-Glycans composition: {parameters_gg[0][8]}\n - Maximum adducts: {parameters_gg[0][9]}\n - Adducts excluded: {parameters_gg[0][10]}\n - Maximum charges: {parameters_gg[0][11]}\n - Reducing end tag: {parameters_gg[0][12] if parameters_gg[0][12] != 0.0 else False}\n - Permethylated: {parameters_gg[0][13]}\n - Reduced end: {parameters_gg[0][14]}\n - Amidated/Ethyl-Esterified: {parameters_gg[0][15]}"
-            
-            if len(parameters_gg[0]) > 24:
-                additional_info+= f"\n - Min/Max number of Sulfations: {str(parameters_gg[0][26])[1:-1]}"
-                additional_info+= f"\n - Min/Max number of Phosphorylations: {str(parameters_gg[0][27])[1:-1]}"
-                
-            additional_info+= f"\n - Fast isotopic calculations: {parameters_gg[0][16]}\n - High resolution isotopic calculations: {parameters_gg[0][17]}\n - Internal standard: {parameters_gg[0][18] if parameters_gg[0][18] != 0.0 else False}"
+        additional_info+= f"\n - Fast isotopic calculations: {parameters_gg[0][16]}\n - High resolution isotopic calculations: {parameters_gg[0][17]}\n - Internal standard: {parameters_gg[0][18] if parameters_gg[0][18] != 0.0 else False}"
         information_text.insert(tk.END, f" - Library type: {library_type}\n")
         information_text.insert(tk.END, "\n")
         information_text.insert(tk.END, f"{additional_info}\n")
