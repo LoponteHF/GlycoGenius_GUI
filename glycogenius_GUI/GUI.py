@@ -17,8 +17,8 @@
 # by typing 'glycogenius'. If not, see <https://www.gnu.org/licenses/>.
 
 global gg_version, GUI_version
-gg_version = '1.1.39'
-GUI_version = '0.1.0'
+gg_version = '1.1.41'
+GUI_version = '0.1.1'
 
 from PIL import Image, ImageTk
 import threading
@@ -360,24 +360,8 @@ class TextRedirector_Run_Analysis(object):
             progress_bar_ms2_label.config(text=f"MS2 Analysis Progress: {100}%")
         if "Finished" in s:
             ok_run_analysis_button.config(state=tk.NORMAL)
-        if "Tracing glycan " in s or "Analyzing glycan " in s:
-            if multithreaded_analysis:
-                if number_cores == 'all':
-                    cpu_count = (os.cpu_count())-2
-                    if cpu_count <= 0:
-                        cpu_count = 1
-                else:
-                    number_cores = int(number_cores)
-                    if number_cores > (os.cpu_count())-2:
-                        cpu_count = (os.cpu_count())-2
-                        if cpu_count <= 0:
-                            cpu_count = 1
-                    else:
-                        cpu_count = number_cores
-            else:
-                cpu_count = 1
-            progress_multiplier = (100-(cpu_count/int(s.split(" ")[-1].split("/")[1]))*100) if cpu_count < int(s.split(" ")[-1].split("/")[1]) else 0
-            progress_value = "%.1f" % round(((int(s.split(" ")[-1].split("/")[0])/int(s.split(" ")[-1].split("/")[1]))*progress_multiplier), 1)
+        if "Traced " in s or "Analyzed glycan " in s:
+            progress_value = "%.1f" % round(((int(s.split(" ")[-1].split("/")[0])-1)/int(s.split(" ")[-1].split("/")[1]))*100, 1)
             if which_progress_bar == 'ms1':
                 progress_bar_run_analysis["value"] = progress_value
                 progress_bar_ms1_label.config(text=f"MS1 Analysis Progress: {progress_value}%")
@@ -633,17 +617,22 @@ def pre_process(samples_list):
     
     results = []
     bad = False
-    with concurrent.futures.ProcessPoolExecutor(max_workers = (os.cpu_count())-2 if os.cpu_count() < 60 else 60) as executor:
+    cpu_number = (os.cpu_count())-2 if os.cpu_count() < 60 else 60
+    if cpu_number <= 0:
+        cpu_number = 1
+    with concurrent.futures.ProcessPoolExecutor(max_workers = cpu_number) as executor:
         for i_i, i in enumerate(samples_list):
             result = executor.submit(pre_process_one_sample, i, samples_names[i_i])
             results.append(result)
             
-        for i in results:
+        for index, i in enumerate(results):
             result = i.result()
             if result == 'bad':
                 bad = True
                 break
             sample_info[result[1]] = result[0]
+            results[index] = ''
+            
     global processed_data
     if bad:
         processed_data = 'bad'
@@ -665,14 +654,14 @@ def pre_process_one_sample(sample, sample_name):
     elif sample.split('.')[-1].lower() == 'mzxml':
         access = mzxml.MzXML(sample)
         file_type = 'mzxml'
-    if file_type == 'mzml':
-        if float(access[-1]['scanList']['scan'][0]['scan start time']) > 300:
-            time_unit = 'seconds'
-        else:
-            time_unit = 'minutes'
-    last_ms1 = ''
-    max_mz = 0
     try:
+        if file_type == 'mzml':
+            if float(access[-1]['scanList']['scan'][0]['scan start time']) > 300:
+                time_unit = 'seconds'
+            else:
+                time_unit = 'minutes'
+        last_ms1 = ''
+        max_mz = 0
         for i_i, i in enumerate(access):
             if file_type == 'mzml':
                 if i['ms level'] == 2:
@@ -900,7 +889,7 @@ def on_closing():
         
 def handle_selection(event):
     '''This function handles the selection of the samples dropdown menu.'''
-    global current_data, ax, canvas, ax_spec, canvas_spec, samples_dropdown, chromatograms_list, selected_item, two_d, compare_samples_button, zoom_selection_key_press, zoom_selection_key_release, zoom_selection_motion_notify, zoom_selection_button_press, zoom_selection_button_release, on_scroll_event, on_double_click_event, on_pan_press, on_pan_release, on_pan_motion, on_plot_hover_motion, on_click_press, on_click_release, right_move_spectra, left_move_spectra, on_pan_right_click_motion, on_pan_right_click_press, on_pan_right_click_release, zoom_selection_key_press_spec, zoom_selection_key_release_spec, zoom_selection_motion_notify_spec, zoom_selection_button_press_spec, zoom_selection_button_release_spec, on_scroll_event_spec, on_double_click_event_spec, on_pan_press_spec, on_pan_release_spec, on_pan_motion_spec, on_plot_hover_motion_spec, on_pan_right_click_motion_spec, on_pan_right_click_press_spec, on_pan_right_click_release_spec, pick_event_spec, hand_hover_spec, loading_files, filter_list, quick_check, samples_list
+    global current_data, ax, canvas, ax_spec, canvas_spec, samples_dropdown, chromatograms_list, selected_item, two_d, compare_samples_button, zoom_selection_key_press, zoom_selection_key_release, zoom_selection_motion_notify, zoom_selection_button_press, zoom_selection_button_release, on_scroll_event, on_double_click_event, on_pan_press, on_pan_release, on_pan_motion, on_plot_hover_motion, on_click_press, on_click_release, right_move_spectra, left_move_spectra, on_pan_right_click_motion, on_pan_right_click_press, on_pan_right_click_release, zoom_selection_key_press_spec, zoom_selection_key_release_spec, zoom_selection_motion_notify_spec, zoom_selection_button_press_spec, zoom_selection_button_release_spec, on_scroll_event_spec, on_double_click_event_spec, on_pan_press_spec, on_pan_release_spec, on_pan_motion_spec, on_plot_hover_motion_spec, on_pan_right_click_motion_spec, on_pan_right_click_press_spec, on_pan_right_click_release_spec, pick_event_spec, hand_hover_spec, loading_files, filter_list, quick_check, samples_list, spectra_plot_frame, no_spectra_loaded_label
     
     try:
         canvas.mpl_disconnect(on_plot_hover_motion)
@@ -1096,7 +1085,17 @@ def handle_selection(event):
     color_treeview()
     clear_plot(ax, canvas)
     clear_plot(ax_spec, canvas_spec)
-    #here add all the glycans found after analysis
+    if len(reanalysis_path) > 0 and selected_item not in samples_names:
+        coordinate_label_spec.config(text='')
+        no_spectra_loaded_label.config(text=f"No MzML or MzXML file loaded for this sample.\n To visualize spectra for this sample, load\n{selected_item}.MzML or\n{selected_item}.MzXML\nin the Select Files menu.")
+        no_spectra_loaded_label.place(relx=0.50, rely=0.45)
+        try:
+            rt_label.config(text='')
+        except:
+            pass
+    else:
+        no_spectra_loaded_label.config(text="")
+        no_spectra_loaded_label.place(relx=0.01, rely=0.9)
     
 def add_bpc_treeview():
     '''This function adds the BPC to the glycans treeview menu.'''
@@ -1526,7 +1525,7 @@ def annotate_top_y_values(ax_here, canvas_here):
     marker_coordinates = {}
     for line in ax_here.get_lines():
         if line.get_marker() == '*':
-            marker_coordinates[float("%.2f" % round(line.get_data()[0][0], 2))] = line.get_label()
+            marker_coordinates[float("%.1f" % round(line.get_data()[0][0], 1))] = line.get_label()
 
     # Get current limits of the plot
     x_min, x_max_here = ax_here.get_xlim()
@@ -1573,10 +1572,10 @@ def annotate_top_y_values(ax_here, canvas_here):
     
     # Annotate the top 5% intensities with mz
     for x_value, y_value in zip(selected_points_x, selected_points_y):
-        if float("%.2f" %round(x_value, 2)) not in marker_coordinates:
+        if float("%.1f" %round(x_value, 1)) not in marker_coordinates:
             ax_here.annotate(f'{x_value:.4f}', xy=(x_value, y_value), xytext=(0, 10), textcoords='offset points', ha='center', fontsize=8)
         else:
-            ax_here.annotate(marker_coordinates[float("%.2f" %round(x_value, 2))], xy=(x_value, y_value), xytext=(0, 10), textcoords='offset points', ha='center', fontsize=8)
+            ax_here.annotate(marker_coordinates[float("%.1f" %round(x_value, 1))], xy=(x_value, y_value), xytext=(0, 10), textcoords='offset points', ha='center', fontsize=8)
     
 def clean_up_labels(ax_here):
     '''Removes all annotations from plots.'''
@@ -2676,7 +2675,7 @@ def run_main_window():
         on_pan_right_click_motion = canvas.mpl_connect('motion_notify_event', lambda event: on_pan_right_click(event, ax, canvas, type_coordinate))
                 
     def show_graph_spectra(rt, peak_range, custom_lim = None):
-        global coordinate_label_spec, ax_spec, canvas_spec, coordinate_label_spec, zoom_selection_key_press_spec, zoom_selection_key_release_spec, zoom_selection_motion_notify_spec, zoom_selection_button_press_spec, zoom_selection_button_release_spec, on_scroll_event_spec, on_double_click_event_spec, on_pan_press_spec, on_pan_release_spec, on_pan_motion_spec, on_plot_hover_motion_spec, on_pan_right_click_motion_spec, on_pan_right_click_press_spec, on_pan_right_click_release_spec, pick_event_spec, hand_hover_spec, ms2_info
+        global coordinate_label_spec, ax_spec, canvas_spec, zoom_selection_key_press_spec, zoom_selection_key_release_spec, zoom_selection_motion_notify_spec, zoom_selection_button_press_spec, zoom_selection_button_release_spec, on_scroll_event_spec, on_double_click_event_spec, on_pan_press_spec, on_pan_release_spec, on_pan_motion_spec, on_plot_hover_motion_spec, on_pan_right_click_motion_spec, on_pan_right_click_press_spec, on_pan_right_click_release_spec, pick_event_spec, hand_hover_spec, ms2_info, rt_label
         
         try:
             canvas_spec.mpl_disconnect(on_plot_hover_motion_spec)
@@ -2850,8 +2849,8 @@ def run_main_window():
         canvas_spec.draw()
         
         rt_formatted = "%.2f" % round(rt_minutes, 2)
-        rt_label = tk.Label(spectra_plot_frame, text=f"Retention/Migration Time: {rt_formatted}", font=("Segoe UI", 8), bg="white")
-        rt_label.place(relx=0.5, rely=0, anchor='n')
+        rt_label = tk.Label(spectra_plot_frame, text=f"Retention/Migration Time: {rt_formatted}", font=("Segoe UI", 8), anchor="center", bg="white")
+        rt_label.place(relx=0.50, rely=0.023, anchor='center')
         
         spec_frame_width = spectra_plot_frame.winfo_width()
         spec_frame_height = spectra_plot_frame.winfo_height()
@@ -3599,11 +3598,11 @@ def run_main_window():
                 else:
                     label_rt = float("%.2f" % round(x, 2))
                     info_label.config(text=f"RT: {label_rt}    Score: 0.0")
-                    ax_if.text(0.26, 0.35, 'No data available for this datapoint.\nThis might be caused by very poor data\nand may account for potentially low\nisotopic fitting score for the peak.', horizontalalignment='center', verticalalignment='center', transform=ax.transAxes, fontsize=10, wrap=True)
+                    ax_if.text(0.5, 0.5, 'No data available for this datapoint.\nThis might be caused by very poor data\nand may account for potentially low\nisotopic fitting score for the peak.', horizontalalignment='center', verticalalignment='center', transform=ax_if.transAxes, fontsize=10, wrap=True)
             else:
                 label_rt = float("%.2f" % round(x, 2))
                 info_label.config(text=f"RT: {label_rt}    Score: 0.0")
-                ax_if.text(0.26, 0.35, 'No data available for this datapoint.\nThis might be caused by very poor data\nand may account for potentially low\nisotopic fitting score for the peak.', horizontalalignment='center', verticalalignment='center', transform=ax.transAxes, fontsize=10, wrap=True)
+                ax_if.text(0.5, 0.5, 'No data available for this datapoint.\nThis might be caused by very poor data\nand may account for potentially low\nisotopic fitting score for the peak.', horizontalalignment='center', verticalalignment='center', transform=ax_if.transAxes, fontsize=10, wrap=True)
             canvas_if.draw()
 
         def on_hover_pv(event):
@@ -5166,7 +5165,7 @@ def run_main_window():
         
         global qc_ppm_line1, qc_ppm_line2, qc_curvefit_line, qc_sn_line, qc_isofit_line, canvas_ppmplot, canvas_curvefitplot, canvas_isofitplot, canvas_snplot, ppm_scatter, isofitplot_scatter, curvefitplot_scatter, snplot_scatter
         #PPM plot
-        ppm_plot_frame = ttk.Labelframe(qc_dist, text="PPM:", style="qcp_frame.TLabelframe")
+        ppm_plot_frame = ttk.Labelframe(qc_dist, text="PPM Error:", style="qcp_frame.TLabelframe")
         ppm_plot_frame.grid(row=1, column=0, padx=10, pady=(10, 10), sticky="nsew")
         
         fig_ppmplot = plt.figure(figsize=(4.5, 3.5))
@@ -5695,17 +5694,19 @@ def run_main_window():
                     maximum_spectrum = maximum_spectra[selected_item]
                 else:
                     maximum = defaultdict(list)
-                    
-                    cpu_count = (os.cpu_count())-2 if os.cpu_count() < 60 else 60
                     interval_len = float(current_data['access'][-1]['scanList']['scan'][0]['scan start time'])//cpu_count if current_data['file_type'] == 'mzml' else float(current_data['access'][-1]['retentionTime'])//cpu_count
                     indexes = []
 
                     for i in range(cpu_count):
                         indexes.append(current_data['access'].time[i*interval_len]['index'] if current_data['file_type'] == 'mzml' else int(current_data['access'].time[i*interval_len]['num'])-1)
                     indexes.append(current_data['access'][-1]['index']+1 if current_data['file_type'] == 'mzml' else int(current_data['access'][-1]['num']))
+                    
+                    cpu_number = (os.cpu_count())-2 if os.cpu_count() < 60 else 60
+                    if cpu_number <= 0:
+                        cpu_number = 1
 
                     results = []
-                    with concurrent.futures.ProcessPoolExecutor(max_workers = cpu_count) as executor:
+                    with concurrent.futures.ProcessPoolExecutor(max_workers = cpu_number) as executor:
                         for i_i, i in enumerate(indexes):
                             if i_i == len(indexes)-1:
                                 break
@@ -5713,10 +5714,11 @@ def run_main_window():
                             result = executor.submit(analyze_fraction, current_data['access'], 'ms level' if current_data['file_type'] == 'mzml' else 'msLevel', min_max_index)
                             results.append(result)
                             
-                        for i in results:
+                        for index, i in enumerate(results):
                             result = i.result()
                             for i in result:
                                 maximum[i].extend(result[i])
+                            results[index] = ''
 
                     for i in maximum:
                         maximum[i] = max(maximum[i])
@@ -6674,13 +6676,14 @@ def run_main_window():
     ax.set_position([0.0944, 0.1209, 0.8909, 0.8252])
     chromatogram_plot_frame.bind("<Configure>", lambda event, ax=ax: adjust_subplot_size(event, ax, canvas))
     canvas.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax, canvas, True) if event.button == 3 else None)
-
+    
+    global spectra_plot_frame
     spectra_plot_frame = ttk.Labelframe(main_window, text="Spectra Viewer", style="chromatogram.TLabelframe")
     spectra_plot_frame.grid(row=2, column=1, columnspan=11, padx=20, pady=(0, 10), sticky="nsew")
     spectra_plot_frame_canvas = tk.Canvas(spectra_plot_frame, bg="white")
     spectra_plot_frame_canvas.place(relwidth=1, relheight=1)
     
-    global canvas_spec, ax_spec, coordinate_label_spec, type_coordinate_spec
+    global canvas_spec, ax_spec, coordinate_label_spec, type_coordinate_spec, no_spectra_loaded_label
     fig_spec = plt.figure(figsize=(0, 0))
     ax_spec = fig_spec.add_subplot(111)
     canvas_spec = FigureCanvasTkAgg(fig_spec, master=spectra_plot_frame)
@@ -6689,6 +6692,9 @@ def run_main_window():
     coordinate_label_spec = tk.Label(spectra_plot_frame, text="", anchor="e", font=("Segoe UI", 8), bg="white")
     coordinate_label_spec.place(relx=1.0, rely=0, anchor='ne')
     type_coordinate_spec = "spectra"
+    
+    no_spectra_loaded_label = tk.Label(spectra_plot_frame, text=f"", anchor="center", font=("Segoe UI", 14), bg="white")
+    no_spectra_loaded_label.place(relx=0.01, rely=0.9, anchor='center')
     
     coordinate_label_spec.lift()
         
@@ -7723,6 +7729,7 @@ def run_set_parameters_window():
             f.write(f"filter_ms2_by_reporter_ions = \n")
             f.write(f"align_chromatograms = True\n")
             f.write(f"auc_percentage_threshold = 1\n")
+            f.write(f"minimum_samples = 0\n")
             f.write(f"max_ppm_threshold = {float(ppm_error_min_entry.get())}, {float(ppm_error_max_entry.get())}\n")
             f.write(f"isotopic_fitting_score_threshold = {float(iso_fit_entry.get())}\n")
             f.write(f"curve_fitting_score_threshold = {float(curve_fit_entry.get())}\n")
