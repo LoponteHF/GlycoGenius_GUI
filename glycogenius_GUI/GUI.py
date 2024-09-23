@@ -17,8 +17,8 @@
 # by typing 'glycogenius'. If not, see <https://www.gnu.org/licenses/>.
 
 global gg_version, GUI_version
-gg_version = '1.2.0'
-GUI_version = '0.2.0'
+gg_version = '1.2.2'
+GUI_version = '0.2.1'
 
 from PIL import Image, ImageTk
 import tkinter as tk
@@ -9127,11 +9127,9 @@ def save_results_window():
         canvas_groups_window.create_window((0, 0), window=scrollable_frame, anchor="nw")
         scrollable_frame.bind("<Configure>", lambda e: canvas_groups_window.configure(scrollregion=canvas_groups_window.bbox("all")))
         
-        with open(os.path.join(temp_folder, 'results'), 'rb') as f:
-            file = dill.load(f)
-            df1 = file[0]
-            df2 = file[1]
-            f.close()
+        file = gg_file.get_results_table()
+        df1 = file[0]
+        df2 = file[1]
         
         # Sample data and entries
         labels = df2['File_Name']
