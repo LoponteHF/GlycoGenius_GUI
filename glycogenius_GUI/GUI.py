@@ -17,8 +17,8 @@
 # by typing 'glycogenius'. If not, see <https://www.gnu.org/licenses/>.
 
 global gg_version, GUI_version
-gg_version = '1.2.2'
-GUI_version = '0.2.1'
+gg_version = '1.2.3'
+GUI_version = '0.2.2'
 
 from PIL import Image, ImageTk
 import tkinter as tk
@@ -97,11 +97,13 @@ from pyteomics import mass, mzxml, mzml
 from itertools import product
 from scipy.stats import gaussian_kde
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 from matplotlib.patches import Rectangle, Ellipse
 from matplotlib.colors import LogNorm, PowerNorm
 from matplotlib.ticker import ScalarFormatter
 from mpl_scatter_density import ScatterDensityArtist
 from collections import defaultdict
+import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
@@ -119,6 +121,7 @@ import datetime
 import zipfile
 import dill
 import random
+import math
 
 if platform.system() != 'Windows':
     multiprocessing.set_start_method('spawn', force=True)
@@ -263,6 +266,11 @@ current_line_ruler = None
 distance_ruler_text = None
 selected_ruler = None
 ruler_lines_list = []
+
+global gg_draw_on, gg_draw_list, gg_draw_selected
+gg_draw_on = False
+gg_draw_list = []
+gg_draw_selected = None
 
 colors = [
     "#FF0000",  # Red
@@ -511,6 +519,94 @@ class gg_archive:
             return f"File is unloaded."
         else:
             return f"Temporary folder: {self.temp_path}.\n.gg file path: {self.path}"
+            
+class ImageGallery(tk.Frame):
+    def __init__(self, parent, image_paths=None, columns=3, cell_size=(120, 120)):
+        super().__init__(parent)
+
+        self.columns = columns  # Number of columns in the grid layout
+        self.cell_width, self.cell_height = cell_size  # Size of each grid cell
+
+        # Create a canvas to hold the images
+        self.canvas = tk.Canvas(self)
+        self.scroll_y = ttk.Scrollbar(self, orient=tk.VERTICAL, command=self.canvas.yview)
+        self.scrollable_frame = ttk.Frame(self.canvas)
+
+        self.scrollable_frame.bind(
+            "<Configure>",
+            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        )
+        
+        self.selected_image_path = ''
+
+        self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+        self.canvas.configure(yscrollcommand=self.scroll_y.set)
+
+        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.scroll_y.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Initialize with image paths if provided
+        self.image_paths = image_paths or []
+        self.image_frames = []  # Keep track of image frames
+        self.selected_frame = None  # Track the selected frame
+        self.load_images(self.image_paths)
+
+    def load_images(self, image_paths):
+        # Clear existing images
+        for frame in self.image_frames:
+            frame.destroy()
+        self.image_frames.clear()
+
+        # Create a grid with a uniform cell size
+        for idx, path in enumerate(image_paths):
+            # Create a cell frame with a border and fixed size
+            cell_frame = tk.Frame(self.scrollable_frame, width=self.cell_width, height=self.cell_height,
+                                  borderwidth=2, relief="solid", bg="white")
+            cell_frame.grid_propagate(False)  # Prevent resizing of the frame
+            cell_frame.grid(row=idx // self.columns, column=idx % self.columns, padx=0, pady=0)  # No padding
+
+            # Load the image and resize it to fit inside the cell
+            img = Image.open(path).convert("RGBA")  # Convert to RGBA for transparency handling
+            img.thumbnail((self.cell_width - 20, self.cell_height - 20))  # Resize for the cell
+
+            # Create a transparent background and paste the image with alpha transparency
+            transparent_bg = Image.new("RGBA", (self.cell_width - 20, self.cell_height - 20), (255, 255, 255, 0))
+            transparent_bg.paste(img, (0, 0), img)
+
+            photo = ImageTk.PhotoImage(transparent_bg)
+
+            # Create a label for the image and center it in the cell
+            label = tk.Label(cell_frame, image=photo, bg="white")
+            label.image = photo  # Keep a reference to avoid garbage collection
+            label.place(relx=0.5, rely=0.5, anchor="center")  # Center the image in the cell
+
+            # Bind a click event to both the frame and the label (image)
+            cell_frame.bind("<Button-1>", lambda e, idx=idx: self.select_image(idx))
+            label.bind("<Button-1>", lambda e, idx=idx: self.select_image(idx))
+
+            self.image_frames.append(cell_frame)  # Store the frame for future reference
+
+    def select_image(self, idx):
+        # Reset the background color of the previously selected frame
+        if self.selected_frame:
+            try:
+                self.selected_frame.config(bg="white")
+            except:
+                pass
+
+        # Set the background of the new selected frame to light blue
+        self.selected_frame = self.image_frames[idx]
+        self.selected_frame.config(bg="lightblue")
+
+        # Print the selected image path (optional)
+        self.selected_image_path = self.image_paths[idx]
+        
+    def get_selected(self):
+        return self.selected_image_path
+
+    def update_images(self, new_image_paths):
+        self.image_paths = new_image_paths
+        self.load_images(self.image_paths)
 
 class CustomToolbar(NavigationToolbar2Tk):
     def __init__(self, canvas, window):
@@ -765,6 +861,42 @@ class TextRedirector_save_result(object):
         
     def flush(self):
         pass
+        
+# Custom square root function that handles negative values
+def custom_sqrt(x):
+    return np.where(x >= 0, np.sqrt(x), -np.sqrt(-x))
+
+# Custom square function (inverse of sqrt)
+def custom_square(x):
+    return np.where(x >= 0, np.square(x), -np.square(-x))
+            
+def der_sialics_combo(mono, s_value):
+    combinations = []
+    
+    if mono == 'S':
+        # Loop over all possible values of Am
+        for am in range(s_value + 1):
+            e = s_value - am  # E is the remaining part that sums with Am to S
+            combinations.append({'Am': am, 'E': e})
+    
+    if mono == 'G':
+        # Loop over all possible values of Am
+        for am in range(s_value + 1):
+            e = s_value - am  # E is the remaining part that sums with Am to S
+            combinations.append({'AmG': am, 'EG': e})
+    
+    return combinations
+    
+def replace_dict_keys(original_dict, original_key, replacement_dict):
+    # Check if 'S' is in the original dict
+    if original_key in original_dict:
+        s_value = original_dict[original_key]
+        del original_dict[original_key]
+        
+        for new_key, new_value in replacement_dict.items():
+            original_dict[new_key] = new_value
+    
+    return original_dict
         
 def make_total_glycans_df(df1,
                           df2,
@@ -1063,7 +1195,7 @@ def pre_process_one_sample(sample, sample_name):
                         bpc.append(np.max(i['intensity array']))
                     else:
                         bpc.append(0.0)
-            if len(i['m/z array']):
+            if len(i['m/z array']) > 0:
                 temp_max = np.max(i['m/z array'])
                 if temp_max > max_mz:
                     max_mz = temp_max
@@ -1251,7 +1383,10 @@ def clean_temp_folder():
         for i in temp_dir_list:
             if i.split("_")[0] == 'gg':
                 if os.path.isdir(os.path.join(general_temp_folder, i)):
-                    shutil.rmtree(os.path.join(general_temp_folder, i))
+                    try:
+                        shutil.rmtree(os.path.join(general_temp_folder, i))
+                    except:
+                        pass
     else:
         shutil.rmtree(temp_folder)
                 
@@ -1261,7 +1396,7 @@ def on_closing():
         
 def handle_selection(event):
     '''This function handles the selection of the samples dropdown menu.'''
-    global current_data, ax, canvas, ax_spec, canvas_spec, samples_dropdown, chromatograms_list, selected_item, two_d, compare_samples_button, loading_files, filter_list, quick_check, samples_list, spectra_plot_frame, no_spectra_loaded_label, ms1_bound, ms1_binds, ms2_bound, ms2_binds, chromatogram_bound, chromatogram_binds, rt_label, precursor_label
+    global current_data, ax, canvas, ax_spec, canvas_spec, samples_dropdown, chromatograms_list, selected_item, compare_samples_button, loading_files, filter_list, samples_list, spectra_plot_frame, no_spectra_loaded_label, ms1_bound, ms1_binds, ms2_bound, ms2_binds, chromatogram_bound, chromatogram_binds, rt_label, precursor_label, gg_draw_on, check_gg_drawings_available
     
     # Unbind MS1 plot
     if ms1_bound:
@@ -1296,14 +1431,13 @@ def handle_selection(event):
         check_qc_dist_button.config(state=tk.NORMAL)
     else:
         check_qc_dist_button.config(state=tk.DISABLED)
+        
     if len(samples_list) > 0:
         if processed_data == 'bad':
             loading_files.destroy()
             samples_dropdown['values'] = []
             samples_dropdown.set('')
             chromatograms_list.delete(*chromatograms_list.get_children())
-            quick_check.config(state=tk.DISABLED)
-            two_d.config(state=tk.DISABLED)
             samples_list = []
             return
         else:
@@ -1314,6 +1448,9 @@ def handle_selection(event):
     clear_plot(ax, canvas)
     clear_plot(ax_spec, canvas_spec)
     clear_plot(ax_spec_ms2, canvas_spec_ms2)
+    
+    if gg_draw_on:
+        check_gg_drawings_available(chromatograms_list, False)
     
     no_spectra_loaded_label_ms2.config(text=f"No MS2 spectra selected. If your raw data file\ncontains MS2 data, click on a purple diamond on\nan MS1 spectra or if you've analyzed your data\nwith MS2 analysis included, click on 'MS2'\nbesides a glycan peak retention time in the\nglycan's list.")
     no_spectra_loaded_label_ms2.place(relx=0.50, rely=0.45)
@@ -1603,19 +1740,26 @@ def on_right_click_plot(event, ax_here, canvas_here, clean_plot):
         return
     
     def remove_marker():
+        removed_markers = []
         artists = ax_here.get_children()
         for artist in artists:
             if isinstance(artist, matplotlib.lines.Line2D) and (artist.get_markersize() == 4 or artist.get_linestyle() == '--'):
+                removed_markers.append(artist)
                 artist.remove() #evaluate less destructive alternatives to this command
-                
+        return removed_markers
+    
+    removed_markers = []
     if clean_plot:
-        remove_marker()
+        removed_markers = remove_marker()
     canvas_here.draw()
     if not over_x and not over_y:  # Right mouse button
         # Open a context menu
         context_menu = tk.Menu(main_window, tearoff=0)
         context_menu.add_command(label="Save Image", command=lambda: save_image(event, canvas_here))
         context_menu.post(screen_x, screen_y)
+        
+    for artist in removed_markers:
+        ax_here.add_line(artist)
         
 def save_image(event, canvas_here):
     '''This is the working function of the on_right_click_plot function. It saves an image of the right clicked plot.'''
@@ -1673,7 +1817,7 @@ def select_ruler(event):
         
 def on_pan(event, ax_here, canvas_here, type_coordinate):
     '''This function handles the panning of chromatogram and spectrum plots.'''
-    global panning_enabled, current_line_ruler, distance_ruler_text, ruler_lines_list
+    global panning_enabled, current_line_ruler, distance_ruler_text, ruler_lines_list, gg_draw_on, gg_draw_list, gg_draw_selected
     
     over_x = event.y > ax_here.bbox.y1 or event.y < ax_here.bbox.y0
     over_y = event.x > ax_here.bbox.x1 or event.x < ax_here.bbox.x0
@@ -1727,6 +1871,13 @@ def on_pan(event, ax_here, canvas_here, type_coordinate):
                 if type_coordinate == 'spectra':
                     annotate_top_y_values(ax_here, canvas_here)
             else:
+            
+                if gg_draw_on:
+                    if gg_draw_selected != None:
+                        gg_draw_list[gg_draw_selected][1].xybox = (event.xdata, event.ydata)
+                        gg_draw_list[gg_draw_selected][3] = [event.xdata, event.ydata]
+                        return
+                            
                 if not spectrum_ruler_on or type_coordinate != 'spectra':
                     dx = (event.x - on_pan.last_x) * 1  # Adjust the panning speed here
                     x_min, x_max = ax_here.get_xlim()
@@ -1996,9 +2147,10 @@ def run_main_window():
             imp_exp_library = [True, False]
             import_library_button_frame.config(bg="lightgreen")
         else:
-            import_library_button_frame.config(bg=background_color)
+            library_path = file_path
             import_library_info.config(state=tk.DISABLED)
             imp_exp_library = [False, False]
+            import_library_button_frame.config(bg=background_color)
         
         file_dialog.destroy()
         
@@ -2442,7 +2594,7 @@ def run_main_window():
 
             analyze_ms2_args = [None, None, None, ret_time_interval, tolerance, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl,  min_max_sia, min_max_fuc, min_max_ac, min_max_gc, min_max_hn, min_max_ua, max_charges, reducing_end_tag, forced, permethylated, reduced, lactonized_ethyl_esterified, analyze_ms2[1], analyze_ms2[2], ret_time_interval[2], multithreaded_analysis, number_cores, None, None, True]
 
-            arrange_raw_data_args = [None, samples_names, analyze_ms2[0], save_path, [(custom_glycans_list, min_max_monos, min_max_hex, min_max_hexnac, min_max_sia, min_max_fuc, min_max_ac, min_max_gc, forced, max_adducts, adducts_exclusion, max_charges, reducing_end_tag, permethylated, reduced, lactonized_ethyl_esterified, fast_iso, high_res, internal_standard, imp_exp_library, exp_lib_name, library_path, only_gen_lib, min_max_xyl, min_max_hn, min_max_ua, min_max_sulfation, min_max_phosphorylation), (multithreaded_analysis, number_cores, analyze_ms2, reporter_ions, tolerance, ret_time_interval, rt_tolerance_frag, min_isotopologue_peaks, min_ppp, close_peaks, align_chromatograms, percentage_auc, max_ppm, iso_fit_score, curve_fit_score, s_to_n, custom_noise, samples_path, save_path, plot_metaboanalyst, compositions, iso_fittings, reanalysis, reanalysis_path, output_plot_data)], None, None, gg_file_name, True]
+            arrange_raw_data_args = [None, samples_names, analyze_ms2[0], save_path, [[custom_glycans_list, min_max_monos, min_max_hex, min_max_hexnac, min_max_sia, min_max_fuc, min_max_ac, min_max_gc, forced, max_adducts, adducts_exclusion, max_charges, reducing_end_tag, permethylated, reduced, lactonized_ethyl_esterified, fast_iso, high_res, internal_standard, imp_exp_library, exp_lib_name, library_path, only_gen_lib, min_max_xyl, min_max_hn, min_max_ua, min_max_sulfation, min_max_phosphorylation], [multithreaded_analysis, number_cores, analyze_ms2, reporter_ions, tolerance, ret_time_interval, rt_tolerance_frag, min_isotopologue_peaks, min_ppp, close_peaks, align_chromatograms, percentage_auc, max_ppm, iso_fit_score, curve_fit_score, s_to_n, custom_noise, samples_path, save_path, plot_metaboanalyst, compositions, iso_fittings, reanalysis, reanalysis_path, output_plot_data]], None, None, gg_file_name, True]
             
             t = threading.Thread(target=run_glycogenius, args=([(output_filtered_data_args, imp_exp_gen_library_args, list_of_data_args, index_spectra_from_file_ms1_args, index_spectra_from_file_ms2_args, analyze_files_args, analyze_ms2_args, arrange_raw_data_args, samples_names, reanalysis, analyze_ms2[0], True)]))
             t.start()
@@ -2531,6 +2683,10 @@ def run_main_window():
                 if color_number == len(colors):
                     color_number = 0
             ax.legend(fontsize=9)
+            
+            if gg_draw_on:
+                draw_glycans_on_chromatogram(chromatograms_list)
+                
             return
         item_text = chromatograms_list.item(selected_item_chromatograms, "text")  # Get the text of the selected item
         last_xlims_chrom = None
@@ -2567,6 +2723,9 @@ def run_main_window():
             clear_plot(ax, canvas)
             # clear_plot(ax_spec, canvas_spec)
             show_graph(item_text, clear)
+            
+        if gg_draw_on:
+            draw_glycans_on_chromatogram(chromatograms_list)
         
     def show_graph(item_text, clear = True, level = 0):
         global current_data, coordinate_label, ax, canvas, type_coordinate, colors, color_number, ms2_precursors_actual, spectra_indexes, last_xlims_chrom, last_ylims_chrom, og_x_range, og_y_range, chromatogram_bound, chromatogram_binds, rt_label
@@ -2747,6 +2906,7 @@ def run_main_window():
             on_pan_right_click_press = canvas.mpl_connect('button_press_event', lambda event: on_pan_right_click(event, ax, canvas, type_coordinate) if event.button == 3 else None)
             on_pan_right_click_release = canvas.mpl_connect('button_release_event', lambda event: on_pan_right_click(event, ax, canvas, type_coordinate) if event.button == 3 else None)
             on_pan_right_click_motion = canvas.mpl_connect('motion_notify_event', lambda event: on_pan_right_click(event, ax, canvas, type_coordinate))
+                
             chromatogram_bound = True
             chromatogram_binds = [zoom_selection_key_press, zoom_selection_key_release, zoom_selection_motion_notify, zoom_selection_button_press, zoom_selection_button_release, on_scroll_event, on_double_click_event, on_plot_hover_motion, on_click_press, on_click_release, right_move_spectra, left_move_spectra, on_pan_press, on_pan_release, on_pan_motion, on_pan_right_click_press, on_pan_right_click_release, on_pan_right_click_motion]
                 
@@ -2793,7 +2953,7 @@ def run_main_window():
         if scaling == 'Log':
             ax_spec.set_yscale('symlog')
         if scaling == 'Sqrt':
-            ax_spec.set_yscale('function', functions=(np.sqrt, np.square))
+            ax_spec.set_yscale('function', functions=(custom_sqrt, custom_square))
         
         ax_spec.set_xlabel('m/z')
         ax_spec.set_ylabel('Intensity (AU)')
@@ -2881,9 +3041,9 @@ def run_main_window():
             on_pan_press_spec = canvas_spec.mpl_connect('button_press_event', lambda event: on_pan(event, ax_spec, canvas_spec, type_coordinate_spec) if event.button == 1 else None)
             on_pan_release_spec = canvas_spec.mpl_connect('button_release_event', lambda event: on_pan(event, ax_spec, canvas_spec, type_coordinate_spec) if event.button == 1 else None)
             on_pan_motion_spec = canvas_spec.mpl_connect('motion_notify_event', lambda event: on_pan(event, ax_spec, canvas_spec, type_coordinate_spec))
-            on_pan_right_click_press_spec = canvas_spec.mpl_connect('button_press_event', lambda event: on_pan_right_click(event, ax_spec, canvas_spec, type_coordinate) if event.button == 3 else None)
-            on_pan_right_click_release_spec = canvas_spec.mpl_connect('button_release_event', lambda event: on_pan_right_click(event, ax_spec, canvas_spec, type_coordinate) if event.button == 3 else None)
-            on_pan_right_click_motion_spec = canvas_spec.mpl_connect('motion_notify_event', lambda event: on_pan_right_click(event, ax_spec, canvas_spec, type_coordinate))
+            on_pan_right_click_press_spec = canvas_spec.mpl_connect('button_press_event', lambda event: on_pan_right_click(event, ax_spec, canvas_spec, type_coordinate_spec) if event.button == 3 else None)
+            on_pan_right_click_release_spec = canvas_spec.mpl_connect('button_release_event', lambda event: on_pan_right_click(event, ax_spec, canvas_spec, type_coordinate_spec) if event.button == 3 else None)
+            on_pan_right_click_motion_spec = canvas_spec.mpl_connect('motion_notify_event', lambda event: on_pan_right_click(event, ax_spec, canvas_spec, type_coordinate_spec))
             on_mouse_press_spectra_plot_spec = canvas_spec.mpl_connect('button_press_event', lambda event: on_mouse_press_spectra_plot(event, ax_spec))
             on_mouse_release_spectra_plot_spec = canvas_spec.mpl_connect('button_release_event', lambda event: on_mouse_release_spectra_plot(event, ax_spec))
             select_annotation_spec = canvas_spec.mpl_connect('button_press_event', select_ruler)
@@ -2938,7 +3098,7 @@ def run_main_window():
         if scaling == 'Log':
             ax_spec_ms2.set_yscale('symlog')
         if scaling == 'Sqrt':
-            ax_spec_ms2.set_yscale('function', functions=(np.sqrt, np.square))
+            ax_spec_ms2.set_yscale('function', functions=(custom_sqrt, custom_square))
         
         ax_spec_ms2.set_xlabel('m/z')
         ax_spec_ms2.set_ylabel('Intensity (AU)')
@@ -3525,6 +3685,14 @@ def run_main_window():
                 if type_coordinate == 'spectra':
                     annotate_top_y_values(ax_here, canvas_here)
                 canvas_here.draw_idle()
+            else:
+                if gg_draw_on:
+                    for index, glycan in enumerate(gg_draw_list):
+                        drawing = glycan[1]
+                        cont, _ = drawing.contains(event)
+                        if cont:
+                            gg_draw_options(index)
+                            break
     
     def on_plot_hover(event, ax_here, canvas_here, x_values_here, y_values_here, coordinate_label, type_coordinate, vertical_line = None, multiple_signal = False):
         global chromatograms_list
@@ -3590,13 +3758,27 @@ def run_main_window():
             coordinate_label.config(text="")
             
     def on_click(event, ax, x_values, y_values, peak_range = ''):
-        global marker_spectra_x_value, marker_spectra_y_value, two_d
+        global marker_spectra_x_value, marker_spectra_y_value, gg_draw_on, gg_draw_list, gg_draw_selected
         if event.name == 'button_press_event':
+        
+            if gg_draw_on:
+                if gg_draw_selected == None:
+                    for index, glycan in enumerate(gg_draw_list):
+                        drawing = glycan[1]
+                        cont, _ = drawing.contains(event)
+                        if cont:
+                            gg_draw_selected = index
+                            return
+                    gg_draw_selected = None
+                    
             # Store the initial coordinates when the button is pressed
             on_click.press_coords = (event.x, event.y)
         if on_click.press_coords == None:
             return
         elif event.name == 'button_release_event':
+            if gg_draw_on:
+                gg_draw_selected = None
+                
             # Calculate the distance moved
             dx = abs(event.x - on_click.press_coords[0])
             dy = abs(event.y - on_click.press_coords[1])
@@ -3604,7 +3786,7 @@ def run_main_window():
             # If the mouse movement is too large, consider it a drag, not a click
             if dx > 5 or dy > 5:
                 return
-            
+                        
             over_x = event.y > ax.bbox.y1 or event.y < ax.bbox.y0
             over_y = event.x > ax.bbox.x1 or event.x < ax.bbox.x0
             if not over_x and not over_y:
@@ -3643,6 +3825,10 @@ def run_main_window():
             this_process_id = os.getpid()
             general_temp_folder = os.path.join(tempfile.gettempdir())
             os.remove(os.path.join(general_temp_folder, f"{this_process_id}.txt"))
+            try:
+                os.remove(os.path.join(general_temp_folder, f"mzml_window_{this_process_id}.txt"))
+            except:
+                pass
             
             # Clean the temp folder
             clean_temp_folder()
@@ -4239,7 +4425,7 @@ def run_main_window():
         
         def aligning_samples_window():
             def process_alignment():
-                global former_alignments, ax_comp, last_xlims_chrom, last_ylims_chrom
+                global former_alignments, ax_comp, canvas_comp
                 
                 if f"{iso_fit_score}_{curve_fit_score}_{max_ppm}_{s_to_n}" not in former_alignments:
                     total_glycans_df = make_total_glycans_df(df1, df2)
@@ -4247,13 +4433,20 @@ def run_main_window():
                         chromatograms_delta = Execution_Functions.align_assignments(total_glycans_df, "total_glycans", multithreaded_analysis, number_cores, rt_tol = ret_time_interval[2])
                         Execution_Functions.align_assignments(df2, 'chromatograms', multithreaded_analysis, number_cores, temp_folder, reanalysis_path, chromatograms_delta[1], None, iso_fit_score, curve_fit_score, max_ppm, s_to_n)
                     former_alignments.append(f"{iso_fit_score}_{curve_fit_score}_{max_ppm}_{s_to_n}")
-        
+                
+                last_xlims_chrom = ax_comp.get_xlim()
+                last_ylims_chrom = ax_comp.get_ylim()
+                clear_plot(ax_comp, canvas_comp)
+                vertical_line = ax_comp.axvline(x=-10000, color='black', linestyle='--', linewidth=1)
+                
                 loops = 0
                 if level == 1:
                     for i_i, i in enumerate(chromatograms_checkboxes.get_checked()):
                 
                         # Load retention times from file
-                        x_values_comp = gg_file.get_rt_array(i)
+                        with open(os.path.join(temp_folder, f"{i}_aligned_RTs_{iso_fit_score}_{curve_fit_score}_{max_ppm}_{s_to_n}"), 'rb') as f:
+                            x_values_comp = dill.load(f)
+                            f.close()
                             
                         y_values_comp = []
                         counter = 0
@@ -4268,6 +4461,7 @@ def run_main_window():
                                     counter+= 1
                                 else:
                                     y_values_comp = [x + y for x, y in zip(y_values_comp, y_values_temp)]
+                                    
                         if i_i-(len(colors)*loops) == len(colors):
                             loops+= 1
                         color = colors[i_i-(len(colors)*loops)]
@@ -4276,7 +4470,9 @@ def run_main_window():
                     for i_i, i in enumerate(chromatograms_checkboxes.get_checked()):
                 
                         # Load retention times from file
-                        x_values_comp = gg_file.get_rt_array(i)
+                        with open(os.path.join(temp_folder, f"{i}_aligned_RTs_{iso_fit_score}_{curve_fit_score}_{max_ppm}_{s_to_n}"), 'rb') as f:
+                            x_values_comp = dill.load(f)
+                            f.close()
                             
                         # Load intensities from file
                         y_values_comp = gg_file.get_chromatogram(i, f"{grand_parent_text_comp}+{parent_text_comp}", 'smoothed')
@@ -4285,60 +4481,33 @@ def run_main_window():
                             loops+= 1
                         color = colors[i_i-(len(colors)*loops)]
                         ax_comp.plot(x_values_comp, y_values_comp, linewidth=1, color=color, label = chromatograms_checkboxes.item(i, "text"))
-        
-                ax_comp.legend(fontsize=9)
-                        
-                try:
-                    lines = ax_comp.get_lines()
-
-                    # Initialize the maximum value to negative infinity
-                    max_value = float('-inf')
-
-                    # Iterate through each line
-                    for line in lines:
-                        # Get the y-data of the line
-                        y_data = line.get_ydata()
-                        
-                        # Find the maximum value in the y-data
-                        line_max_value = max(y_data)
-                        
-                        # Update the overall maximum value if needed
-                        max_value = max(max_value, line_max_value)
-                        
-                    x_min = min(x_values_comp)
-                    x_max = max(x_values_comp)
-                    og_x_range_comp = (x_min-0.5, x_max+0.5)
-                    og_y_range_comp = (0, max_value*1.1)
-                except:
-                    og_x_range_comp = (0, 1000)
-                    og_y_range_comp = (0, 1000)
                     
-                ax_comp.set_xlim(og_x_range_comp)
-                ax_comp.set_ylim(og_y_range_comp)
+                ax_comp.legend(fontsize=9)
+                    
+                lines = ax_comp.get_lines()
+
+                # Initialize the maximum value to negative infinity
+                max_value = float('-inf')
+
+                # Iterate through each line
+                for line in lines:
+                    # Get the y-data of the line
+                    y_data = line.get_ydata()
+                    
+                    # Find the maximum value in the y-data
+                    line_max_value = max(y_data)
+                    
+                    # Update the overall maximum value if needed
+                    max_value = max(max_value, line_max_value)
                 
-                last_xlims_chrom = og_x_range_comp
-                last_ylims_chrom = og_y_range_comp
+                ax_comp.set_xlim(last_xlims_chrom)
+                ax_comp.set_ylim(0, max_value*1.1)
+                ax_comp.set_xlabel('Retention/Migration Time (min)')
+                ax_comp.set_ylabel('Intensity (AU)')
                 
-                canvas_comp.draw()
-                
-                canvas_comp.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_comp, canvas_comp, True) if event.button == 3 else None) 
-                zoom_selection_key_press_comp = canvas_comp.mpl_connect('key_press_event', lambda event: zoom_selection_compare(event, ax_comp, canvas_comp, type_coordinate_comp))
-                zoom_selection_key_release_comp = canvas_comp.mpl_connect('key_release_event', lambda event: zoom_selection_compare(event, ax_comp, canvas_comp, type_coordinate_comp))
-                zoom_selection_motion_notify_comp = canvas_comp.mpl_connect('motion_notify_event', lambda event: zoom_selection_compare(event, ax_comp, canvas_comp, type_coordinate_comp))
-                zoom_selection_button_press_comp = canvas_comp.mpl_connect('button_press_event', lambda event: zoom_selection_compare(event, ax_comp, canvas_comp, type_coordinate_comp) if event.button == 1 else None)
-                zoom_selection_button_release_comp = canvas_comp.mpl_connect('button_release_event', lambda event: zoom_selection_compare(event, ax_comp, canvas_comp, type_coordinate_comp) if event.button == 1 else None)
-                on_scroll_event_comp = canvas_comp.mpl_connect('scroll_event', lambda event: on_scroll(event, ax_comp, canvas_comp, type_coordinate_comp))
-                on_double_click_event_comp = canvas_comp.mpl_connect('button_press_event', lambda event: on_double_click(event, ax_comp, canvas_comp, og_x_range_comp, og_y_range_comp, type_coordinate_comp) if event.button == 1 else None)
-                on_plot_hover_motion_comp = canvas_comp.mpl_connect('motion_notify_event', lambda event: on_plot_hover(event, ax_comp, canvas_comp, x_values_comp, y_values_comp, coordinate_label_comp, type_coordinate_comp, vertical_line, True))
-                on_pan_press_comp = canvas_comp.mpl_connect('button_press_event', lambda event: on_pan(event, ax_comp, canvas_comp, type_coordinate_comp) if event.button == 1 else None)
-                on_pan_release_comp = canvas_comp.mpl_connect('button_release_event', lambda event: on_pan(event, ax_comp, canvas_comp, type_coordinate_comp) if event.button == 1 else None)
-                on_pan_motion_comp = canvas_comp.mpl_connect('motion_notify_event', lambda event: on_pan(event, ax_comp, canvas_comp, type_coordinate_comp))
-                on_pan_right_click_press_comp = canvas_comp.mpl_connect('button_press_event', lambda event: on_pan_right_click(event, ax_comp, canvas_comp, type_coordinate) if event.button == 3 else None)
-                on_pan_right_click_release_comp = canvas_comp.mpl_connect('button_release_event', lambda event: on_pan_right_click(event, ax_comp, canvas_comp, type_coordinate) if event.button == 3 else None)
-                on_pan_right_click_motion_comp = canvas_comp.mpl_connect('motion_notify_event', lambda event: on_pan_right_click(event, ax_comp, canvas_comp, type_coordinate))
+                canvas_comp.draw_idle()
                 
                 aligning_samples.destroy()
-                compare_samples.deiconify()
             
             global aligning_samples
             aligning_samples = tk.Toplevel()
@@ -4368,7 +4537,7 @@ def run_main_window():
             t.start()
         
         def on_checkbox_click(event):
-            """Check or uncheck box when clicked."""
+            """Check or uncheck box when clicked."""            
             x, y, widget = event.x, event.y, event.widget
             elem = widget.identify("element", x, y)
             if "image" in elem:
@@ -4474,63 +4643,24 @@ def run_main_window():
             
             ax_comp.set_xlim(last_xlims_chrom)
             ax_comp.set_ylim(last_ylims_chrom)
+            ax_comp.set_xlabel('Retention/Migration Time (min)')
+            ax_comp.set_ylabel('Intensity (AU)')
             
             canvas_comp.draw_idle()
         
         def align_chromatograms_checkbox_state_check():
             state = align_chromatograms_checkbox_state.get()
             
-            last_xlims_chrom = ax_comp.get_xlim()
-            last_ylims_chrom = ax_comp.get_ylim()
-            
-            clear_plot(ax_comp, canvas_comp)
-            
-            vertical_line = ax_comp.axvline(x=-10000, color='black', linestyle='--', linewidth=1)
-            
-            loops = 0
             if align_chromatograms_checkbox_state.get():
-                if level == 1:
-                    for i_i, i in enumerate(chromatograms_checkboxes.get_checked()):
-                
-                        # Load retention times from file
-                        with open(os.path.join(temp_folder, f"{i}_aligned_RTs_{iso_fit_score}_{curve_fit_score}_{max_ppm}_{s_to_n}"), 'rb') as f:
-                            x_values_comp = dill.load(f)
-                            f.close()
-                            
-                        y_values_comp = []
-                        counter = 0
-                        for k in gg_file.list_chromatograms(i):
-                            if "+".join(k.split("+")[:-1]) == item_text_comp:
-                            
-                                # Load intensities from file
-                                y_values_temp = gg_file.get_chromatogram(i, k, 'smoothed')
-                                    
-                                if counter == 0:
-                                    y_values_comp = y_values_temp
-                                    counter+= 1
-                                else:
-                                    y_values_comp = [x + y for x, y in zip(y_values_comp, y_values_temp)]
-                                    
-                        if i_i-(len(colors)*loops) == len(colors):
-                            loops+= 1
-                        color = colors[i_i-(len(colors)*loops)]
-                        ax_comp.plot(x_values_comp, y_values_comp, linewidth=1, color=color, label = chromatograms_checkboxes.item(i, "text"))
-                if level == 2:
-                    for i_i, i in enumerate(chromatograms_checkboxes.get_checked()):
-                
-                        # Load retention times from file
-                        with open(os.path.join(temp_folder, f"{i}_aligned_RTs_{iso_fit_score}_{curve_fit_score}_{max_ppm}_{s_to_n}"), 'rb') as f:
-                            x_values_comp = dill.load(f)
-                            f.close()
-                            
-                        # Load intensities from file
-                        y_values_comp = gg_file.get_chromatogram(i, f"{grand_parent_text_comp}+{parent_text_comp}", 'smoothed')
-                            
-                        if i_i-(len(colors)*loops) == len(colors):
-                            loops+= 1
-                        color = colors[i_i-(len(colors)*loops)]
-                        ax_comp.plot(x_values_comp, y_values_comp, linewidth=1, color=color, label = chromatograms_checkboxes.item(i, "text"))
+                aligning_samples_window()
             else:
+                last_xlims_chrom = ax_comp.get_xlim()
+                last_ylims_chrom = ax_comp.get_ylim()
+                
+                clear_plot(ax_comp, canvas_comp)
+                vertical_line = ax_comp.axvline(x=-10000, color='black', linestyle='--', linewidth=1)
+                
+                loops = 0
                 if level == 1:
                     for i_i, i in enumerate(chromatograms_checkboxes.get_checked()):
                 
@@ -4569,28 +4699,30 @@ def run_main_window():
                         color = colors[i_i-(len(colors)*loops)]
                         ax_comp.plot(x_values_comp, y_values_comp, linewidth=1, color=color, label = chromatograms_checkboxes.item(i, "text"))
                     
-            ax_comp.legend(fontsize=9)
-                
-            lines = ax_comp.get_lines()
+                ax_comp.legend(fontsize=9)
+                    
+                lines = ax_comp.get_lines()
 
-            # Initialize the maximum value to negative infinity
-            max_value = float('-inf')
+                # Initialize the maximum value to negative infinity
+                max_value = float('-inf')
 
-            # Iterate through each line
-            for line in lines:
-                # Get the y-data of the line
-                y_data = line.get_ydata()
+                # Iterate through each line
+                for line in lines:
+                    # Get the y-data of the line
+                    y_data = line.get_ydata()
+                    
+                    # Find the maximum value in the y-data
+                    line_max_value = max(y_data)
+                    
+                    # Update the overall maximum value if needed
+                    max_value = max(max_value, line_max_value)
                 
-                # Find the maximum value in the y-data
-                line_max_value = max(y_data)
+                ax_comp.set_xlim(last_xlims_chrom)
+                ax_comp.set_ylim(0, max_value*1.1)
+                ax_comp.set_xlabel('Retention/Migration Time (min)')
+                ax_comp.set_ylabel('Intensity (AU)')
                 
-                # Update the overall maximum value if needed
-                max_value = max(max_value, line_max_value)
-            
-            ax_comp.set_xlim(last_xlims_chrom)
-            ax_comp.set_ylim(0, max_value*1.1)
-            
-            canvas_comp.draw_idle()
+                canvas_comp.draw_idle()
             
         def exit_compare_samples():
             global compare_samples_opened
@@ -4634,11 +4766,15 @@ def run_main_window():
         align_chromatograms_checkbox_state = tk.BooleanVar(value=False)
         align_chromatograms_checkbox = ttk.Checkbutton(compare_samples, text="Align Chromatograms/Electropherograms", variable=align_chromatograms_checkbox_state, command=align_chromatograms_checkbox_state_check)
         align_chromatograms_checkbox.grid(row=0, column=1, padx=10, pady=10, sticky="ne")
-        ToolTip(align_chromatograms_checkbox, "Aligns the chromatograms/electropherograms. It's very dependent on the quality of the peaks, so adjusting quality thresholds may affect the alignment quality.")
+        ToolTip(align_chromatograms_checkbox, "Aligns the chromatograms/electropherograms. It's very dependent on the quality of the peaks, so adjusting quality thresholds may affect the alignment quality. The first time you check this box for a given set of QC thresholds it will take a while to calculate the alignments.")
         
         chromatograms_checkboxes = CheckboxTreeview(compare_samples)
         chromatograms_checkboxes["show"] = "tree" #removes the header
         chromatograms_checkboxes.grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
+        
+        for i_i, i in enumerate(samples_dropdown_options):
+            chromatograms_checkboxes.insert("", "end", i_i, text=i)
+            chromatograms_checkboxes.change_state(i_i, "checked")
         
         chromatogram_plots_compare_frame = ttk.Labelframe(compare_samples, text="Chromatogram/Electropherogram Viewer", style="chromatogram.TLabelframe")
         chromatogram_plots_compare_frame.grid(row=1, column=1, padx=10, pady=10, sticky="nsew")
@@ -4650,12 +4786,97 @@ def run_main_window():
         canvas_comp.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         ax_comp.set_xlabel('Retention/Migration Time (min)')
         ax_comp.set_ylabel('Intensity (AU)')
-        
-        for i_i, i in enumerate(samples_dropdown_options):
-            chromatograms_checkboxes.insert("", "end", i_i, text=i)
-            chromatograms_checkboxes.change_state(i_i, "checked")
             
         vertical_line = ax_comp.axvline(x=-10000, color='black', linestyle='--', linewidth=1)
+            
+        loops = 0
+        if level == 1:
+            for i_i, i in enumerate(chromatograms_checkboxes.get_checked()):
+        
+                # Load retention times from file
+                x_values_comp = gg_file.get_rt_array(i)
+                    
+                y_values_comp = []
+                counter = 0
+                for k in gg_file.list_chromatograms(i):
+                    if "+".join(k.split("+")[:-1]) == item_text_comp:
+                    
+                        # Load intensities from file
+                        y_values_temp = gg_file.get_chromatogram(i, k, 'smoothed')
+                            
+                        if counter == 0:
+                            y_values_comp = y_values_temp
+                            counter+= 1
+                        else:
+                            y_values_comp = [x + y for x, y in zip(y_values_comp, y_values_temp)]
+                if i_i-(len(colors)*loops) == len(colors):
+                    loops+= 1
+                color = colors[i_i-(len(colors)*loops)]
+                ax_comp.plot(x_values_comp, y_values_comp, linewidth=1, color=color, label = chromatograms_checkboxes.item(i, "text"))
+        if level == 2:
+            for i_i, i in enumerate(chromatograms_checkboxes.get_checked()):
+        
+                # Load retention times from file
+                x_values_comp = gg_file.get_rt_array(i)
+                    
+                # Load intensities from file
+                y_values_comp = gg_file.get_chromatogram(i, f"{grand_parent_text_comp}+{parent_text_comp}", 'smoothed')
+                    
+                if i_i-(len(colors)*loops) == len(colors):
+                    loops+= 1
+                color = colors[i_i-(len(colors)*loops)]
+                ax_comp.plot(x_values_comp, y_values_comp, linewidth=1, color=color, label = chromatograms_checkboxes.item(i, "text"))
+
+        ax_comp.legend(fontsize=9)
+                
+        try:
+            lines = ax_comp.get_lines()
+
+            # Initialize the maximum value to negative infinity
+            max_value = float('-inf')
+
+            # Iterate through each line
+            for line in lines:
+                # Get the y-data of the line
+                y_data = line.get_ydata()
+                
+                # Find the maximum value in the y-data
+                line_max_value = max(y_data)
+                
+                # Update the overall maximum value if needed
+                max_value = max(max_value, line_max_value)
+                
+            x_min = min(x_values_comp)
+            x_max = max(x_values_comp)
+            og_x_range_comp = (x_min-0.5, x_max+0.5)
+            og_y_range_comp = (0, max_value*1.1)
+        except:
+            og_x_range_comp = (0, 1000)
+            og_y_range_comp = (0, 1000)
+            
+        ax_comp.set_xlim(og_x_range_comp)
+        ax_comp.set_ylim(og_y_range_comp)
+        
+        last_xlims_chrom = og_x_range_comp
+        last_ylims_chrom = og_y_range_comp
+        
+        canvas_comp.draw()
+        
+        canvas_comp.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_comp, canvas_comp, True) if event.button == 3 else None) 
+        zoom_selection_key_press_comp = canvas_comp.mpl_connect('key_press_event', lambda event: zoom_selection_compare(event, ax_comp, canvas_comp, type_coordinate_comp))
+        zoom_selection_key_release_comp = canvas_comp.mpl_connect('key_release_event', lambda event: zoom_selection_compare(event, ax_comp, canvas_comp, type_coordinate_comp))
+        zoom_selection_motion_notify_comp = canvas_comp.mpl_connect('motion_notify_event', lambda event: zoom_selection_compare(event, ax_comp, canvas_comp, type_coordinate_comp))
+        zoom_selection_button_press_comp = canvas_comp.mpl_connect('button_press_event', lambda event: zoom_selection_compare(event, ax_comp, canvas_comp, type_coordinate_comp) if event.button == 1 else None)
+        zoom_selection_button_release_comp = canvas_comp.mpl_connect('button_release_event', lambda event: zoom_selection_compare(event, ax_comp, canvas_comp, type_coordinate_comp) if event.button == 1 else None)
+        on_scroll_event_comp = canvas_comp.mpl_connect('scroll_event', lambda event: on_scroll(event, ax_comp, canvas_comp, type_coordinate_comp))
+        on_double_click_event_comp = canvas_comp.mpl_connect('button_press_event', lambda event: on_double_click(event, ax_comp, canvas_comp, og_x_range_comp, og_y_range_comp, type_coordinate_comp) if event.button == 1 else None)
+        on_plot_hover_motion_comp = canvas_comp.mpl_connect('motion_notify_event', lambda event: on_plot_hover(event, ax_comp, canvas_comp, x_values_comp, y_values_comp, coordinate_label_comp, type_coordinate_comp, vertical_line, True))
+        on_pan_press_comp = canvas_comp.mpl_connect('button_press_event', lambda event: on_pan(event, ax_comp, canvas_comp, type_coordinate_comp) if event.button == 1 else None)
+        on_pan_release_comp = canvas_comp.mpl_connect('button_release_event', lambda event: on_pan(event, ax_comp, canvas_comp, type_coordinate_comp) if event.button == 1 else None)
+        on_pan_motion_comp = canvas_comp.mpl_connect('motion_notify_event', lambda event: on_pan(event, ax_comp, canvas_comp, type_coordinate_comp))
+        on_pan_right_click_press_comp = canvas_comp.mpl_connect('button_press_event', lambda event: on_pan_right_click(event, ax_comp, canvas_comp, type_coordinate) if event.button == 3 else None)
+        on_pan_right_click_release_comp = canvas_comp.mpl_connect('button_release_event', lambda event: on_pan_right_click(event, ax_comp, canvas_comp, type_coordinate) if event.button == 3 else None)
+        on_pan_right_click_motion_comp = canvas_comp.mpl_connect('motion_notify_event', lambda event: on_pan_right_click(event, ax_comp, canvas_comp, type_coordinate))
         
         coordinate_label_comp = tk.Label(chromatogram_plots_compare_frame, text="", anchor="e", font=("Segoe UI", 8), bg="white")
         coordinate_label_comp.place(relx=1.0, rely=0, anchor='ne')
@@ -4688,8 +4909,7 @@ def run_main_window():
         x_position = (screen_width - window_width) // 2
         y_position = (screen_height - window_height) // 2
         compare_samples.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
-        
-        aligning_samples_window()
+        compare_samples.deiconify()
         
     def check_qc_dist():
         global sample_for_qc_dist, qc_dist_opened, qc_dist
@@ -6430,8 +6650,15 @@ def run_main_window():
             ax_spec.set_yscale('symlog')
             ax_spec_ms2.set_yscale('symlog')
         if selected_scale == 'Sqrt':
-            ax_spec.set_yscale('function', functions=(np.sqrt, np.square))
-            ax_spec_ms2.set_yscale('function', functions=(np.sqrt, np.square))
+            ax_spec.set_yscale('function', functions=(custom_sqrt, custom_square))
+            ax_spec_ms2.set_yscale('function', functions=(custom_sqrt, custom_square))
+        
+        ax_spec.yaxis.set_major_formatter(ScalarFormatter(useMathText=True))
+        ax_spec.ticklabel_format(axis='y', style='sci', scilimits=(0,0))
+        
+        ax_spec_ms2.yaxis.set_major_formatter(ScalarFormatter(useMathText=True))
+        ax_spec_ms2.ticklabel_format(axis='y', style='sci', scilimits=(0,0))
+        
         canvas_spec.draw_idle()
         canvas_spec_ms2.draw_idle()
 
@@ -6461,7 +6688,554 @@ def run_main_window():
         
         canvas_spec.draw_idle()
         canvas_spec_ms2.draw_idle()
+    
+    def check_mzml_window(data):
+        '''
+        '''        
+        check_folder = os.path.join(tempfile.gettempdir())
         
+        this_process_id = os.getpid()
+        
+        if f"mzml_window_{this_process_id}.txt" not in os.listdir(check_folder):
+            with open(os.path.join(check_folder, f"mzml_window_{this_process_id}.txt"), 'w') as f:
+                f.write("mzML editing window is open")
+                f.close()
+                
+            mzml_window_start(data)
+            
+        else:
+            error_window("Spectra file editing window is already open!")
+            
+    def toggle_gg_draw(treeview):
+        '''
+        '''
+        global gg_draw_on, gg_draw_list, photo_ggdraw, photo_ggdraw_off, gg_draw_zoom_scale, gg_draw_zoom_scale_value
+        if gg_draw_on:
+            gg_draw_on = False
+            gg_draw.config(image=photo_ggdraw)
+            
+            gg_draw_zoom_scale.destroy()
+            
+            for glycan in gg_draw_list:
+                drawing = glycan[1]
+                drawing.remove()
+            gg_draw_list = []
+            canvas.draw_idle()
+        else:
+            gg_draw_on = True
+            gg_draw.config(image=photo_ggdraw_off)
+            
+            gg_draw_zoom_scale_value = tk.DoubleVar()
+            gg_draw_zoom_scale = ttk.Scale(main_window, from_=0.1, to=0.5, orient='horizontal', variable=gg_draw_zoom_scale_value, command=gg_draw_zoom_scale_moved)
+            gg_draw_zoom_scale.grid(row=0, column=2, padx=(10,200), sticky='se')
+            gg_draw_zoom_scale_value.set(0.2)
+            ToolTip(gg_draw_zoom_scale, "Set the size of the glycans drawings on the chromatogram/electropherogram plot.")
+            
+            check_gg_drawings_available(treeview)
+    
+    def gg_draw_zoom_scale_moved(value):
+        '''
+        '''
+        global gg_draw_list
+        for index, glycan in enumerate(gg_draw_list):
+            recreate_gg_draw(index, glycan[-1], zoom_level = float(value))
+    
+    global check_gg_drawings_available
+    def check_gg_drawings_available(treeview, draw = True):
+        '''
+        '''
+        os.makedirs(os.path.join(current_dir, "Assets/glycans"), exist_ok=True)
+        directory_content = os.listdir(os.path.join(current_dir, "Assets/glycans"))
+        glycans_to_draw = []
+        for treeview_item in treeview.get_children():
+            glycan = treeview.item(treeview_item, "text")
+            
+            if len(glycan.split("/")) > 1:
+                continue
+            
+            comp = General_Functions.form_to_comp(glycan)
+            possibilities = [glycan]
+            
+            if 'S' in comp.keys() or 'G' in comp.keys():
+                if 'S' in comp.keys():
+                    new_combos = der_sialics_combo('S', comp['S'])
+                    for i in new_combos:
+                        new_comp = copy.deepcopy(comp)
+                        new_comp = replace_dict_keys(new_comp, 'S', i)
+                        possibilities.append(General_Functions.comp_to_formula(new_comp))
+                        
+                if 'G' in comp.keys():
+                    new_combos = der_sialics_combo('G', comp['G'])
+                    for i in new_combos:
+                        new_comp = copy.deepcopy(comp)
+                        new_comp = replace_dict_keys(new_comp, 'G', i)
+                        possibilities.append(General_Functions.comp_to_formula(new_comp))
+                    to_add = []
+                    for new_glycan_wip in possibilities[1:-1]:
+                        comp = General_Functions.form_to_comp(new_glycan_wip)
+                        new_combos = der_sialics_combo('G', comp['G'])
+                        for i in new_combos:
+                            new_comp = copy.deepcopy(comp)
+                            new_comp = replace_dict_keys(new_comp, 'G', i)
+                            to_add.append(General_Functions.comp_to_formula(new_comp))
+                    for item in to_add:
+                        possibilities.append(to_add)
+                        
+            for possibility in possibilities:
+                if possibility not in directory_content:
+                    glycans_to_draw.append(possibility)
+                    
+        if len(glycans_to_draw) > 0:
+            start_glycans_drawing(glycans_to_draw, treeview)
+            
+        if len(glycans_to_draw) == 0 and draw:
+            draw_glycans_on_chromatogram(treeview)
+                
+    def start_glycans_drawing(glycans_list, treeview):
+        '''
+        '''
+        def close_gd():
+            background_glycan_drawing.destroy()
+            
+        def draw_glycans_list(glycans_list, treeview):
+            cpu_number = (os.cpu_count())-2 if os.cpu_count() < 60 else 60
+            if cpu_number <= 0:
+                cpu_number = 1
+            results = []
+            with concurrent.futures.ProcessPoolExecutor(max_workers = cpu_number) as executor:
+                for glycan in glycans_list:
+                    result = executor.submit(draw_glycan, 
+                                             os.path.join(current_dir, "Assets/glycans"),
+                                             30,
+                                             glycan,
+                                             'none')
+                    results.append(result)
+                        
+            for index, i in enumerate(results):
+                result_data = i.result()
+                results[index] = None
+                result_data = None
+                
+            close_gd()
+            draw_glycans_on_chromatogram(treeview)
+            
+        background_glycan_drawing = tk.Toplevel()
+        # background_glycan_drawing.attributes("-topmost", True)
+        background_glycan_drawing.withdraw()
+        background_glycan_drawing.title("Drawing Glycans")
+        icon = ImageTk.PhotoImage(ico_image)
+        background_glycan_drawing.iconphoto(False, icon)
+        background_glycan_drawing.resizable(False, False)
+        background_glycan_drawing.grab_set()
+        background_glycan_drawing.protocol("WM_DELETE_WINDOW", on_closing)
+        
+        generating_glycans_label = ttk.Label(background_glycan_drawing, text=f"Generating glycans drawings...\nThis may take up to several minutes.\nPlease wait.", font=("Segoe UI", list_font_size))
+        generating_glycans_label.pack(pady=20, padx=50)
+        
+        background_glycan_drawing.update_idletasks()
+        background_glycan_drawing.deiconify()
+        window_width = background_glycan_drawing.winfo_width()
+        window_height = background_glycan_drawing.winfo_height()
+        screen_width = background_glycan_drawing.winfo_screenwidth()
+        screen_height = background_glycan_drawing.winfo_screenheight()
+        x_position = (screen_width - window_width) // 2
+        y_position = (screen_height - window_height) // 2
+        background_glycan_drawing.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
+    
+        t = threading.Thread(target=draw_glycans_list, args=(glycans_list, treeview))
+        t.start()
+        
+    def draw_glycans_on_chromatogram(treeview):
+        '''
+        '''
+        global gg_draw_list, forced, gg_draw_zoom_scale_value
+            
+        for glycan in gg_draw_list:
+            drawing = glycan[1]
+            drawing.remove()
+        gg_draw_list = []
+        
+        to_plot = []
+        for selected_item in treeview.selection():
+        
+            # Get the level of the treeview
+            level = 0
+            parent_item = selected_item
+            while parent_item:
+                level += 1
+                parent_item = treeview.parent(parent_item)
+            
+            # Operate on the level and get the selected glycan name
+            rts = []
+            if level == 3:
+                target_item = treeview.parent(treeview.parent(selected_item))
+                selected_name = treeview.item(target_item, 'text')
+                
+                peaks = treeview.get_children(treeview.parent(selected_item))
+                for peak in peaks:
+                    if "good" in treeview.item(peak, 'tags'):
+                        rts.append(treeview.item(peak, 'text'))
+            elif level == 2:
+                target_item = treeview.parent(selected_item)
+                selected_name = treeview.item(target_item, 'text')
+                
+                peaks = treeview.get_children(selected_item)
+                for peak in peaks:
+                    if "good" in treeview.item(peak, 'tags'):
+                        rts.append(treeview.item(peak, 'text'))
+            else:
+                selected_name = treeview.item(selected_item, 'text')
+                
+                peaks = []
+                adducts = treeview.get_children(selected_item)
+                for adduct in adducts:
+                    peaks += list(treeview.get_children(adduct))
+                for peak in peaks:
+                    if "good" in treeview.item(peak, 'tags'):
+                        rts.append(treeview.item(peak, 'text'))
+                        
+            if len(rts) == 0:
+                return
+            
+            intensities = []
+            lines = ax.get_lines()
+            max_int = 0
+            max_rt = 0
+            for line in lines:
+                if selected_name in line.get_label():
+                    y_check_data = line.get_ydata()
+                    x_check_data = line.get_xdata()
+                    max_rt = max(max_rt, x_check_data[-1])
+                    max_int = max(max_rt, np.max(y_check_data))
+                    
+                    for rt in rts:
+                        x_coord = np.abs(x_check_data - rt).argmin()
+                        intensities.append(y_check_data[x_coord])
+                        
+                    break
+            
+            # Find the possibilities of drawings for the given glycan
+            possibilities = []
+            directory_files = os.listdir(os.path.join(current_dir, f"Assets/glycans/{selected_name}"))
+            for file in directory_files:
+                if parameters_gg[0][8] == 'n_glycans':
+                    if file.split(".")[0].split("_")[2] == "N":
+                        possibilities.append(file)
+                elif parameters_gg[0][8] == 'o_glycans':
+                    if file.split(".")[0].split("_")[2] == "O":
+                        possibilities.append(file)
+                else:
+                    possibilities.append(file)
+                
+            if level == 1:
+                sorted_pairs = sorted(zip(rts, intensities))
+                rts, intensities = zip(*sorted_pairs)
+                
+                last_rt = 0
+                new_rts = []
+                new_ints = []
+                for index, rt in enumerate(rts):
+                    if abs(rt-last_rt) > 0.2:
+                        new_rts.append(rt)
+                        new_ints.append(intensities[index])
+                    else:
+                        new_ints[-1] = max([new_ints[-1], intensities[index]])
+                    last_rt = rt
+                
+                rts = new_rts
+                intensities = new_ints
+            
+            for x, y in zip(rts, intensities):
+                to_plot.append([selected_name, x, y, f"{selected_name}/{random.choice(possibilities)}"])
+                
+        to_plot = sorted(to_plot, key=lambda item: item[1])
+        for index, glycan in enumerate(to_plot):
+            x_offset = -1 if index-math.floor(len(to_plot)/2) < 0 else 1
+            x = glycan[1]
+            y = glycan[2]
+            max_int = ax.get_ylim()[1]
+            xbox = x+(x_offset*(max_rt*0.1))
+            if y < max_int*0.2:
+                ybox = y+(max_int*0.4)
+            elif y > max_int*0.8:
+                ybox = y-(max_int*0.2)
+            else:
+                ybox = y+(max_int*0.2)
+            
+            image = mpimg.imread(os.path.join(current_dir, f"Assets/glycans/{glycan[3]}"))
+            imagebox = OffsetImage(image, zoom=gg_draw_zoom_scale_value.get())
+            ab = AnnotationBbox(imagebox, xy=[x, y], xybox=[xbox, ybox], frameon=True, bboxprops=dict(boxstyle='square', fc='none', ec='none', lw=1, linestyle=':'), xycoords='data', arrowprops=dict(arrowstyle="->", color='black', connectionstyle="angle3,angleA=90,angleB=0"))
+            ax.add_artist(ab)
+            
+            gg_draw_list.append([glycan[0], ab, [x,y], [xbox, ybox], glycan[3]])
+            
+        canvas.draw_idle()
+        
+    def recreate_gg_draw(gg_draw_list_index, new_image, zoom_level = '', mirrored = False):
+        '''
+        '''
+        global gg_draw_zoom_scale_value
+        if zoom_level == '':
+            zoom_level = gg_draw_zoom_scale_value.get()
+        gg_draw_list[gg_draw_list_index][1].remove()
+        image = mpimg.imread(os.path.join(current_dir, f"Assets/glycans/{new_image}"))
+        if mirrored:
+            image = np.flip(image, axis=1)
+        imagebox = OffsetImage(image, zoom=zoom_level)
+        ab = AnnotationBbox(imagebox, xy=gg_draw_list[gg_draw_list_index][2], xybox=gg_draw_list[gg_draw_list_index][3], frameon=True, bboxprops=dict(boxstyle='square', fc='none', ec='none', lw=1, linestyle=':'), xycoords='data', arrowprops=dict(arrowstyle="->", color='black', connectionstyle="angle3,angleA=90,angleB=0"))
+        ax.add_artist(ab)
+        
+        gg_draw_list[gg_draw_list_index] = [gg_draw_list[gg_draw_list_index][0], ab, gg_draw_list[gg_draw_list_index][2], gg_draw_list[gg_draw_list_index][3], new_image]
+        
+        canvas.draw_idle()
+        
+    def glycan_browser(gg_draw_list_index):
+        '''
+        '''
+        def on_closing_glycan_browser():
+            global gg_draw_selected, panning_enabled
+            browse_glycans_window.destroy()
+            gg_draw_selected = None
+            panning_enabled = False
+            
+        def bissecting_glcnac_checkbox_variable_check():
+            state = bissecting_glcnac_checkbox_variable.get()
+            update_pictures(None)
+        
+        def core_fuc_checkbox_variable_check():
+            state = core_fuc_checkbox_variable.get()
+            update_pictures(None)
+        
+        def mirror_checkbox_variable_check():
+            state = mirror_checkbox_variable.get()
+            
+        def change_glycan():
+            recreate_gg_draw(gg_draw_list_index, "/".join(gallery.get_selected().split("/")[-2:]), mirrored=mirror_checkbox_variable.get())
+            
+        def remove_glycan():
+            gg_draw_list[gg_draw_list_index][1].remove()
+            del gg_draw_list[gg_draw_list_index]
+            canvas.draw_idle()
+            on_closing_glycan_browser()
+            
+        def update_pictures(event):
+            global gallery_warning_label
+            
+            glycan_class = glycan_class_combobox.get()
+            
+            if glycan_class == 'All':
+                glycan_class = ''
+            elif glycan_class == 'N-Glycans':
+                glycan_class = 'N'
+            elif glycan_class == 'O-Glycans':
+                glycan_class = 'O'
+            
+            antennas_no = antennas_no_combobox.get()
+            if antennas_no == 'All':
+                antennas_no = ''
+            elif antennas_no == 'Generic':
+                antennas_no = 'G'
+                
+            core_fuc = core_fuc_checkbox_variable.get()
+            bissecting_glcnac = bissecting_glcnac_checkbox_variable.get()
+            
+            new_possibilities = []
+            
+            for picture in possibilities:
+                picture_parts = picture.split("/")[-1].split(".")[0].split("_")
+                
+                if glycan_class in picture_parts[2]:
+                    if antennas_no in picture_parts[1]:
+                        if core_fuc and "F" in picture_parts:
+                            if bissecting_glcnac and "B" in picture_parts:
+                                new_possibilities.append(picture)
+                            elif not bissecting_glcnac:
+                                new_possibilities.append(picture)
+                        elif not core_fuc:
+                            if bissecting_glcnac and "B" in picture_parts:
+                                new_possibilities.append(picture)
+                            elif not bissecting_glcnac:
+                                new_possibilities.append(picture)
+                                
+            if len(new_possibilities) > 750:
+                gallery.update_images(new_possibilities[:750])
+                try:
+                    gallery_warning_label.destroy()
+                except:
+                    pass
+                gallery.grid_configure(pady=(30, 30))
+                gallery_warning_label = ttk.Label(browse_glycans_window, text='Displaying 750 options. Use the filters to explore all structures.', font=("Segoe UI", list_font_size))
+                gallery_warning_label.grid(row=3, column=0, padx=(10, 10), pady=(5, 5), sticky='sew')
+            else:
+                gallery.update_images(new_possibilities)
+                try:
+                    gallery_warning_label.destroy()
+                except:
+                    pass
+                gallery.grid_configure(pady=(30, 10))
+        
+        comp = General_Functions.form_to_comp(gg_draw_list[gg_draw_list_index][0])
+        possibilities_glycans = [gg_draw_list[gg_draw_list_index][0]]
+        
+        if 'S' in comp.keys() or 'G' in comp.keys():
+            if 'S' in comp.keys():
+                new_combos = der_sialics_combo('S', comp['S'])
+                for i in new_combos:
+                    new_comp = copy.deepcopy(comp)
+                    new_comp = replace_dict_keys(new_comp, 'S', i)
+                    possibilities_glycans.append(General_Functions.comp_to_formula(new_comp))
+                    
+            if 'G' in comp.keys():
+                new_combos = der_sialics_combo('G', comp['G'])
+                for i in new_combos:
+                    new_comp = copy.deepcopy(comp)
+                    new_comp = replace_dict_keys(new_comp, 'G', i)
+                    possibilities_glycans.append(General_Functions.comp_to_formula(new_comp))
+                to_add = []
+                for new_glycan_wip in possibilities_glycans[1:-1]:
+                    comp = General_Functions.form_to_comp(new_glycan_wip)
+                    new_combos = der_sialics_combo('G', comp['G'])
+                    for i in new_combos:
+                        new_comp = copy.deepcopy(comp)
+                        new_comp = replace_dict_keys(new_comp, 'G', i)
+                        to_add.append(General_Functions.comp_to_formula(new_comp))
+                for item in to_add:
+                    possibilities_glycans.append(to_add)
+        
+        possibilities = []
+        generic_n_added = False
+        generic_o_added = False
+        directory_files = os.listdir(os.path.join(current_dir, "Assets/glycans"))
+        for file in directory_files:
+            if file in possibilities_glycans:
+                for glycan in os.listdir(os.path.join(current_dir, f"Assets/glycans/{file}")):
+                    if "G" in glycan.split("_") and "N" in glycan.split(".")[0].split("_"):
+                        if generic_n_added:
+                            continue
+                        else:
+                            generic_n_added = True
+                    if "G" in glycan.split("_") and "O" in glycan.split(".")[0].split("_"):
+                        if generic_o_added:
+                            continue
+                        else:
+                            generic_o_added = True
+                    possibilities.append(os.path.join(current_dir, f"Assets/glycans/{file}/{glycan}"))
+        
+        browse_glycans_window = tk.Toplevel()
+        icon = ImageTk.PhotoImage(ico_image)
+        browse_glycans_window.iconphoto(False, icon)
+        browse_glycans_window.withdraw()
+        browse_glycans_window.grab_set()
+        browse_glycans_window.bind("<Configure>", on_resize)
+        browse_glycans_window.title(f"Glycan Browser - {gg_draw_list[gg_draw_list_index][0]}")
+        browse_glycans_window.resizable(False, False)
+        browse_glycans_window.geometry("400x480")
+        browse_glycans_window.grid_rowconfigure(3, weight=1)
+        browse_glycans_window.protocol("WM_DELETE_WINDOW", on_closing_glycan_browser)
+        
+        # Glycan class
+        glycan_class_options = ['All', 'N-Glycans', 'O-Glycans']
+        glycan_class_label = ttk.Label(browse_glycans_window, text='Glycan Class:', font=("Segoe UI", list_font_size))
+        glycan_class_label.grid(row=0, column=0, padx=(10, 10), pady=(0, 10), sticky='nw')
+        glycan_class_combobox = ttk.Combobox(browse_glycans_window, state="readonly", values=glycan_class_options, width=10)
+        glycan_class_combobox.grid(row=0, column=0, padx=(95, 10), pady=(0, 10), sticky='nw')
+        glycan_class_combobox.set('All')
+        glycan_class_combobox.bind("<<ComboboxSelected>>", update_pictures)
+        ToolTip(glycan_class_label, "Filter the glycans by their class (e.g. N-glycans, O-Glycans, etc.)")
+        ToolTip(glycan_class_combobox, "Filter the glycans by their class (e.g. N-glycans, O-Glycans, etc.)")
+        
+        # Antennas No.
+        antennas_no_options = ['All', 'Generic', '1', '2', '3', '4']
+        antennas_no_label = ttk.Label(browse_glycans_window, text='Number of Antennas:', font=("Segoe UI", list_font_size))
+        antennas_no_label.grid(row=0, column=0, padx=(188, 10), pady=(0, 10), sticky='nw')
+        antennas_no_combobox = ttk.Combobox(browse_glycans_window, state="readonly", values=antennas_no_options, width=7)
+        antennas_no_combobox.grid(row=0, column=0, padx=(320, 10), pady=(0, 10), sticky='nw')
+        antennas_no_combobox.set('All')
+        antennas_no_combobox.bind("<<ComboboxSelected>>", update_pictures)
+        ToolTip(antennas_no_label, "Filter the glycans by the amount of antennas they have.")
+        ToolTip(antennas_no_combobox, "Filter the glycans by the amount of antennas they have.")
+        
+        # Bissecting GlcNAc
+        bissecting_glcnac_checkbox_variable = tk.BooleanVar(value=False)
+        bissecting_glcnac_checkbox = ttk.Checkbutton(browse_glycans_window, text="Only with Bissecting GlcNAc", variable=bissecting_glcnac_checkbox_variable, command=bissecting_glcnac_checkbox_variable_check)
+        bissecting_glcnac_checkbox.grid(row=1, column=0, padx=(10, 10), pady=(0, 10), sticky='nw')
+        ToolTip(bissecting_glcnac_checkbox, "Display only glycans with bissecting GlcNAc.")
+        
+        # Change Glycan button
+        change_glycan_button = ttk.Button(browse_glycans_window, text="    Change Glycan   ", style="small_button_sfw_style1.TButton", command=change_glycan)
+        change_glycan_button.grid(row=2, column=0, padx=(10, 20), pady=(0, 0), sticky='ne')
+        
+        # Core Fucosylation
+        core_fuc_checkbox_variable = tk.BooleanVar(value=False)
+        core_fuc_checkbox = ttk.Checkbutton(browse_glycans_window, text="Only with Core Fucosylation", variable=core_fuc_checkbox_variable, command=core_fuc_checkbox_variable_check)
+        core_fuc_checkbox.grid(row=2, column=0, padx=(10, 10), pady=(0, 10), sticky='nw')
+        ToolTip(core_fuc_checkbox, "Display only glycans with core fucosylation.")
+        
+        # Mirrored
+        mirror_checkbox_variable = tk.BooleanVar(value=False)
+        mirror_checkbox = ttk.Checkbutton(browse_glycans_window, text="Mirror the glycan", variable=mirror_checkbox_variable, command=mirror_checkbox_variable_check)
+        mirror_checkbox.grid(row=3, column=0, padx=(10, 10), pady=(0, 10), sticky='nw')
+        ToolTip(mirror_checkbox, "Mirrors the glycan on the y axis (e.g. left elements will be on the right side and vice-versa.)")
+        
+        # Remove Glycan button
+        remove_glycan_button = ttk.Button(browse_glycans_window, text="   Remove Glycan   ", style="small_button_sfw_style1.TButton", command=remove_glycan)
+        remove_glycan_button.grid(row=3, column=0, padx=(10, 20), pady=(0, 10), sticky='ne')
+        
+        if len(possibilities) > 750:
+            gallery = ImageGallery(browse_glycans_window, possibilities[:750], columns=3, cell_size=(125, 125))
+            gallery.grid(row=3, column=0, padx=(0, 10), pady=(30, 30), sticky="nsew")
+            
+            global gallery_warning_label
+            gallery_warning_label = ttk.Label(browse_glycans_window, text='Displaying 750 options. Use the filters to explore all structures.', font=("Segoe UI", list_font_size))
+            gallery_warning_label.grid(row=3, column=0, padx=(10, 10), pady=(5, 5), sticky='sew')
+        else:
+            gallery = ImageGallery(browse_glycans_window, possibilities, columns=3, cell_size=(125, 125))
+            gallery.grid(row=3, column=0, padx=(0, 10), pady=(30, 10), sticky="nsew")
+        
+        browse_glycans_window.update_idletasks()
+        browse_glycans_window.deiconify()
+        window_width = browse_glycans_window.winfo_width()
+        window_height = browse_glycans_window.winfo_height()
+        screen_width = browse_glycans_window.winfo_screenwidth()
+        screen_height = browse_glycans_window.winfo_screenheight()
+        x_position = (screen_width - window_width) // 2
+        y_position = (screen_height - window_height) // 2
+        browse_glycans_window.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
+        
+        global gathering_glycan_options    
+        gathering_glycan_options.destroy()
+                
+    def gg_draw_options(gg_draw_list_index):
+        '''
+        '''
+        
+        global gathering_glycan_options
+        gathering_glycan_options = tk.Toplevel()
+        # gathering_glycan_options.attributes("-topmost", True)
+        gathering_glycan_options.withdraw()
+        gathering_glycan_options.title("Gathering Glycans Options")
+        icon = ImageTk.PhotoImage(ico_image)
+        gathering_glycan_options.iconphoto(False, icon)
+        gathering_glycan_options.resizable(False, False)
+        gathering_glycan_options.grab_set()
+        gathering_glycan_options.protocol("WM_DELETE_WINDOW", on_closing)
+        
+        gathering_glycan_options_label = ttk.Label(gathering_glycan_options, text=f"Gathering the structure options for this glycan.\nPlease wait.", font=("Segoe UI", list_font_size))
+        gathering_glycan_options_label.pack(pady=20, padx=50)
+        
+        gathering_glycan_options.update_idletasks()
+        gathering_glycan_options.deiconify()
+        window_width = gathering_glycan_options.winfo_width()
+        window_height = gathering_glycan_options.winfo_height()
+        screen_width = gathering_glycan_options.winfo_screenwidth()
+        screen_height = gathering_glycan_options.winfo_screenheight()
+        x_position = (screen_width - window_width) // 2
+        y_position = (screen_height - window_height) // 2
+        gathering_glycan_options.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
+    
+        t = threading.Thread(target=glycan_browser, args=(gg_draw_list_index,))
+        t.start()
+            
     # Create the main window
     global main_window
     main_window = tk.Tk()
@@ -6502,6 +7276,16 @@ def run_main_window():
     
     image_eic = Image.open(os.path.join(current_dir, "Assets/eic.png"))
     photo_eic = ImageTk.PhotoImage(image_eic)
+    
+    global photo_ggdraw, photo_ggdraw_off
+    image_ggdraw = Image.open(os.path.join(current_dir, "Assets/gg_draw.png"))
+    photo_ggdraw = ImageTk.PhotoImage(image_ggdraw)
+    
+    image_ggdraw_off = Image.open(os.path.join(current_dir, "Assets/gg_draw_off.png"))
+    photo_ggdraw_off = ImageTk.PhotoImage(image_ggdraw_off)
+    
+    image_spectra_edit = Image.open(os.path.join(current_dir, "Assets/spectra_edit.png"))
+    photo_spectra_edit = ImageTk.PhotoImage(image_spectra_edit)
     
     global photo_ruler
     image_ruler = Image.open(os.path.join(current_dir, "Assets/ruler.png"))
@@ -6624,21 +7408,31 @@ def run_main_window():
     
     global two_d
     two_d = ttk.Button(main_window, image=photo_two_d, style="two_d_button_style.TButton", command=backend_heatmap, state=tk.DISABLED)
-    two_d.grid(row=0, column=2, padx=(10,20), sticky='se')
+    two_d.grid(row=0, column=2, padx=(10,55), sticky='se')
     ToolTip(two_d, "Creates a 2D-Plot (Retention/Migration Time x m/z) of the current axis ranges of the displayed chromatogram/electropherogram and spectrum in a new window. Wider ranges will take longer to load.")
     
     global quick_check
     quick_check = ttk.Button(main_window, image=photo_mis, style="two_d_button_style.TButton", command=quick_check_window, state=tk.DISABLED)
-    quick_check.grid(row=0, column=2, padx=(10,55), sticky='se')
+    quick_check.grid(row=0, column=2, padx=(10,90), sticky='se')
     ToolTip(quick_check, "Calculates an aggregated spectra called Maximum Intensity Spectrum (MIS) of the whole chromatographic/electropherographic run based on the maximum intensity values each m/z achieves. The sample can be quickly checked for the presence of glycans on the MIS window, if you have a library loaded.\nThe first time you click on this button for a given sample it will take up to a few minutes to calculate the MIS. Subsequent times will load instantly.")
     
     global quick_trace
     quick_trace = ttk.Button(main_window, image=photo_eic, style="two_d_button_style.TButton", command=run_quick_trace_window, state=tk.NORMAL)
-    quick_trace.grid(row=0, column=2, padx=(10,90), sticky='se')
+    quick_trace.grid(row=0, column=2, padx=(10,125), sticky='se')
     ToolTip(quick_trace, "Opens a small window that allows you to create custom Extracted Ion Chromatograms/Electropherograms for your samples.")
     
+    global spectra_file_editing
+    spectra_file_editing = ttk.Button(main_window, image=photo_spectra_edit, style="two_d_button_style.TButton", command=lambda: check_mzml_window([samples_dropdown, samples_list, library_path, [ax_spec, canvas_spec, scaling_dropdown, rt_label]]), state=tk.DISABLED)
+    spectra_file_editing.grid(row=0, column=2, padx=(10,20), sticky='se')
+    ToolTip(spectra_file_editing, "Opens a window that allows you to calibrate, trim or align your spectra files, creating new files.")
+    
+    global gg_draw
+    gg_draw = ttk.Button(main_window, image=photo_ggdraw, style="two_d_button_style.TButton", command=lambda: toggle_gg_draw(chromatograms_list), state=tk.NORMAL)
+    gg_draw.grid(row=0, column=2, padx=(10,160), sticky='se')
+    ToolTip(gg_draw, "Display on the chromatogram/electropherogram viewer the drawings of glycans that meet QC thresholds. The initial glycan structures are chosen randomly. Double click a structure to change or remove the displayed structure. Click and drag on a structure to reposition it in the plot. The first time you activate it, it may take up to an hour to generate glycans. Subsequent activations will be much faster.")
+    
     # Create panned window for bottom side widgets
-    paned_window = tk.PanedWindow(main_window, orient=tk.HORIZONTAL)
+    paned_window = tk.PanedWindow(main_window, sashwidth=5, orient=tk.HORIZONTAL)
     paned_window.grid(row=1, column=0, columnspan=3, padx = 10, pady = 10, sticky='nwse')
     
     # Create the left side widgets frame in the main window paned window
@@ -6685,7 +7479,7 @@ def run_main_window():
     global compare_samples_button
     compare_samples_button = ttk.Button(left_side_widgets_frame, text="Compare samples", style="small_button_style1.TButton", command=compare_samples_window, state=tk.DISABLED)
     compare_samples_button.grid(row=3, column=0, padx=(10, 0), pady=(0, 0), sticky="sew")
-    ToolTip(compare_samples_button, "Opens a window for comparing the chromatograms/electropherograms for the selected compound on different samples. It features an option for alignment of the chromatograms/electropherograms and, due to that, and depending on the number of samples you have, this may take a while to load the first time with a given set of QC parameters.")
+    ToolTip(compare_samples_button, "Opens a window for comparing the chromatograms/electropherograms for the selected compound on different samples. It features an option for alignment of the chromatograms/electropherograms that can be toggled on or off.")
     
     global plot_graph_button
     plot_graph_button = ttk.Button(left_side_widgets_frame, text="Plot Graph", style="small_button_style1.TButton", command=plot_graph_window, state=tk.DISABLED)
@@ -6767,7 +7561,7 @@ def run_main_window():
     ToolTip(chromatograms_qc_numbers, "Good compositions have at least one peak that matches all quality scores criteria set above; Average have at least one peak that fails only one criteria; Bad have all peaks failing at least two criterias.")
     
     # Add a new paned window to the right_side_widgets_frame
-    paned_window_plots = tk.PanedWindow(paned_window, orient=tk.VERTICAL)
+    paned_window_plots = tk.PanedWindow(paned_window, sashwidth=5, orient=tk.VERTICAL)
 
     chromatogram_plot_frame = ttk.Labelframe(paned_window_plots, text="Chromatogram/Electropherogram Viewer", style="chromatogram.TLabelframe", height = 400)
     chromatogram_plot_frame.pack(fill=tk.BOTH, expand=True)
@@ -7032,7 +7826,7 @@ def run_select_files_window(samples_dropdown):
         t.start()
             
     def ok_button_sfw():
-        global reanalysis_path, samples_list, samples_names, samples_dropdown_options, two_d, quick_check, compare_samples_button, check_qc_dist_button, filter_list, former_alignments, plot_graph_button, processed_samples, reanalysis_file
+        global reanalysis_path, samples_list, samples_names, samples_dropdown_options, two_d, quick_check, spectra_file_editing, compare_samples_button, check_qc_dist_button, filter_list, former_alignments, plot_graph_button, processed_samples, reanalysis_file
         
         # Get the list of item identifiers (IDs) in the Treeview
         item_ids = files_list.get_children()
@@ -7116,6 +7910,10 @@ def run_select_files_window(samples_dropdown):
             samples_dropdown['values'] = []
             ToolTip(samples_dropdown, "")
             
+        quick_check.config(state=tk.DISABLED)
+        two_d.config(state=tk.DISABLED)
+        spectra_file_editing.config(state=tk.DISABLED)
+            
         # Process the sample files and activate the proper buttons
         if len(samples_list) > 0:
             if len(reanalysis_path) == 0:
@@ -7127,6 +7925,7 @@ def run_select_files_window(samples_dropdown):
             # Only activate the buttons if the sample passes the processing.
             quick_check.config(state=tk.NORMAL)
             two_d.config(state=tk.NORMAL)
+            spectra_file_editing.config(state=tk.NORMAL)
             run_analysis_button.config(state=tk.NORMAL)
         
         # Creates the loading window
@@ -7215,7 +8014,7 @@ def run_select_files_window(samples_dropdown):
             if len(parameters_gg[0]) > 24:
                 additional_info+= f"\n - Uronic Acids: {str(parameters_gg[0][25])[1:-1]}"
                 
-        additional_info+= f"\n\n - Force N-Glycans composition: {parameters_gg[0][8]}\n - Maximum adducts: {parameters_gg[0][9]}\n - Adducts excluded: {parameters_gg[0][10]}\n - Maximum charges: {parameters_gg[0][11]}\n - Reducing end tag: {parameters_gg[0][12] if parameters_gg[0][12] != 0.0 else False}\n - Permethylated: {parameters_gg[0][13]}\n - Reduced end: {parameters_gg[0][14]}\n - Amidated/Ethyl-Esterified: {parameters_gg[0][15]}"
+        additional_info+= f"\n\n - Forced glycan class: {parameters_gg[0][8]}\n - Maximum adducts: {parameters_gg[0][9]}\n - Adducts excluded: {parameters_gg[0][10]}\n - Maximum charges: {parameters_gg[0][11]}\n - Reducing end tag: {parameters_gg[0][12] if parameters_gg[0][12] != 0.0 else False}\n - Permethylated: {parameters_gg[0][13]}\n - Reduced end: {parameters_gg[0][14]}\n - Amidated/Ethyl-Esterified: {parameters_gg[0][15]}"
         
         if len(parameters_gg[0]) > 24:
             additional_info+= f"\n - Min/Max number of Sulfations: {str(parameters_gg[0][26])[1:-1]}"
@@ -9315,6 +10114,8 @@ def save_results_window():
     sr_window.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
 
 if __name__ == "__main__":
+    from File_Editor import mzml_window_start
+    from GG_Draw import draw_glycan
     # Avoid creating multiple windows when creating multiple processes
     multiprocessing.freeze_support()
     
@@ -9343,6 +10144,8 @@ if __name__ == "__main__":
     run_main_window()
     
 def main():
+    from .File_Editor import mzml_window_start
+    from .GG_Draw import draw_glycan
     # Avoid creating multiple windows when creating multiple processes
     multiprocessing.freeze_support()
     
