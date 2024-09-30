@@ -527,7 +527,8 @@ def create_mzml(spectra_file, mode, calibrants_list, labels, plot_area, samples_
     # Loop through each spectrum in the existing file
     for spectrum in spectra:
         if file_type == 'mzxml':
-            temp_spectrum = {'id':f'scan={spectrum['num']}', 'ms level':spectrum['msLevel'], 'scanList':{'scan': [{'scan start time':spectrum['retentionTime']}]}}
+            scan_num = spectrum['num']
+            temp_spectrum = {'id':f'scan={scan_num}', 'ms level':spectrum['msLevel'], 'scanList':{'scan': [{'scan start time':spectrum['retentionTime']}]}}
             
             # Polarity
             if spectrum['polarity'] == '+':
@@ -558,10 +559,11 @@ def create_mzml(spectra_file, mode, calibrants_list, labels, plot_area, samples_
             spectrum = temp_spectrum
 
         # Create a spectrum element
+        spectrum_id = spectrum['id']
         spectrum_element = etree.SubElement(spectrumList, 
                                             "spectrum",
-                                            index=f"{int(spectrum['id'][5:])-1}", 
-                                            id=f"{spectrum['id']}", 
+                                            index=f"{int(spectrum_id[5:])-1}", 
+                                            id=f"{spectrum_id}", 
                                             defaultArrayLength=str(len(spectrum['m/z array'])))
 
         # Add ms level
@@ -708,7 +710,7 @@ def create_mzml(spectra_file, mode, calibrants_list, labels, plot_area, samples_
                                  cvRef="MS", 
                                  accession="MS:1000827",
                                  name="isolation window target m/z",
-                                 value= f"{spectrum['precursorList']['precursor'][0]['isolationWindow']['isolation window target m/z']}",
+                                 value= str(spectrum['precursorList']['precursor'][0]['isolationWindow']['isolation window target m/z']),
                                  unitCvRef="MS",
                                  unitAccession="MS:1000040",
                                  unitName="m/z")
@@ -717,7 +719,7 @@ def create_mzml(spectra_file, mode, calibrants_list, labels, plot_area, samples_
                                  cvRef="MS", 
                                  accession="MS:1000828",
                                  name="isolation window lower offset",
-                                 value= f"{spectrum['precursorList']['precursor'][0]['isolationWindow']['isolation window lower offset']}",
+                                 value= str(spectrum['precursorList']['precursor'][0]['isolationWindow']['isolation window lower offset']),
                                  unitCvRef="MS",
                                  unitAccession="MS:1000040",
                                  unitName="m/z")
@@ -726,7 +728,7 @@ def create_mzml(spectra_file, mode, calibrants_list, labels, plot_area, samples_
                                  cvRef="MS", 
                                  accession="MS:1000829",
                                  name="isolation window upper offset",
-                                 value= f"{spectrum['precursorList']['precursor'][0]['isolationWindow']['isolation window upper offset']}",
+                                 value= str(spectrum['precursorList']['precursor'][0]['isolationWindow']['isolation window upper offset']),
                                  unitCvRef="MS",
                                  unitAccession="MS:1000040",
                                  unitName="m/z")
@@ -750,7 +752,7 @@ def create_mzml(spectra_file, mode, calibrants_list, labels, plot_area, samples_
                              cvRef = "MS",
                              accession = "MS:1000744",
                              name = "selected ion m/z",
-                             value = f"{spectrum['precursorList']['precursor'][0]['selectedIonList']['selectedIon'][0]['selected ion m/z']}",
+                             value = str(spectrum['precursorList']['precursor'][0]['selectedIonList']['selectedIon'][0]['selected ion m/z']),
                              unitCvRef="MS",
                              unitAccession="MS:1000040",
                              unitName="m/z")
@@ -760,7 +762,7 @@ def create_mzml(spectra_file, mode, calibrants_list, labels, plot_area, samples_
                                  cvRef = "MS",
                                  accession = "MS:1000041",
                                  name = "charge state",
-                                 value = f"{spectrum['precursorList']['precursor'][0]['selectedIonList']['selectedIon'][0]['charge state']}")
+                                 value = str(spectrum['precursorList']['precursor'][0]['selectedIonList']['selectedIon'][0]['charge state']))
                              
             activation = etree.SubElement(precursor,
                                           'activation')
@@ -1189,11 +1191,13 @@ def edit_calibrant_list(treeview, file_name, plot_area, labels, mode_combobox, s
         
         if data_storage[file_name][target_values[0]]['found_mz_array'][max_id] == 0:
             continue
-            
-        target_values[2] = f"{data_storage[file_name][target_values[0]]['found_mz_array'][max_id]:.4f}"
+        
+        max_id_found_mz_array = data_storage[file_name][target_values[0]]['found_mz_array'][max_id]
+        max_id_rt_array = data_storage[file_name]['rt_array'][max_id]
+        target_values[2] = f"{max_id_found_mz_array:.4f}"
         target_values[3] = f"{calculate_ppm_diff(float(target_values[2]), float(target_values[1])):.2f}"
         target_values[4] = f"{float(target_values[1])-float(target_values[2]):.4f}"
-        target_values[5] = f"{data_storage[file_name]['rt_array'][max_id]:.2f}"
+        target_values[5] = f"{max_id_rt_array:.2f}"
         
         plotted_datapoints[0].append(float(target_values[1]))
         plotted_datapoints[1].append(float(target_values[4]))
@@ -1403,10 +1407,11 @@ def calibration_done(file_name, from_GG):
     calibration_done_window.protocol("WM_DELETE_WINDOW", on_closing)
     
     if not from_GG:
-        calibrating_spectra_window_label = ttk.Label(calibration_done_window, text=f"\nCalibrated file name:\n\n{file_name.split("/")[-1].split("\\")[-1]}", font=("Segoe UI", fontsize))
+        file_name_split = file_name.split("/")[-1].split("\\")[-1]
+        calibrating_spectra_window_label = ttk.Label(calibration_done_window, text=f"\nCalibrated file name:\n\n{file_name_split}", font=("Segoe UI", fontsize))
         calibrating_spectra_window_label.pack(pady=10, padx=70)
     else:
-        calibrating_spectra_window_label = ttk.Label(calibration_done_window, text=f"\nCalibrated file name:\n\n{file_name.split("/")[-1].split("\\")[-1]}\n\nYou must load it in GlycoGenius to use it.", font=("Segoe UI", fontsize))
+        calibrating_spectra_window_label = ttk.Label(calibration_done_window, text=f"\nCalibrated file name:\n\n{file_name_split}\n\nYou must load it in GlycoGenius to use it.", font=("Segoe UI", fontsize))
         calibrating_spectra_window_label.pack(pady=10, padx=70)
     
     # ok button
