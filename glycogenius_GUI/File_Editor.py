@@ -350,13 +350,16 @@ def make_calibration_report(output_path, file_name, calibrants_list, labels, plo
     c.drawString(50, height-(text_line*space_between_lines), f"Alignment Stats:")
     text_line += 1
     
-    c.drawString(75, height-(text_line*space_between_lines), f"{labels[0].cget("text")}")
+    text = labels[0].cget("text")
+    c.drawString(75, height-(text_line*space_between_lines), f"{text}")
     text_line += 1
     
-    c.drawString(75, height-(text_line*space_between_lines), f"{labels[1].cget("text")}")
+    text = labels[1].cget("text")
+    c.drawString(75, height-(text_line*space_between_lines), f"{text}")
     text_line += 1
     
-    c.drawString(75, height-(text_line*space_between_lines), f"{labels[2].cget("text")}")
+    text = labels[2].cget("text")
+    c.drawString(75, height-(text_line*space_between_lines), f"{text}")
     text_line += 2
     
     c.drawString(50, height-(text_line*space_between_lines), f"Calibration Plot:")
