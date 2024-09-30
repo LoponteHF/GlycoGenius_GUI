@@ -18,7 +18,7 @@
 
 global gg_version, GUI_version
 gg_version = '1.2.3'
-GUI_version = '0.2.4'
+GUI_version = '0.2.5'
 
 from PIL import Image, ImageTk
 import tkinter as tk
@@ -10150,7 +10150,7 @@ def main():
     multiprocessing.freeze_support()
     
     # Determine global variables
-    global splash_screen, date, begin_time, temp_folder
+    global splash_screen, date, begin_time, temp_folder, mzml_window_start, draw_glycan
     
     # Load matplotlib backends
     matplotlib.use("TkAgg")
