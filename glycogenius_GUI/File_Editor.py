@@ -1411,6 +1411,7 @@ def calibration_done(file_name, from_GG):
         calibrating_spectra_window_label = ttk.Label(calibration_done_window, text=f"\nCalibrated file name:\n\n{file_name_split}", font=("Segoe UI", fontsize))
         calibrating_spectra_window_label.pack(pady=10, padx=70)
     else:
+        file_name_split = file_name.split("/")[-1].split("\\")[-1]
         calibrating_spectra_window_label = ttk.Label(calibration_done_window, text=f"\nCalibrated file name:\n\n{file_name_split}\n\nYou must load it in GlycoGenius to use it.", font=("Segoe UI", fontsize))
         calibrating_spectra_window_label.pack(pady=10, padx=70)
     
