@@ -70,8 +70,8 @@ equation = []
 global trimming_range
 trimming_range = []
 
-global last_file
-last_file = ''
+global last_selection
+last_selection = {}
 
 class ToolTip:
     '''This allows to create the mouse hover tooltips'''
@@ -401,10 +401,6 @@ def create_mzml(spectra_file, mode, calibrants_list, labels, plot_area, samples_
         spectra_file_path = file_path
         
     output_file_path = "/".join(spectra_file_path.split("/")[:-1])
-    
-    if spectra_file_path.split("/")[-1] != last_file:
-        error_window("You must recalculate the calibrants list before you can calibrate this sample!")
-        return
     
     if mode == 'calibration':
         new_file_name = spectra_file_path.split("/")[-1].split(".")[0]+"_calibrated.mzML"
@@ -744,7 +740,7 @@ def create_mzml(spectra_file, mode, calibrants_list, labels, plot_area, samples_
                 if equation[0] == 'linear':
                     corrected_mz = mz + ((equation[1]*mz)+equation[2])
                 elif equation[0] == 'quadratic':
-                    corrected_mz = mz+((equation[1]*(m**2))+(equation[2]*mz)+equation[3])
+                    corrected_mz = mz+((equation[1]*(mz**2))+(equation[2]*mz)+equation[3])
                 spectrum['precursorList']['precursor'][0]['selectedIonList']['selectedIon'][0]['selected ion m/z'] = corrected_mz
                 
             etree.SubElement(selectedIon,
@@ -886,16 +882,29 @@ def create_mzml(spectra_file, mode, calibrants_list, labels, plot_area, samples_
     
 # Custom square root function that handles negative values
 def custom_sqrt(x):
-    return np.where(x >= 0, np.sqrt(x), -np.sqrt(-x))
+    return numpy.where(x >= 0, numpy.sqrt(x), -numpy.sqrt(-x))
 
 # Custom square function (inverse of sqrt)
 def custom_square(x):
-    return np.where(x >= 0, np.square(x), -np.square(-x))
+    return numpy.where(x >= 0, numpy.square(x), -numpy.square(-x))
     
-def add_calibrant(treeview, mz, standard, glycan, library):
+def add_calibrant(treeview, file_name, mz, standard, glycan, library):
     '''
     '''
-    global glycans
+    global glycans, data_storage, last_selection
+    
+    if type(file_name) == list:
+        spectra_file = file_name[0].get()
+        for file in file_name[1]:
+            if spectra_file in file:
+                spectra_file = file
+                break
+    else:
+        spectra_file = file_path
+    
+    # Get file name
+    file_name = spectra_file.split("/")[-1].split(".")[0]
+    
     targets = [mz.get(), standard.get(), glycan.get()]
     count = 0
     good_target = ''
@@ -935,10 +944,12 @@ def add_calibrant(treeview, mz, standard, glycan, library):
         standard.set('')
         glycan.set('')
         
+    last_selection[file_name] = [treeview.item(calibrant, "values") for calibrant in treeview.get_children()]
+        
 def remove_selected_item(treeview, file_name, plot_area, labels, mode_combobox, search_tolerance, intensity_threshold):
     '''
     '''
-    global file_path
+    global file_path, last_selection
     selected = treeview.selection()
     for item in selected:
         treeview.delete(item)
@@ -953,10 +964,10 @@ def remove_selected_item(treeview, file_name, plot_area, labels, mode_combobox, 
         spectra_file = file_path
     
     # Get file name
-    file_name = spectra_file.split("/")[-1]
-    file_name = f"{file_name}_{search_tolerance}_{intensity_threshold}"
+    file_name = spectra_file.split("/")[-1].split(".")[0]
+    file_name_plus_data = f"{file_name}_{search_tolerance}_{intensity_threshold}"
     
-    edit_calibrant_list(treeview, file_name, plot_area, labels, mode_combobox, search_tolerance)
+    edit_calibrant_list(treeview, file_name_plus_data, plot_area, labels, mode_combobox, search_tolerance)
     
     if len(treeview.get_children()) == 0:
         plot_area[0].cla()
@@ -968,9 +979,25 @@ def remove_selected_item(treeview, file_name, plot_area, labels, mode_combobox, 
         labels[1].config(text="")
         labels[2].config(text="")
         
-def remove_all_items(treeview, plot_area, labels):
+    last_selection[file_name] = [treeview.item(calibrant, "values") for calibrant in treeview.get_children()]
+        
+def remove_all_items(treeview, file_name, plot_area, labels):
     '''
     '''
+    global last_selection
+    
+    if type(file_name) == list:
+        spectra_file = file_name[0].get()
+        for file in file_name[1]:
+            if spectra_file in file:
+                spectra_file = file
+                break
+    else:
+        spectra_file = file_path
+    
+    # Get file name
+    file_name = spectra_file.split("/")[-1].split(".")[0]
+    
     selected = treeview.get_children()
     for item in selected:
         treeview.delete(item)
@@ -983,6 +1010,8 @@ def remove_all_items(treeview, plot_area, labels):
     labels[0].config(text="")
     labels[1].config(text="")
     labels[2].config(text="")
+        
+    last_selection[file_name] = [treeview.item(calibrant, "values") for calibrant in treeview.get_children()]
         
 def load_file(label, mzml_window):
     '''
@@ -1042,7 +1071,7 @@ def on_fit_selected(event, treeview, file_name, plot_area, labels, mode_combobox
         spectra_file = file_path
     
     # Get file name
-    file_name = spectra_file.split("/")[-1]
+    file_name = spectra_file.split("/")[-1].split(".")[0]
     file_name = f"{file_name}_{search_tolerance}_{intensity_threshold}"
     
     edit_calibrant_list(treeview, file_name, plot_area, labels, mode_combobox, search_tolerance)
@@ -1067,16 +1096,35 @@ def calibrants_list_sort(tv, col, reverse):
     # Reverse sort next time
     tv.heading(col, command=lambda: calibrants_list_sort(tv, col, not reverse))
     
-def trace(spectra_file, treeview, search_tolerance, intensity_threshold, plot_area, labels, mode_combobox, samples_list = []):
+def search_all_samples(spectra_file, treeview, search_tolerance, intensity_threshold, plot_area, labels, mode_combobox, samples_list = [], draw = False):
     '''
     '''
-    global data_storage, file_path, last_file
+    for sample in samples_list:
+        trace(sample.split("/")[-1].split(".")[0], treeview, search_tolerance, intensity_threshold, plot_area, labels, mode_combobox, samples_list, draw = False)
+        
+    spectra_file = spectra_file.get()
+    for file in samples_list:
+        if spectra_file in file:
+            spectra_file = file
+            break
+    file_name = spectra_file.split("/")[-1].split(".")[0]
+    file_name_plus_data = f"{file_name}_{search_tolerance}_{intensity_threshold}"
+    edit_calibrant_list(treeview, file_name_plus_data, plot_area, labels, mode_combobox, search_tolerance)
+    
+    
+def trace(spectra_file, treeview, search_tolerance, intensity_threshold, plot_area, labels, mode_combobox, samples_list = [], draw=True):
+    '''
+    '''
+    global data_storage, file_path, last_selection
     
     if len(treeview.get_children()) == 0:
         return
     
     if len(samples_list) != 0:
-        spectra_file = spectra_file.get()
+        if draw:
+            spectra_file = spectra_file.get()
+        else:
+            spectra_file = spectra_file
         for file in samples_list:
             if spectra_file in file:
                 spectra_file = file
@@ -1088,7 +1136,7 @@ def trace(spectra_file, treeview, search_tolerance, intensity_threshold, plot_ar
         return
     
     # Get file name
-    file_name = spectra_file.split("/")[-1]
+    file_name = spectra_file.split("/")[-1].split(".")[0]
     file_name_plus_data = f"{file_name}_{search_tolerance}_{intensity_threshold}"
     
     if file_name_plus_data not in data_storage.keys():
@@ -1161,11 +1209,12 @@ def trace(spectra_file, treeview, search_tolerance, intensity_threshold, plot_ar
     if len(rt_array) > 0:
         data_storage[file_name_plus_data]['rt_array'] = rt_array
         
-    last_file = file_name
+    last_selection[file_name] = [treeview.item(calibrant, "values") for calibrant in treeview.get_children()]
     
-    edit_calibrant_list(treeview, file_name_plus_data, plot_area, labels, mode_combobox, search_tolerance)
+    if draw:
+        edit_calibrant_list(treeview, file_name_plus_data, plot_area, labels, mode_combobox, search_tolerance)
     
-def edit_calibrant_list(treeview, file_name, plot_area, labels, mode_combobox, search_tolerance):
+def edit_calibrant_list(treeview, file_name, plot_area, labels, mode_combobox, search_tolerance, start=False):
     '''
     '''
     global data_storage, plotted_datapoints, equation
@@ -1267,7 +1316,8 @@ def edit_calibrant_list(treeview, file_name, plot_area, labels, mode_combobox, s
     plot_area[0].set_title('m/z error', fontsize=8)
     
     plot_area[0].set_ylim([-search_tolerance, search_tolerance])
-    plot_area[1].draw_idle()
+    if not start:
+        plot_area[1].draw_idle()
     
 def correct_mz_array(mz_array):
     '''
@@ -1280,11 +1330,11 @@ def correct_mz_array(mz_array):
             new_array.append(mz+((equation[1]*mz)+equation[2]))
     elif equation[0] == 'quadratic':
         for mz in mz_array:
-            new_array.append(mz+((equation[1]*(m**2))+(equation[2]*mz)+equation[3]))
+            new_array.append(mz+((equation[1]*(mz**2))+(equation[2]*mz)+equation[3]))
     
     return numpy.array(new_array)
     
-def finding_calibrants(spectra_file, treeview, search_tolerance, intensity_threshold, plot_area, labels, mode_combobox, samples_list = []):
+def finding_calibrants(spectra_file, treeview, search_tolerance, intensity_threshold, plot_area, labels, mode_combobox, samples_list = [], draw=True):
 
     def close_fc():
         finding_calibrant_window.destroy()
@@ -1294,7 +1344,10 @@ def finding_calibrants(spectra_file, treeview, search_tolerance, intensity_thres
         return
         
     def wait_thread():
-        trace(spectra_file, treeview, search_tolerance, intensity_threshold, plot_area, labels, mode_combobox, samples_list)
+        if draw:
+            trace(spectra_file, treeview, search_tolerance, intensity_threshold, plot_area, labels, mode_combobox, samples_list, draw)
+        else:
+            search_all_samples(spectra_file, treeview, search_tolerance, intensity_threshold, plot_area, labels, mode_combobox, samples_list, draw)
         
         close_fc()
         
@@ -1308,7 +1361,10 @@ def finding_calibrants(spectra_file, treeview, search_tolerance, intensity_thres
     finding_calibrant_window.grab_set()
     finding_calibrant_window.protocol("WM_DELETE_WINDOW", on_closing)
     
-    finding_calibrant_window_label = ttk.Label(finding_calibrant_window, text="Finding calibrants in the spectra file...", font=("Segoe UI", fontsize))
+    if draw:
+        finding_calibrant_window_label = ttk.Label(finding_calibrant_window, text="Finding calibrants in the spectra file...", font=("Segoe UI", fontsize))
+    else:
+        finding_calibrant_window_label = ttk.Label(finding_calibrant_window, text="Finding calibrants in all spectra files...\nThis may take a while, please wait.", font=("Segoe UI", fontsize))
     finding_calibrant_window_label.pack(pady=35, padx=70)
     
     finding_calibrant_window.update_idletasks()
@@ -1355,10 +1411,6 @@ def calibrating_spectra(spectra_file_path, mode, calibrants_list, labels, plot_a
                 break
     else:
         test_spectra_file_path = file_path
-    
-    if test_spectra_file_path.split("/")[-1] != last_file:
-        error_window("You must recalculate the calibrants list before you can calibrate this sample!\nUse the 'Search' button.")
-        return
         
     calibrating_spectra_window = tk.Toplevel()
     # calibrating_spectra_window.attributes("-topmost", True)
@@ -1444,7 +1496,7 @@ def click_treeview(event, treeview, file_data, spectra_viewer, search_tolerance,
             spectra_file = file
             break
                 
-    file_name = spectra_file.split("/")[-1]
+    file_name = spectra_file.split("/")[-1].split(".")[0]
     file_name_plus_data = f"{file_name}_{search_tolerance}_{intensity_threshold}"
     
     for row in selected_items:
@@ -1487,7 +1539,7 @@ def click_treeview(event, treeview, file_data, spectra_viewer, search_tolerance,
             
         spectra_viewer[0].plot(new_x_data, new_y_data, marker='None', linewidth=1, color='black')
         
-        scaling = spectra_viewer[2]
+        scaling = spectra_viewer[2].get()
         if scaling == 'Linear':
             spectra_viewer[0].set_yscale('linear')
         if scaling == 'Log':
@@ -1519,13 +1571,72 @@ def click_treeview(event, treeview, file_data, spectra_viewer, search_tolerance,
         spectra_viewer[0].annotate(f'{float(row_data[2]):.4f}', xy=(float(row_data[2]), y_values[closest_index]), xytext=(0, 10), textcoords='offset points', ha='center', fontsize=8, clip_on=True)
         
         spectra_viewer[1].draw()
+        
+def switch_sample_button(direction, combobox, samples_list, treeview, plot_area, labels, mode_combobox, search_tolerance, intensity_threshold):
+    '''
+    '''
+    sample_name = combobox.get()
+    for sample in samples_list:
+        if sample_name in sample:
+            sample_path = sample
+            break
+            
+    index = samples_list.index(sample_path)
     
-def mzml_window_start(from_GG=False):
+    if direction == 'back':
+        index -= 1
+        if index < 0:
+            index = 0
+    
+    elif direction == 'forward':
+        index += 1
+        if index > len(samples_list)-1:
+            index = len(samples_list)-1
+    file_name = samples_list[index].split("/")[-1].split(".")[0]
+            
+    # Set combobox here
+    combobox.set(file_name)
+    
+    # load data for given file
+    file_name_plus_data = f"{file_name}_{search_tolerance}_{intensity_threshold}"
+    edit_calibrant_list(treeview, file_name_plus_data, plot_area, labels, mode_combobox, search_tolerance)
+    
+    
+def mzml_window_start(from_GG=False, to_lift=False, change_sample=None):
     ''' from_GG: [combobox (contains file name), samples path list, library, [spectra ax, spectra canvas, scaling_dropdown, rt_label]]
     '''
-    global current_dir, ico_image, mzml_window
+    global current_dir, ico_image, mzml_window, last_selection, calibrants_list, mztol_entry, min_int_entry, ax_calibrate, canvas_calibrate, fig_calibrate, stats_label_SD, stats_label_fitr2, stats_label_eq, fit_combobox
+    
     current_dir = pathlib.Path(__file__).parent.resolve()
     
+    if change_sample != None:
+        last_calibrants = last_selection.get(change_sample)
+        for item in calibrants_list.get_children():
+            calibrants_list.delete(item)
+        
+        ax_calibrate.cla()
+        ax_calibrate.set_xlabel('m/z', fontsize=8)
+        ax_calibrate.set_title('m/z error', fontsize=8)
+        canvas_calibrate.draw()
+        
+        stats_label_SD.config(text="")
+        stats_label_fitr2.config(text="")
+        stats_label_eq.config(text="")
+        
+        if last_calibrants != None:
+            for row in last_calibrants:
+                calibrants_list.insert("", "end", values=row)
+            if from_GG == 'start':
+                edit_calibrant_list(calibrants_list, f"{change_sample}_{float(mztol_entry.get())}_{float(min_int_entry.get())}", [ax_calibrate, canvas_calibrate, fig_calibrate], [stats_label_SD, stats_label_fitr2, stats_label_eq], fit_combobox, float(mztol_entry.get()), True)
+            else:
+                edit_calibrant_list(calibrants_list, f"{change_sample}_{float(mztol_entry.get())}_{float(min_int_entry.get())}", [ax_calibrate, canvas_calibrate, fig_calibrate], [stats_label_SD, stats_label_fitr2, stats_label_eq], fit_combobox, float(mztol_entry.get()))
+        return
+    
+    if to_lift:
+        mzml_window.deiconify()
+        mzml_window.lift()
+        return
+        
     if not from_GG:
         library = ''
     else:
@@ -1561,6 +1672,8 @@ def mzml_window_start(from_GG=False):
     
     # Button style
     small_button_sfw_style1 = ttk.Style().configure("small_button_sfw_style1.TButton", font=("Segoe UI", fontsize), relief="raised", padding = (0, 0), justify="center")
+    
+    symbol_button_style1 = ttk.Style().configure("symbol_button_style1.TButton", font=("Segoe UI", fontsize), relief="raised", padding = (0, 0), justify="center", width=5)
     
     # Editing tabs framework
     function_tabs = ttk.Notebook(mzml_window)
@@ -1608,7 +1721,10 @@ def mzml_window_start(from_GG=False):
     ToolTip(fromlibrary_combobox, "Choose a glycan from your glycans' library to use as a calibrant.")
     
     # add button
-    add_button = ttk.Button(calibration_frame, text="    Add Calibrant    ", style="small_button_sfw_style1.TButton", command=lambda: add_calibrant(calibrants_list, mz_entry, standard_combobox, fromlibrary_combobox, library))
+    if not from_GG:
+        add_button = ttk.Button(calibration_frame, text="    Add Calibrant    ", style="small_button_sfw_style1.TButton", command=lambda: add_calibrant(calibrants_list, file_label, mz_entry, standard_combobox, fromlibrary_combobox, library))
+    else:
+        add_button = ttk.Button(calibration_frame, text="    Add Calibrant    ", style="small_button_sfw_style1.TButton", command=lambda: add_calibrant(calibrants_list, [from_GG[0], from_GG[1]], mz_entry, standard_combobox, fromlibrary_combobox, library))
     add_button.grid(row=0, column=0, columnspan=2, padx=(10, 10), pady=(8, 10), sticky="ne")
     ToolTip(add_button, "Add the selected calibrant to the list.")
     
@@ -1644,9 +1760,26 @@ def mzml_window_start(from_GG=False):
     ToolTip(remove_button, "Remove the selected calibrant(s) from the list.")
     
     # remove all button
-    remove_all_button = ttk.Button(calibration_frame, text="Remove\nAll", style="small_button_sfw_style1.TButton", command=lambda: remove_all_items(calibrants_list, [ax_calibrate, canvas_calibrate], [stats_label_SD, stats_label_fitr2, stats_label_eq]))
+    if not from_GG:
+        remove_all_button = ttk.Button(calibration_frame, text="Remove\nAll", style="small_button_sfw_style1.TButton", command=lambda: remove_all_items(calibrants_list, file_label, [ax_calibrate, canvas_calibrate], [stats_label_SD, stats_label_fitr2, stats_label_eq]))
+    else:
+        remove_all_button = ttk.Button(calibration_frame, text="Remove\nAll", style="small_button_sfw_style1.TButton", command=lambda: remove_all_items(calibrants_list, [from_GG[0], from_GG[1]], [ax_calibrate, canvas_calibrate], [stats_label_SD, stats_label_fitr2, stats_label_eq]))
     remove_all_button.grid(row=1, column=1, padx=(10, 10), pady=(45, 10), sticky="new")
     ToolTip(remove_all_button, "Remove all the calibrants from the list.")
+    
+    # sample navigation buttons
+    if from_GG != False:
+        sample_back_button = ttk.Button(calibration_frame, text="◄", style="symbol_button_style1.TButton", command=lambda: switch_sample_button('back', from_GG[0], from_GG[1], calibrants_list, [ax_calibrate, canvas_calibrate], [stats_label_SD, stats_label_fitr2, stats_label_eq], fit_combobox, float(mztol_entry.get()), float(min_int_entry.get())))
+        sample_back_button.grid(row=1, column=1, padx=(10, 10), pady=(10, 67), sticky="sw")
+        ToolTip(sample_back_button, "Go back one sample on your loaded samples list.")
+        
+        sample_forward_button = ttk.Button(calibration_frame, text="►", style="symbol_button_style1.TButton", command=lambda: switch_sample_button('forward', from_GG[0], from_GG[1], calibrants_list, [ax_calibrate, canvas_calibrate], [stats_label_SD, stats_label_fitr2, stats_label_eq], fit_combobox, float(mztol_entry.get()), float(min_int_entry.get())))
+        sample_forward_button.grid(row=1, column=1, padx=(10, 10), pady=(10, 67), sticky="se")
+        ToolTip(sample_forward_button, "Move to the next sample on your loaded samples list.")
+        
+        search_all_samples_button = ttk.Button(calibration_frame, text="Search\nAll Samples", style="small_button_sfw_style1.TButton", command=lambda: finding_calibrants(from_GG[0], calibrants_list, float(mztol_entry.get()), float(min_int_entry.get()), [ax_calibrate, canvas_calibrate], [stats_label_SD, stats_label_fitr2, stats_label_eq], fit_combobox, from_GG[1], draw = False))
+        search_all_samples_button.grid(row=1, column=1, padx=(10, 10), pady=(10, 25), sticky="sew")
+        ToolTip(search_all_samples_button, "Search for the listed calibrants in all loaded sample files.")
     
     # search button
     if not from_GG:
@@ -1738,6 +1871,10 @@ def mzml_window_start(from_GG=False):
     close_button.grid(row=1, column=0, padx=(10,10), pady=(0,10), sticky="nse")
     
     mzml_window.deiconify()
+    
+    if from_GG != False and change_sample == None:
+        mzml_window_start(from_GG = 'start', change_sample=from_GG[0].get())
+            
     mzml_window.mainloop()
     
 if __name__ == "__main__":

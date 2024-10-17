@@ -38,6 +38,9 @@ There are two ways to install it:
 2. Open GlycoGenius;
 3. Follow the buttons workflow on the top part of the program.
 
+## Screenshots
+![Graphical User Interface](./screenshot1.png "GlycoGenius GUI")
+
 ## Citation
 
 > Article for citation currently being finished.

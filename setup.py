@@ -31,7 +31,7 @@ with open("README.md", "r", encoding="utf-8") as f:
 
 setup(
     name='glycogenius_GUI',
-    version='0.2.6',
+    version='0.2.7',
     author='Hector Franco Loponte',
     author_email='hectorfloponte@gmail.com',
     description='Accessory GUI for Glycogenius',
@@ -53,7 +53,7 @@ setup(
         "pillow", "ttkwidgets", "matplotlib",
         "dill", "numpy==1.26.4", "lxml",
         "openpyxl", "setuptools",
-        "xlsxwriter", "psutil", "glycogenius==1.2.3",
+        "xlsxwriter", "psutil", "glycogenius==1.2.4",
         "mpl_scatter_density", "reportlab"
     ],
     entry_points={

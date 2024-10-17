@@ -17,8 +17,8 @@
 # by typing 'glycogenius'. If not, see <https://www.gnu.org/licenses/>.
 
 global gg_version, GUI_version
-gg_version = '1.2.3'
-GUI_version = '0.2.6'
+gg_version = '1.2.4'
+GUI_version = '0.2.7'
 
 from PIL import Image, ImageTk
 import tkinter as tk
@@ -123,6 +123,14 @@ import dill
 import random
 import math
 
+# For File Editor
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.pdfgen import canvas as pdf_canvas
+from reportlab.lib.utils import ImageReader
+from reportlab.lib import colors
+from reportlab.lib.units import inch
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle
+
 if platform.system() != 'Windows':
     multiprocessing.set_start_method('spawn', force=True)
 
@@ -168,7 +176,7 @@ rt_tolerance_frag = 0.2
 min_isotopologue_peaks = 2
 min_ppp = [False, 10]
 close_peaks = [False, 5]
-align_chromatograms = True
+align_chromatograms = False
 percentage_auc = 0.01
 min_samples = 0
 max_ppm = [-10, 10]
@@ -271,6 +279,9 @@ global gg_draw_on, gg_draw_list, gg_draw_selected
 gg_draw_on = False
 gg_draw_list = []
 gg_draw_selected = None
+
+global former_selected_sample
+former_selected_sample = None
 
 colors = [
     "#FF0000",  # Red
@@ -746,9 +757,8 @@ class ToolTip:
                 screen_width = self.widget.winfo_screenwidth()
 
                 # Get the mouse position
-                x, y, _, _ = self.widget.bbox("insert")
-                x += self.widget.winfo_pointerx()+15
-                y += self.widget.winfo_pointery()+15
+                x = self.widget.winfo_pointerx()+15
+                y = self.widget.winfo_pointery()+15
 
                 # Calculate width of the tooltip window to check if it goes off the screen
                 tooltip_width = 200  # Width of the tooltip (wraplength)
@@ -1343,6 +1353,10 @@ def load_reanalysis(reanalysis_path):
 def error_window(text):
     '''This function makes an error window with the text.'''
     messagebox.showerror("Error", text)
+    
+def warning_window(text):
+    response = messagebox.askokcancel("Warning", text)
+    return response
         
 def kill_concurrent_futures():
     '''This function finishes off all instances of GG multithreading executions.'''
@@ -1396,7 +1410,13 @@ def on_closing():
         
 def handle_selection(event):
     '''This function handles the selection of the samples dropdown menu.'''
-    global current_data, ax, canvas, ax_spec, canvas_spec, samples_dropdown, chromatograms_list, selected_item, compare_samples_button, loading_files, filter_list, samples_list, spectra_plot_frame, no_spectra_loaded_label, ms1_bound, ms1_binds, ms2_bound, ms2_binds, chromatogram_bound, chromatogram_binds, rt_label, precursor_label, gg_draw_on, check_gg_drawings_available
+    global current_data, ax, canvas, ax_spec, canvas_spec, samples_dropdown, chromatograms_list, selected_item, compare_samples_button, loading_files, filter_list, samples_list, spectra_plot_frame, no_spectra_loaded_label, ms1_bound, ms1_binds, ms2_bound, ms2_binds, chromatogram_bound, chromatogram_binds, rt_label, precursor_label, gg_draw_on, check_gg_drawings_available, former_selected_sample
+    
+    selected_item = samples_dropdown.get()
+    if selected_item == former_selected_sample:
+        return
+        
+    former_selected_sample = selected_item
     
     # Unbind MS1 plot
     if ms1_bound:
@@ -1425,7 +1445,6 @@ def handle_selection(event):
     coordinate_label_spec.config(text='')
     
     compare_samples_button.config(state=tk.DISABLED)
-    selected_item = samples_dropdown.get()
     ToolTip(samples_dropdown, f"{selected_item}")
     if len(reanalysis_path) > 0 and len(glycans_per_sample[selected_item]) > 0:
         check_qc_dist_button.config(state=tk.NORMAL)
@@ -1449,6 +1468,14 @@ def handle_selection(event):
     clear_plot(ax_spec, canvas_spec)
     clear_plot(ax_spec_ms2, canvas_spec_ms2)
     
+    
+    check_folder = os.path.join(tempfile.gettempdir())
+    
+    this_process_id = os.getpid()
+    
+    if f"mzml_window_{this_process_id}.txt" in os.listdir(check_folder):
+        mzml_window_start(change_sample = selected_item)
+    
     if gg_draw_on:
         check_gg_drawings_available(chromatograms_list, False)
     
@@ -1461,6 +1488,13 @@ def handle_selection(event):
     else:
         no_spectra_loaded_label.config(text="")
         no_spectra_loaded_label.place(relx=0.01, rely=0.9)
+        
+def handle_selection_vigilance():
+    check_folder = os.path.join(tempfile.gettempdir())
+    this_process_id = os.getpid()
+    if f"mzml_window_{this_process_id}.txt" in os.listdir(check_folder):
+        handle_selection(None)
+        main_window.after(500, handle_selection_vigilance)
     
 def add_bpc_treeview():
     '''This function adds the BPC to the glycans treeview menu.'''
@@ -2068,7 +2102,7 @@ def run_main_window():
     
     def file_name_window(file_type = None):
         '''This function creates a window for setting the file name that will be saved when the library generation, analysis or save results finish.'''
-        
+            
         invalid_characters = [':', '\"', '/', '\\', '|', '?', '*']
         
         def fn_ok(file_type = None):
@@ -2088,6 +2122,36 @@ def run_main_window():
         def fn_cancel():
             global exp_lib_name, gg_file_name
             file_name_window.destroy()
+        
+        # Checks to see if it's ok to proceed with analysis
+        if file_type == 'gg':
+            if len(samples_list) == 0:
+                error_window("You must select files for analysis on 'Select Files' menu!")
+                gg_file_name = ""
+                return
+            elif save_path == "":
+                error_window("You must select a working directory in the 'Set Parameters' menu before starting an analysis!")
+                gg_file_name = ""
+                return
+            elif library_path == "":
+                error_window("You must generate or import a library before starting an analysis!")
+                gg_file_name = ""
+                return
+            
+            uncalibrated_files = False
+            for file in samples_list:
+                if "calibrated" not in file:
+                    uncalibrated_files = True
+                    break
+            if uncalibrated_files:
+                proceed = warning_window("Before you start an analysis, make sure your spectra files are calibrated. Calibration done after the analysis won't influence the analysis results! You can calibrate your files by clicking on the 'File Editor' icon, under the 'About' button, in the main window. If you are sure your files are calibrated enough, proceed.")
+                if not proceed:
+                    return
+                
+        elif file_type == 'library':
+            if save_path == "":
+                error_window("You must select a working directory in the 'Set Parameters' window before generating a library!")
+                return
         
         file_name_window = tk.Toplevel()
         file_name_window.withdraw()
@@ -2245,63 +2309,60 @@ def run_main_window():
             import_library_button_frame.config(bg=background_color)
             import_library_info.config(state=tk.DISABLED)
             close_progress_gen_lib_window()
-               
-        if save_path == "":
-            error_window("You must select a working directory in the 'Set Parameters' window before generating a library!")
-        else:
-            progress_gen_lib = tk.Toplevel(main_window)
-            #progress_gen_lib.attributes("-topmost", True)
-            progress_gen_lib.withdraw()
-            progress_gen_lib.title("Generating Library")
-            icon = ImageTk.PhotoImage(ico_image)
-            progress_gen_lib.iconphoto(False, icon)
-            progress_gen_lib.resizable(False, False)
-            progress_gen_lib.grab_set()
-            progress_gen_lib.protocol("WM_DELETE_WINDOW", on_closing)
+    
+        progress_gen_lib = tk.Toplevel(main_window)
+        #progress_gen_lib.attributes("-topmost", True)
+        progress_gen_lib.withdraw()
+        progress_gen_lib.title("Generating Library")
+        icon = ImageTk.PhotoImage(ico_image)
+        progress_gen_lib.iconphoto(False, icon)
+        progress_gen_lib.resizable(False, False)
+        progress_gen_lib.grab_set()
+        progress_gen_lib.protocol("WM_DELETE_WINDOW", on_closing)
 
-            output_text = ScrolledText(progress_gen_lib, width=50, height=10, wrap=tk.WORD)
-            output_text.grid(row=0, column=0, columnspan=2, padx = 10, pady = 10, sticky="new")
-            
-            global ok_lib_gen_button
-            ok_lib_gen_button = ttk.Button(progress_gen_lib, text="Ok", style="small_button_sfw_style1.TButton", command=ok_progress_gen_lib_window, state=tk.DISABLED)
-            ok_lib_gen_button.grid(row=1, column=0, padx=10, pady=10, sticky="e")
-            
-            cancel_lib_gen_button = ttk.Button(progress_gen_lib, text="Cancel", style="small_button_sfw_style1.TButton", command=close_progress_gen_lib_window)
-            cancel_lib_gen_button.grid(row=1, column=1, padx=10, pady=10, sticky="w")
-            
-            progress_gen_lib.update_idletasks()
-            progress_gen_lib.deiconify()
-            window_width = progress_gen_lib.winfo_width()
-            window_height = progress_gen_lib.winfo_height()
-            screen_width = progress_gen_lib.winfo_screenwidth()
-            screen_height = progress_gen_lib.winfo_screenheight()
-            x_position = (screen_width - window_width) // 2
-            y_position = (screen_height - window_height) // 2
-            progress_gen_lib.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
-            
-            original_stdout = sys.stdout
-            sys.stdout = TextRedirector_Gen_Lib(output_text)
-            
-            global min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, min_max_hn, min_max_ua, forced, max_adducts, max_charges, reducing_end_tag, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, min_max_sulfation, min_max_phosphorylation, fast_iso, high_res, exp_lib_name
-            
-            output_filtered_data_args = [curve_fit_score, iso_fit_score, s_to_n, max_ppm, percentage_auc, reanalysis, reanalysis_path, save_path, analyze_ms2[0], analyze_ms2[2], reporter_ions, plot_metaboanalyst, compositions, align_chromatograms, forced, ret_time_interval[2], rt_tolerance_frag, iso_fittings, output_plot_data, multithreaded_analysis, number_cores, 0.0, min_samples, None]
-            
-            imp_exp_gen_library_args = [custom_glycans_list, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_sia, min_max_fuc, min_max_ac, min_max_gc, min_max_hn, min_max_ua, forced, max_adducts, adducts_exclusion, max_charges, reducing_end_tag, fast_iso, high_res, [False, False], library_path, exp_lib_name, True, save_path, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, min_max_sulfation, min_max_phosphorylation, None]
+        output_text = ScrolledText(progress_gen_lib, width=50, height=10, wrap=tk.WORD)
+        output_text.grid(row=0, column=0, columnspan=2, padx = 10, pady = 10, sticky="new")
+        
+        global ok_lib_gen_button
+        ok_lib_gen_button = ttk.Button(progress_gen_lib, text="Ok", style="small_button_sfw_style1.TButton", command=ok_progress_gen_lib_window, state=tk.DISABLED)
+        ok_lib_gen_button.grid(row=1, column=0, padx=10, pady=10, sticky="e")
+        
+        cancel_lib_gen_button = ttk.Button(progress_gen_lib, text="Cancel", style="small_button_sfw_style1.TButton", command=close_progress_gen_lib_window)
+        cancel_lib_gen_button.grid(row=1, column=1, padx=10, pady=10, sticky="w")
+        
+        progress_gen_lib.update_idletasks()
+        progress_gen_lib.deiconify()
+        window_width = progress_gen_lib.winfo_width()
+        window_height = progress_gen_lib.winfo_height()
+        screen_width = progress_gen_lib.winfo_screenwidth()
+        screen_height = progress_gen_lib.winfo_screenheight()
+        x_position = (screen_width - window_width) // 2
+        y_position = (screen_height - window_height) // 2
+        progress_gen_lib.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
+        
+        original_stdout = sys.stdout
+        sys.stdout = TextRedirector_Gen_Lib(output_text)
+        
+        global min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, min_max_hn, min_max_ua, forced, max_adducts, max_charges, reducing_end_tag, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, min_max_sulfation, min_max_phosphorylation, fast_iso, high_res, exp_lib_name
+        
+        output_filtered_data_args = [curve_fit_score, iso_fit_score, s_to_n, max_ppm, percentage_auc, reanalysis, reanalysis_path, save_path, analyze_ms2[0], analyze_ms2[2], reporter_ions, plot_metaboanalyst, compositions, align_chromatograms, forced, ret_time_interval[2], rt_tolerance_frag, iso_fittings, output_plot_data, multithreaded_analysis, number_cores, 0.0, min_samples, None]
+        
+        imp_exp_gen_library_args = [custom_glycans_list, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_sia, min_max_fuc, min_max_ac, min_max_gc, min_max_hn, min_max_ua, forced, max_adducts, adducts_exclusion, max_charges, reducing_end_tag, fast_iso, high_res, [False, False], library_path, exp_lib_name, True, save_path, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, min_max_sulfation, min_max_phosphorylation, None]
 
-            list_of_data_args = [samples_list]
+        list_of_data_args = [samples_list]
 
-            index_spectra_from_file_ms1_args = [None, 1, multithreaded_analysis, number_cores]
+        index_spectra_from_file_ms1_args = [None, 1, multithreaded_analysis, number_cores]
 
-            index_spectra_from_file_ms2_args = [None, 2, multithreaded_analysis, number_cores]
+        index_spectra_from_file_ms2_args = [None, 2, multithreaded_analysis, number_cores]
 
-            analyze_files_args = [None, None, None, None, tolerance, ret_time_interval, min_isotopologue_peaks, min_ppp, max_charges, custom_noise, close_peaks, multithreaded_analysis, number_cores, None, None]
+        analyze_files_args = [None, None, None, None, tolerance, ret_time_interval, min_isotopologue_peaks, min_ppp, max_charges, custom_noise, close_peaks, multithreaded_analysis, number_cores, None, None]
 
-            analyze_ms2_args = [None, None, None, ret_time_interval, tolerance, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl,  min_max_sia, min_max_fuc, min_max_ac, min_max_gc, min_max_hn, min_max_ua, max_charges, reducing_end_tag, forced, permethylated, reduced, lactonized_ethyl_esterified, analyze_ms2[1], analyze_ms2[2], ret_time_interval[2], multithreaded_analysis, number_cores, None, None]
+        analyze_ms2_args = [None, None, None, ret_time_interval, tolerance, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl,  min_max_sia, min_max_fuc, min_max_ac, min_max_gc, min_max_hn, min_max_ua, max_charges, reducing_end_tag, forced, permethylated, reduced, lactonized_ethyl_esterified, analyze_ms2[1], analyze_ms2[2], ret_time_interval[2], multithreaded_analysis, number_cores, None, None]
 
-            arrange_raw_data_args = [None, samples_names, analyze_ms2[0], save_path, [], None, None]
-            
-            t = threading.Thread(target=run_glycogenius, args=([(output_filtered_data_args, imp_exp_gen_library_args, list_of_data_args, index_spectra_from_file_ms1_args, index_spectra_from_file_ms2_args, analyze_files_args, analyze_ms2_args, arrange_raw_data_args, samples_names, reanalysis, analyze_ms2[0])]))
-            t.start()
+        arrange_raw_data_args = [None, samples_names, analyze_ms2[0], save_path, [], None, None]
+        
+        t = threading.Thread(target=run_glycogenius, args=([(output_filtered_data_args, imp_exp_gen_library_args, list_of_data_args, index_spectra_from_file_ms1_args, index_spectra_from_file_ms2_args, analyze_files_args, analyze_ms2_args, arrange_raw_data_args, samples_names, reanalysis, analyze_ms2[0])]))
+        t.start()
             
     def run_analysis(): 
         global gg_file_name
@@ -2383,12 +2444,15 @@ def run_main_window():
         def ok_progress_run_analysis_window():
             run_analysis_button_frame.config(bg="lightgreen")
             close_progress_run_analysis_window()
-            global reanalysis_file
+            global reanalysis_file, former_selected_sample
             reanalysis_file = threading.Thread(target=load_reanalysis, args=(reanalysis_path,))
             reanalysis_file.start()
             loading_files_after_analysis()
             check_qc_dist_button.config(state=tk.NORMAL)
             plot_graph_button.config(state=tk.NORMAL)
+            
+            # Clear history
+            former_selected_sample = ''
         
         def get_parameters_analysis():
             def close_analysis_param():
@@ -2483,121 +2547,111 @@ def run_main_window():
             x_position = (screen_width - window_width) // 2
             y_position = (screen_height - window_height) // 2
             analysis_info_window.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
-                    
-        if len(samples_list) == 0:
-            error_window("You must select files for analysis on 'Select Files' menu!")
-            gg_file_name = ""
-        elif save_path == "":
-            error_window("You must select a working directory in the 'Set Parameters' menu before starting an analysis!")
-            gg_file_name = ""
-        elif library_path == "":
-            error_window("You must generate or import a library before starting an analysis!")
-            gg_file_name = ""
-        else:
-            global run_analysis
+    
+        global run_analysis
+        
+        try:
+            with open(library_path, 'rb') as f:
+                library_data = dill.load(f)
+                f.close()
+        except:
+            error_window("Can't load the library. The library file you are trying to load was created in a version older than 0.2.0 or is corrupted. Generate a new library or try a different file.")
+            return
             
-            try:
-                with open(library_path, 'rb') as f:
-                    library_data = dill.load(f)
-                    f.close()
-            except:
-                error_window("Can't load the library. The library file you are trying to load was created in a version older than 0.2.0 or is corrupted. Generate a new library or try a different file.")
-                return
+        full_library = library_data[0]
+        library_metadata = library_data[1]
+        
+        run_analysis = tk.Toplevel()
+        # run_analysis.attributes("-topmost", True)
+        run_analysis.withdraw()
+        run_analysis.title("Running Analysis")
+        icon = ImageTk.PhotoImage(ico_image)
+        run_analysis.iconphoto(False, icon)
+        run_analysis.resizable(False, False)
+        run_analysis.grab_set()
+        run_analysis.protocol("WM_DELETE_WINDOW", on_closing)
+
+        output_text = ScrolledText(run_analysis, width=50, height=10, wrap=tk.WORD)
+        output_text.grid(row=0, column=0, columnspan=2, padx = 10, pady = 10, sticky="new")
+        
+        global progress_bar_run_analysis, progress_bar_ms1_label, progress_bar_run_analysis2, progress_bar_ms2_label
+        progress_bar_ms1_label = ttk.Label(run_analysis, text="Analysis Progress: 0%", font=("Segoe UI", 10))
+        progress_bar_ms1_label.grid(row=1, column=0, columnspan=2, padx=10, sticky="w")
+        progress_bar_run_analysis = ttk.Progressbar(run_analysis, orient="horizontal", mode="determinate")
+        progress_bar_run_analysis.grid(row=2, column=0, columnspan=2, padx=10, sticky="ew")
+        if analyze_ms2[0]:
+            progress_bar_ms1_label.config(text="MS1 Analysis Progress: 0%")
+            progress_bar_ms2_label = ttk.Label(run_analysis, text="MS2 Analysis Progress: 0%", font=("Segoe UI", 10))
+            progress_bar_ms2_label.grid(row=3, column=0, columnspan=2, padx=10, sticky="w")
+            progress_bar_run_analysis2 = ttk.Progressbar(run_analysis, orient="horizontal", mode="determinate")
+            progress_bar_run_analysis2.grid(row=4, column=0, columnspan=2, padx=10, sticky="ew")
+        
+        global ok_run_analysis_button
+        ok_run_analysis_button = ttk.Button(run_analysis, text="Ok", style="small_button_sfw_style1.TButton", command=ok_progress_run_analysis_window, state=tk.DISABLED)
+        ok_run_analysis_button.grid(row=5, column=0, columnspan=2, padx=10, pady=10, sticky="w")
+        
+        cancel_run_analysis_button = ttk.Button(run_analysis, text="Cancel", style="small_button_sfw_style1.TButton", command=close_progress_run_analysis_window)
+        cancel_run_analysis_button.grid(row=5, column=0, columnspan=2, padx=(100, 10), pady=10, sticky="w")
+        
+        check_param_analysis_button = ttk.Button(run_analysis, text="Check Analysis Parameters", style="small_button_sfw_style1.TButton", command=get_parameters_analysis)
+        check_param_analysis_button.grid(row=5, column=1, padx=10, pady=10, sticky="e")
+        
+        run_analysis.update_idletasks()
+        run_analysis.deiconify()
+        window_width = run_analysis.winfo_width()
+        window_height = run_analysis.winfo_height()
+        screen_width = run_analysis.winfo_screenwidth()
+        screen_height = run_analysis.winfo_screenheight()
+        x_position = (screen_width - window_width) // 2
+        y_position = (screen_height - window_height) // 2
+        run_analysis.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
+        
+        original_stdout = sys.stdout
+        sys.stdout = TextRedirector_Run_Analysis(output_text)
+        
+        global min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, min_max_hn, min_max_ua, min_max_gc, forced, max_adducts, max_charges, reducing_end_tag, internal_standard, permethylated, lactonized_ethyl_esterified, min_max_sulfation, min_max_phosphorylation, reduced, fast_iso, high_res
+        
+        min_max_monos = library_metadata[0]
+        min_max_hex = library_metadata[1]
+        min_max_hexnac = library_metadata[2]
+        min_max_fuc = library_metadata[3]
+        min_max_sia = library_metadata[4]
+        min_max_ac = library_metadata[5]
+        min_max_gc = library_metadata[6]
+        forced = library_metadata[7]
+        max_adducts = library_metadata[8]
+        max_charges = library_metadata[9]
+        reducing_end_tag = library_metadata[10]
+        internal_standard = library_metadata[11]
+        permethylated = library_metadata[12]
+        lactonized_ethyl_esterified = library_metadata[13]
+        reduced = library_metadata[14]
+        fast_iso = library_metadata[15]
+        high_res = library_metadata[16]
+        min_max_xyl = library_metadata[18]
+        min_max_hn = library_metadata[19]
+        min_max_ua = library_metadata[20]
+        min_max_sulfation = library_metadata[21]
+        min_max_phosphorylation = library_metadata[22]
                 
-            full_library = library_data[0]
-            library_metadata = library_data[1]
-            
-            run_analysis = tk.Toplevel()
-            # run_analysis.attributes("-topmost", True)
-            run_analysis.withdraw()
-            run_analysis.title("Running Analysis")
-            icon = ImageTk.PhotoImage(ico_image)
-            run_analysis.iconphoto(False, icon)
-            run_analysis.resizable(False, False)
-            run_analysis.grab_set()
-            run_analysis.protocol("WM_DELETE_WINDOW", on_closing)
-
-            output_text = ScrolledText(run_analysis, width=50, height=10, wrap=tk.WORD)
-            output_text.grid(row=0, column=0, columnspan=2, padx = 10, pady = 10, sticky="new")
-            
-            global progress_bar_run_analysis, progress_bar_ms1_label, progress_bar_run_analysis2, progress_bar_ms2_label
-            progress_bar_ms1_label = ttk.Label(run_analysis, text="Analysis Progress: 0%", font=("Segoe UI", 10))
-            progress_bar_ms1_label.grid(row=1, column=0, columnspan=2, padx=10, sticky="w")
-            progress_bar_run_analysis = ttk.Progressbar(run_analysis, orient="horizontal", mode="determinate")
-            progress_bar_run_analysis.grid(row=2, column=0, columnspan=2, padx=10, sticky="ew")
-            if analyze_ms2[0]:
-                progress_bar_ms1_label.config(text="MS1 Analysis Progress: 0%")
-                progress_bar_ms2_label = ttk.Label(run_analysis, text="MS2 Analysis Progress: 0%", font=("Segoe UI", 10))
-                progress_bar_ms2_label.grid(row=3, column=0, columnspan=2, padx=10, sticky="w")
-                progress_bar_run_analysis2 = ttk.Progressbar(run_analysis, orient="horizontal", mode="determinate")
-                progress_bar_run_analysis2.grid(row=4, column=0, columnspan=2, padx=10, sticky="ew")
-            
-            global ok_run_analysis_button
-            ok_run_analysis_button = ttk.Button(run_analysis, text="Ok", style="small_button_sfw_style1.TButton", command=ok_progress_run_analysis_window, state=tk.DISABLED)
-            ok_run_analysis_button.grid(row=5, column=0, columnspan=2, padx=10, pady=10, sticky="w")
-            
-            cancel_run_analysis_button = ttk.Button(run_analysis, text="Cancel", style="small_button_sfw_style1.TButton", command=close_progress_run_analysis_window)
-            cancel_run_analysis_button.grid(row=5, column=0, columnspan=2, padx=(100, 10), pady=10, sticky="w")
-            
-            check_param_analysis_button = ttk.Button(run_analysis, text="Check Analysis Parameters", style="small_button_sfw_style1.TButton", command=get_parameters_analysis)
-            check_param_analysis_button.grid(row=5, column=1, padx=10, pady=10, sticky="e")
-            
-            run_analysis.update_idletasks()
-            run_analysis.deiconify()
-            window_width = run_analysis.winfo_width()
-            window_height = run_analysis.winfo_height()
-            screen_width = run_analysis.winfo_screenwidth()
-            screen_height = run_analysis.winfo_screenheight()
-            x_position = (screen_width - window_width) // 2
-            y_position = (screen_height - window_height) // 2
-            run_analysis.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
-            
-            original_stdout = sys.stdout
-            sys.stdout = TextRedirector_Run_Analysis(output_text)
-            
-            global min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, min_max_hn, min_max_ua, min_max_gc, forced, max_adducts, max_charges, reducing_end_tag, internal_standard, permethylated, lactonized_ethyl_esterified, min_max_sulfation, min_max_phosphorylation, reduced, fast_iso, high_res
-            
-            min_max_monos = library_metadata[0]
-            min_max_hex = library_metadata[1]
-            min_max_hexnac = library_metadata[2]
-            min_max_fuc = library_metadata[3]
-            min_max_sia = library_metadata[4]
-            min_max_ac = library_metadata[5]
-            min_max_gc = library_metadata[6]
-            forced = library_metadata[7]
-            max_adducts = library_metadata[8]
-            max_charges = library_metadata[9]
-            reducing_end_tag = library_metadata[10]
-            internal_standard = library_metadata[11]
-            permethylated = library_metadata[12]
-            lactonized_ethyl_esterified = library_metadata[13]
-            reduced = library_metadata[14]
-            fast_iso = library_metadata[15]
-            high_res = library_metadata[16]
-            min_max_xyl = library_metadata[18]
-            min_max_hn = library_metadata[19]
-            min_max_ua = library_metadata[20]
-            min_max_sulfation = library_metadata[21]
-            min_max_phosphorylation = library_metadata[22]
+        output_filtered_data_args = [curve_fit_score, iso_fit_score, s_to_n, max_ppm, percentage_auc, reanalysis, reanalysis_path, save_path, analyze_ms2[0], analyze_ms2[2], reporter_ions, plot_metaboanalyst, compositions, align_chromatograms, forced, ret_time_interval[2], rt_tolerance_frag, iso_fittings, output_plot_data, multithreaded_analysis, number_cores, 0.0, min_samples, None]
                     
-            output_filtered_data_args = [curve_fit_score, iso_fit_score, s_to_n, max_ppm, percentage_auc, reanalysis, reanalysis_path, save_path, analyze_ms2[0], analyze_ms2[2], reporter_ions, plot_metaboanalyst, compositions, align_chromatograms, forced, ret_time_interval[2], rt_tolerance_frag, iso_fittings, output_plot_data, multithreaded_analysis, number_cores, 0.0, min_samples, None]
-                        
-            imp_exp_gen_library_args = [custom_glycans_list, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_sia, min_max_fuc, min_max_ac, min_max_gc, min_max_hn, min_max_ua, forced, max_adducts, adducts_exclusion, max_charges, reducing_end_tag, fast_iso, high_res, [True, True], library_path, '', False, save_path, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, min_max_sulfation, min_max_phosphorylation, None]
+        imp_exp_gen_library_args = [custom_glycans_list, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_sia, min_max_fuc, min_max_ac, min_max_gc, min_max_hn, min_max_ua, forced, max_adducts, adducts_exclusion, max_charges, reducing_end_tag, fast_iso, high_res, [True, True], library_path, '', False, save_path, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, min_max_sulfation, min_max_phosphorylation, None]
 
-            list_of_data_args = [samples_list]
+        list_of_data_args = [samples_list]
 
-            index_spectra_from_file_ms1_args = [None, 1, multithreaded_analysis, number_cores]
+        index_spectra_from_file_ms1_args = [None, 1, multithreaded_analysis, number_cores]
 
-            index_spectra_from_file_ms2_args = [None, 2, multithreaded_analysis, number_cores]
+        index_spectra_from_file_ms2_args = [None, 2, multithreaded_analysis, number_cores]
 
-            analyze_files_args = [None, None, None, None, tolerance, ret_time_interval, min_isotopologue_peaks, min_ppp, max_charges, custom_noise, close_peaks, multithreaded_analysis, number_cores, None, None, True]
+        analyze_files_args = [None, None, None, None, tolerance, ret_time_interval, min_isotopologue_peaks, min_ppp, max_charges, custom_noise, close_peaks, multithreaded_analysis, number_cores, None, None, True]
 
-            analyze_ms2_args = [None, None, None, ret_time_interval, tolerance, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl,  min_max_sia, min_max_fuc, min_max_ac, min_max_gc, min_max_hn, min_max_ua, max_charges, reducing_end_tag, forced, permethylated, reduced, lactonized_ethyl_esterified, analyze_ms2[1], analyze_ms2[2], ret_time_interval[2], multithreaded_analysis, number_cores, None, None, True]
+        analyze_ms2_args = [None, None, None, ret_time_interval, tolerance, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl,  min_max_sia, min_max_fuc, min_max_ac, min_max_gc, min_max_hn, min_max_ua, max_charges, reducing_end_tag, forced, permethylated, reduced, lactonized_ethyl_esterified, analyze_ms2[1], analyze_ms2[2], ret_time_interval[2], multithreaded_analysis, number_cores, None, None, True]
 
-            arrange_raw_data_args = [None, samples_names, analyze_ms2[0], save_path, [[custom_glycans_list, min_max_monos, min_max_hex, min_max_hexnac, min_max_sia, min_max_fuc, min_max_ac, min_max_gc, forced, max_adducts, adducts_exclusion, max_charges, reducing_end_tag, permethylated, reduced, lactonized_ethyl_esterified, fast_iso, high_res, internal_standard, imp_exp_library, exp_lib_name, library_path, only_gen_lib, min_max_xyl, min_max_hn, min_max_ua, min_max_sulfation, min_max_phosphorylation], [multithreaded_analysis, number_cores, analyze_ms2, reporter_ions, tolerance, ret_time_interval, rt_tolerance_frag, min_isotopologue_peaks, min_ppp, close_peaks, align_chromatograms, percentage_auc, max_ppm, iso_fit_score, curve_fit_score, s_to_n, custom_noise, samples_path, save_path, plot_metaboanalyst, compositions, iso_fittings, reanalysis, reanalysis_path, output_plot_data]], None, None, gg_file_name, True]
-            
-            t = threading.Thread(target=run_glycogenius, args=([(output_filtered_data_args, imp_exp_gen_library_args, list_of_data_args, index_spectra_from_file_ms1_args, index_spectra_from_file_ms2_args, analyze_files_args, analyze_ms2_args, arrange_raw_data_args, samples_names, reanalysis, analyze_ms2[0], True)]))
-            t.start()
+        arrange_raw_data_args = [None, samples_names, analyze_ms2[0], save_path, [[custom_glycans_list, min_max_monos, min_max_hex, min_max_hexnac, min_max_sia, min_max_fuc, min_max_ac, min_max_gc, forced, max_adducts, adducts_exclusion, max_charges, reducing_end_tag, permethylated, reduced, lactonized_ethyl_esterified, fast_iso, high_res, internal_standard, imp_exp_library, exp_lib_name, library_path, only_gen_lib, min_max_xyl, min_max_hn, min_max_ua, min_max_sulfation, min_max_phosphorylation], [multithreaded_analysis, number_cores, analyze_ms2, reporter_ions, tolerance, ret_time_interval, rt_tolerance_frag, min_isotopologue_peaks, min_ppp, close_peaks, align_chromatograms, percentage_auc, max_ppm, iso_fit_score, curve_fit_score, s_to_n, custom_noise, samples_path, save_path, plot_metaboanalyst, compositions, iso_fittings, reanalysis, reanalysis_path, output_plot_data]], None, None, gg_file_name, True]
+        
+        t = threading.Thread(target=run_glycogenius, args=([(output_filtered_data_args, imp_exp_gen_library_args, list_of_data_args, index_spectra_from_file_ms1_args, index_spectra_from_file_ms2_args, analyze_files_args, analyze_ms2_args, arrange_raw_data_args, samples_names, reanalysis, analyze_ms2[0], True)]))
+        t.start()
             
     def save_results_button_command():
         if reanalysis_path == "":
@@ -6691,7 +6745,7 @@ def run_main_window():
     
     def check_mzml_window(data):
         '''
-        '''        
+        '''     
         check_folder = os.path.join(tempfile.gettempdir())
         
         this_process_id = os.getpid()
@@ -6701,10 +6755,12 @@ def run_main_window():
                 f.write("mzML editing window is open")
                 f.close()
                 
-            mzml_window_start(data)
+            handle_selection_vigilance()
             
+            mzml_window_start(data)
+                
         else:
-            error_window("Spectra file editing window is already open!")
+            mzml_window_start(to_lift = True)
             
     def toggle_gg_draw(treeview):
         '''
@@ -6770,16 +6826,16 @@ def run_main_window():
                         new_comp = copy.deepcopy(comp)
                         new_comp = replace_dict_keys(new_comp, 'G', i)
                         possibilities.append(General_Functions.comp_to_formula(new_comp))
-                    to_add = []
-                    for new_glycan_wip in possibilities[1:-1]:
-                        comp = General_Functions.form_to_comp(new_glycan_wip)
-                        new_combos = der_sialics_combo('G', comp['G'])
-                        for i in new_combos:
-                            new_comp = copy.deepcopy(comp)
-                            new_comp = replace_dict_keys(new_comp, 'G', i)
-                            to_add.append(General_Functions.comp_to_formula(new_comp))
-                    for item in to_add:
-                        possibilities.append(to_add)
+                    # to_add = []
+                    # for new_glycan_wip in possibilities[1:-1]:
+                        # comp = General_Functions.form_to_comp(new_glycan_wip)
+                        # new_combos = der_sialics_combo('G', comp['G'])
+                        # for i in new_combos:
+                            # new_comp = copy.deepcopy(comp)
+                            # new_comp = replace_dict_keys(new_comp, 'G', i)
+                            # to_add.append(General_Functions.comp_to_formula(new_comp))
+                    # for item in to_add:
+                        # possibilities.append(to_add)
                         
             for possibility in possibilities:
                 if possibility not in directory_content:
@@ -7091,16 +7147,16 @@ def run_main_window():
                     new_comp = copy.deepcopy(comp)
                     new_comp = replace_dict_keys(new_comp, 'G', i)
                     possibilities_glycans.append(General_Functions.comp_to_formula(new_comp))
-                to_add = []
-                for new_glycan_wip in possibilities_glycans[1:-1]:
-                    comp = General_Functions.form_to_comp(new_glycan_wip)
-                    new_combos = der_sialics_combo('G', comp['G'])
-                    for i in new_combos:
-                        new_comp = copy.deepcopy(comp)
-                        new_comp = replace_dict_keys(new_comp, 'G', i)
-                        to_add.append(General_Functions.comp_to_formula(new_comp))
-                for item in to_add:
-                    possibilities_glycans.append(to_add)
+                # to_add = []
+                # for new_glycan_wip in possibilities_glycans[1:-1]:
+                    # comp = General_Functions.form_to_comp(new_glycan_wip)
+                    # new_combos = der_sialics_combo('G', comp['G'])
+                    # for i in new_combos:
+                        # new_comp = copy.deepcopy(comp)
+                        # new_comp = replace_dict_keys(new_comp, 'G', i)
+                        # to_add.append(General_Functions.comp_to_formula(new_comp))
+                # for item in to_add:
+                    # possibilities_glycans.append(to_add)
         
         possibilities = []
         generic_n_added = False
@@ -7768,7 +7824,7 @@ def run_select_files_window(samples_dropdown):
                 samples_dropdown.current(0)
                 handle_selection(None)
             else:
-                global ms1_bound, ms1_binds, ms2_bound, ms2_binds, chromatogram_bound, chromatogram_binds
+                global ms1_bound, ms1_binds, ms2_bound, ms2_binds, chromatograms_list, chromatogram_bound, chromatogram_binds
                 samples_dropdown.set('')
                 chromatograms_list.delete(*chromatograms_list.get_children())
                 clear_plot(ax, canvas)
@@ -7826,7 +7882,7 @@ def run_select_files_window(samples_dropdown):
         t.start()
             
     def ok_button_sfw():
-        global reanalysis_path, samples_list, samples_names, samples_dropdown_options, two_d, quick_check, spectra_file_editing, compare_samples_button, check_qc_dist_button, filter_list, former_alignments, plot_graph_button, processed_samples, reanalysis_file
+        global reanalysis_path, samples_list, samples_names, samples_dropdown_options, two_d, quick_check, spectra_file_editing, compare_samples_button, check_qc_dist_button, filter_list, former_alignments, plot_graph_button, processed_samples, reanalysis_file, former_selected_sample
         
         # Get the list of item identifiers (IDs) in the Treeview
         item_ids = files_list.get_children()
@@ -7939,6 +7995,9 @@ def run_select_files_window(samples_dropdown):
         
         # Clear the former_alignments
         former_alignments = []
+        
+        # Erase last file loaded history
+        former_selected_sample = ''
         
         # Close select file window
         close_sf_window()
@@ -8700,7 +8759,7 @@ def run_set_parameters_window():
         sodium_min_entry.delete(0, tk.END)
         if 'Na' in parameters[0][9].keys():
             sodium_max_entry.insert(0, parameters[0][9]['Na'])
-            if max_na_excluded == 0 and parameters[0][9]['H'] > 0:
+            if max_na_excluded == 0 and 'H' in parameters[0][9] and parameters[0][9]['H'] > 0:
                 sodium_min_entry.insert(0, 0)
             else:
                 sodium_min_entry.insert(0, max_na_excluded+1)
@@ -10116,6 +10175,7 @@ def save_results_window():
 if __name__ == "__main__":
     from File_Editor import mzml_window_start
     from GG_Draw import draw_glycan
+    
     # Avoid creating multiple windows when creating multiple processes
     multiprocessing.freeze_support()
     
@@ -10146,6 +10206,7 @@ if __name__ == "__main__":
 def main():
     from .File_Editor import mzml_window_start
     from .GG_Draw import draw_glycan
+    
     # Avoid creating multiple windows when creating multiple processes
     multiprocessing.freeze_support()
     
