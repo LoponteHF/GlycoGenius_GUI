@@ -96,7 +96,7 @@ def calculate_coordinates(x, y, size):
     int, int
         Coordinates to draw on canvas.
     '''
-    return (2*size)+(x*2*size), y*2*size
+    return (1.8*size)+(x*1.8*size), y*1.8*size
 
 def form_to_comp(string):
     '''Separates a molecular formula or monosaccharides formula of glycans into a
@@ -864,7 +864,7 @@ def draw_antenna(target_canvas, size, monosaccharides, wide = False, angled = Fa
                     monosaccharides_coordinates.append(x_y_coordinates)
                     draw_glucose(target_canvas, x_y_coordinates, size)
             else: # If not High Mannose
-                if len(monosaccharides) >= 3 and monosaccharides[index-1] in ['S', 'G', 'E', 'L', 'R', 'A'] and (monosaccharides[index-2] == 'N' or (monosaccharides[index-2] == 'F' and (len(monosaccharides) >= 4 and monosaccharides[index-3] == 'N'))): # Draw angled
+                if index > 0 and len(monosaccharides) >= 3 and monosaccharides[index-1] in ['S', 'G', 'E', 'L', 'R', 'A'] and (monosaccharides[index-2] == 'N' or (monosaccharides[index-2] == 'F' and (len(monosaccharides) >= 4 and monosaccharides[index-3] == 'N'))): # Draw angled
                     if (monosaccharides[index-1] in ['S', 'G'] and antenna_number%2 == 0) or monosaccharides[index-1] in ['L', 'A']:
                         angled = 'right'
                         gg_coordinates[0] -= 0.70
@@ -877,11 +877,11 @@ def draw_antenna(target_canvas, size, monosaccharides, wide = False, angled = Fa
                         from_glcnac = True
                 elif index == 0:
                     if angled == 'left':
-                        gg_coordinates[0] += 0.70
-                        gg_coordinates[1] += 0.75
+                        gg_coordinates[0] += 1
+                        gg_coordinates[1] += 1
                     else:
-                        gg_coordinates[0] -= 0.70
-                        gg_coordinates[1] += 0.75
+                        gg_coordinates[0] -= 1
+                        gg_coordinates[1] += 1
                 else: # Draw linear
                     gg_coordinates[1] += 1
                 x_y_coordinates = calculate_coordinates(*gg_coordinates, size)
@@ -1347,7 +1347,7 @@ def draw_full_o_glycan(i, index_combo, derivatized_sialic_acids, figures_folder,
                         angled_antenna = 'left'
                     elif index%2 != 0:
                         angled_antenna = 'right'
-
+                        
                     # The possibilities of antennas starting with GalNAc or GlcNAc
                     if l == 0:
                         antennas_galnac_start = [False, False]
@@ -1635,4 +1635,4 @@ def draw_glycan(figures_folder, size, glycan_input, glycan_class):
                     index_combo = draw_full_o_glycan(i, index_combo, derivatized_sialic_acids, figures_folder, glycan_input, size)
                     
 if __name__ == '__main__':
-    draw_glycan("D:/Arquivos/Desktop/test/gg_draw_tests", 30, "H1N1E1", 'none')
+    draw_glycan("D:/Arquivos/Desktop/GG_test/gg_draw_tests", 50, "H5N4S2", 'none')

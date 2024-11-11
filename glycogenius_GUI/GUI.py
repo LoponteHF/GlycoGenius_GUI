@@ -17,8 +17,8 @@
 # by typing 'glycogenius'. If not, see <https://www.gnu.org/licenses/>.
 
 global gg_version, GUI_version
-gg_version = '1.2.4'
-GUI_version = '0.2.7'
+gg_version = '1.2.5'
+GUI_version = '0.2.8'
 
 from PIL import Image, ImageTk
 import tkinter as tk
@@ -131,11 +131,24 @@ from reportlab.lib import colors
 from reportlab.lib.units import inch
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle
 
+# For GG Draw
+from PIL import ImageDraw
+
 if platform.system() != 'Windows':
     multiprocessing.set_start_method('spawn', force=True)
+    
+# Check if GG folder is writeable
+global gg_draw_glycans_path, using_temp_folder_flag
+try:
+    gg_draw_glycans_path = os.path.join(current_dir, "Assets/glycans")
+    os.makedirs(gg_draw_glycans_path, exist_ok=True)
+except Exception:
+    print("WARNING: No permission to access GlycoGenius folder to save glycan's figures in. Using temporary folder instead. This may lead to the need of building the figures from scratch again in a future activation of GG Draw. GlycoGenius will still work as intended.")
+    gg_draw_glycans_path = os.path.join(tempfile.gettempdir(), "glycans_gg")
+    os.makedirs(gg_draw_glycans_path, exist_ok=True)
 
 #all the settings necessary to make a Glycogenius run
-global min_max_monos, min_max_hex, min_max_hn, min_max_hexnac, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, min_max_ua, forced, max_adducts, max_charges, reducing_end_tag, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, fast_iso, high_res, number_cores, multithreaded_analysis, exp_lib_name, min_samples
+global min_max_monos, min_max_hex, min_max_hn, min_max_hexnac, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, min_max_ua, forced, max_adducts, max_charges, reducing_end_tag, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, fast_iso, high_res, number_cores, multithreaded_analysis, exp_lib_name, min_samples, lyase_digested
 
 custom_glycans_list = [False, '']
 min_max_monos = [5, 22]
@@ -158,6 +171,7 @@ reduced = False
 lactonized_ethyl_esterified = False
 min_max_sulfation = [0, 0]
 min_max_phosphorylation = [0, 0]
+lyase_digested = False
 fast_iso = True
 high_res = False
 internal_standard = '0.0'
@@ -2266,7 +2280,9 @@ def run_main_window():
             information_text.insert(tk.END, f"Min/Max number of N-Acetylneuraminic Acids: {library_metadata[5][0]}/{library_metadata[5][1]}\n")
             information_text.insert(tk.END, f"Min/Max number of N-Glycolylneuraminic Acids: {library_metadata[6][0]}/{library_metadata[6][1]}\n")
             information_text.insert(tk.END, f"Min/Max number of Uronic Acids: {library_metadata[20][0]}/{library_metadata[20][1]}\n")
-            information_text.insert(tk.END, f"Force N-Glycans compositions: {library_metadata[7]}\n")
+            information_text.insert(tk.END, f"Force composition: {library_metadata[7]}\n")
+            if library_metadata[7] == 'gags':
+                information_text.insert(tk.END, f"Lyase digested: {library_metadata[23]}\n")
             information_text.insert(tk.END, f"Maximum adducts: {library_metadata[8]}\n")
             information_text.insert(tk.END, f"Maximum charges: {library_metadata[9]}\n")
             information_text.insert(tk.END, f"Reducing end tag mass/composition: {library_metadata[10]}\n")
@@ -2343,11 +2359,11 @@ def run_main_window():
         original_stdout = sys.stdout
         sys.stdout = TextRedirector_Gen_Lib(output_text)
         
-        global min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, min_max_hn, min_max_ua, forced, max_adducts, max_charges, reducing_end_tag, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, min_max_sulfation, min_max_phosphorylation, fast_iso, high_res, exp_lib_name
+        global min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, min_max_hn, min_max_ua, forced, max_adducts, max_charges, reducing_end_tag, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, min_max_sulfation, min_max_phosphorylation, fast_iso, high_res, exp_lib_name, lyase_digested
         
         output_filtered_data_args = [curve_fit_score, iso_fit_score, s_to_n, max_ppm, percentage_auc, reanalysis, reanalysis_path, save_path, analyze_ms2[0], analyze_ms2[2], reporter_ions, plot_metaboanalyst, compositions, align_chromatograms, forced, ret_time_interval[2], rt_tolerance_frag, iso_fittings, output_plot_data, multithreaded_analysis, number_cores, 0.0, min_samples, None]
         
-        imp_exp_gen_library_args = [custom_glycans_list, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_sia, min_max_fuc, min_max_ac, min_max_gc, min_max_hn, min_max_ua, forced, max_adducts, adducts_exclusion, max_charges, reducing_end_tag, fast_iso, high_res, [False, False], library_path, exp_lib_name, True, save_path, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, min_max_sulfation, min_max_phosphorylation, None]
+        imp_exp_gen_library_args = [custom_glycans_list, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_sia, min_max_fuc, min_max_ac, min_max_gc, min_max_hn, min_max_ua, forced, max_adducts, adducts_exclusion, max_charges, reducing_end_tag, fast_iso, high_res, [False, False], library_path, exp_lib_name, True, save_path, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, min_max_sulfation, min_max_phosphorylation, lyase_digested, None]
 
         list_of_data_args = [samples_list]
 
@@ -2509,6 +2525,8 @@ def run_main_window():
             min_max_ua = library_metadata[20]
             min_max_sulfation = library_metadata[21]
             min_max_phosphorylation = library_metadata[22]
+            if len(library_metadata) > 23:
+                lyase_digested = library_metadata[23]
             
             if custom_glycans[0]:
                 library_type = f" - Custom glycans: {str(custom_glycans[1])[1:-1]}"
@@ -2520,6 +2538,8 @@ def run_main_window():
             information_text.insert(tk.END, f"{library_type}\n")
             information_text.insert(tk.END, "\n")
             information_text.insert(tk.END, f"{additional_info}\n")
+            if forced == 'gags':
+                information_text.insert(tk.END, f"- Lyase digested: {lyase_digested}\n")
             information_text.insert(tk.END, "\n")
             information_text.insert(tk.END, "Analysis settings:\n")
             information_text.insert(tk.END, f" - Analyze MS2: {analyze_ms2[0]}\n")
@@ -2609,7 +2629,7 @@ def run_main_window():
         original_stdout = sys.stdout
         sys.stdout = TextRedirector_Run_Analysis(output_text)
         
-        global min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, min_max_hn, min_max_ua, min_max_gc, forced, max_adducts, max_charges, reducing_end_tag, internal_standard, permethylated, lactonized_ethyl_esterified, min_max_sulfation, min_max_phosphorylation, reduced, fast_iso, high_res
+        global min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, min_max_hn, min_max_ua, min_max_gc, forced, max_adducts, max_charges, reducing_end_tag, internal_standard, permethylated, lactonized_ethyl_esterified, min_max_sulfation, min_max_phosphorylation, reduced, fast_iso, high_res, lyase_digested
         
         min_max_monos = library_metadata[0]
         min_max_hex = library_metadata[1]
@@ -2633,10 +2653,12 @@ def run_main_window():
         min_max_ua = library_metadata[20]
         min_max_sulfation = library_metadata[21]
         min_max_phosphorylation = library_metadata[22]
+        if len(library_metadata) > 23:
+            lyase_digested = library_metadata[23]
                 
         output_filtered_data_args = [curve_fit_score, iso_fit_score, s_to_n, max_ppm, percentage_auc, reanalysis, reanalysis_path, save_path, analyze_ms2[0], analyze_ms2[2], reporter_ions, plot_metaboanalyst, compositions, align_chromatograms, forced, ret_time_interval[2], rt_tolerance_frag, iso_fittings, output_plot_data, multithreaded_analysis, number_cores, 0.0, min_samples, None]
                     
-        imp_exp_gen_library_args = [custom_glycans_list, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_sia, min_max_fuc, min_max_ac, min_max_gc, min_max_hn, min_max_ua, forced, max_adducts, adducts_exclusion, max_charges, reducing_end_tag, fast_iso, high_res, [True, True], library_path, '', False, save_path, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, min_max_sulfation, min_max_phosphorylation, None]
+        imp_exp_gen_library_args = [custom_glycans_list, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_sia, min_max_fuc, min_max_ac, min_max_gc, min_max_hn, min_max_ua, forced, max_adducts, adducts_exclusion, max_charges, reducing_end_tag, fast_iso, high_res, [True, True], library_path, '', False, save_path, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, min_max_sulfation, min_max_phosphorylation, lyase_digested, None]
 
         list_of_data_args = [samples_list]
 
@@ -2698,12 +2720,18 @@ def run_main_window():
         new_height = event.height
         
     def handle_treeview_select(event, clear = True):
-        global ax, canvas, ax_spec, canvas_spec, selected_item_chromatograms, colors, color_number, level, two_d, compare_samples_button, samples_dropdown_options, last_xlims_chrom, last_ylims_chrom, plot_graph_button
+        global ax, canvas, ax_spec, canvas_spec, colors, color_number, level, two_d, compare_samples_button, samples_dropdown_options, last_xlims_chrom, last_ylims_chrom, plot_graph_button
+        
         compare_samples_button.config(state=tk.DISABLED)
         plot_graph_button.config(state=tk.DISABLED)
+        
         if len(chromatograms_list.get_children()) == 0:
             return
-        selected_item_chromatograms = chromatograms_list.focus() # Get the ID of the selected item
+            
+        if len(chromatograms_list.selection()) == 0:
+            clear_plot(ax, canvas)
+            return
+        
         if len(chromatograms_list.selection()) > 1:
             plot_graph_button.config(state=tk.NORMAL)
             if ax.get_xlim()[0] != 0 and ax.get_xlim()[1] != 1:
@@ -2742,13 +2770,14 @@ def run_main_window():
                 draw_glycans_on_chromatogram(chromatograms_list)
                 
             return
-        item_text = chromatograms_list.item(selected_item_chromatograms, "text")  # Get the text of the selected item
+            
+        item_text = chromatograms_list.item(chromatograms_list.selection(), "text")  # Get the text of the selected item
         last_xlims_chrom = None
         last_ylims_chrom = None
         if item_text != 'Base Peak Chromatogram/Electropherogram':
             clear_plot(ax, canvas)
             level = 0
-            parent_item = selected_item_chromatograms
+            parent_item = chromatograms_list.selection()
             while parent_item:
                 level += 1
                 parent_item = chromatograms_list.parent(parent_item)
@@ -2762,12 +2791,12 @@ def run_main_window():
                 if len(samples_dropdown_options) > 1:
                     compare_samples_button.config(state=tk.NORMAL)
                     plot_graph_button.config(state=tk.NORMAL)
-                parent_item = chromatograms_list.parent(selected_item_chromatograms)
+                parent_item = chromatograms_list.parent(chromatograms_list.selection())
                 parent_text = chromatograms_list.item(parent_item, "text")
                 # clear_plot(ax_spec, canvas_spec)
                 show_graph(f"{parent_text}+{item_text}", clear, 2)
             if level == 3:
-                parent_item = chromatograms_list.parent(selected_item_chromatograms)
+                parent_item = chromatograms_list.parent(chromatograms_list.selection())
                 parent_text = chromatograms_list.item(parent_item, "text")
                 grand_parent_item = chromatograms_list.parent(parent_item)
                 grand_parent_text = chromatograms_list.item(grand_parent_item, "text")
@@ -2835,12 +2864,12 @@ def run_main_window():
                 if level == 1:
                     label_show_graph = f"{item_text}"
                 if level == 2:
-                    parent_item = chromatograms_list.parent(selected_item_chromatograms)
+                    parent_item = chromatograms_list.parent(chromatograms_list.focus())
                     parent_text = chromatograms_list.item(parent_item, "text")
                     item_text_split_zero = item_text.split(" - ")[0]
                     label_show_graph = f"{item_text_split_zero}"
                 if level == 3:
-                    parent_item = chromatograms_list.parent(selected_item_chromatograms)
+                    parent_item = chromatograms_list.parent(chromatograms_list.focus())
                     parent_text = chromatograms_list.item(parent_item, "text")
                     grand_parent_item = chromatograms_list.parent(parent_item)
                     grand_parent_text = chromatograms_list.item(grand_parent_item, "text")
@@ -2898,13 +2927,13 @@ def run_main_window():
             og_y_range = (0, 1000)
         
         if level == 3:
-            parent_item = chromatograms_list.parent(selected_item_chromatograms)
+            parent_item = chromatograms_list.parent(chromatograms_list.selection())
             parent_text = chromatograms_list.item(parent_item, "text") #adduct
             grand_parent_item = chromatograms_list.parent(parent_item)
             grand_parent_text = chromatograms_list.item(grand_parent_item, "text") #glycan
             
             parent_text_split_zero = parent_text.split(" ")[0]
-            chromatograms_list_selected_item_text = chromatograms_list.item(selected_item_chromatograms, "text")
+            chromatograms_list_selected_item_text = chromatograms_list.item(chromatograms_list.selection(), "text")
             if f"{grand_parent_text}+{parent_text_split_zero}_{chromatograms_list_selected_item_text}_RTs" in curve_fittings[sample_index]:
                 vlines_coord = [curve_fittings[sample_index][f"{grand_parent_text}+{parent_text_split_zero}_{chromatograms_list_selected_item_text}_RTs"][0], curve_fittings[sample_index][f"{grand_parent_text}+{parent_text_split_zero}_{chromatograms_list_selected_item_text}_RTs"][-1]]
                 ax.axvline(vlines_coord[0], color = "blue", linestyle='--', linewidth=1)
@@ -3046,7 +3075,7 @@ def run_main_window():
         if len(peak_range) > 0:
             if rt_minutes >= peak_range[0] and rt_minutes <= peak_range[1]:
                 sample_index = list(glycans_per_sample.keys()).index(selected_item)
-                parent_item = chromatograms_list.parent(selected_item_chromatograms)
+                parent_item = chromatograms_list.parent(chromatograms_list.selection())
                 parent_text = chromatograms_list.item(parent_item, "text") #adduct
                 grand_parent_item = chromatograms_list.parent(parent_item)
                 grand_parent_text = chromatograms_list.item(grand_parent_item, "text") #glycan
@@ -3174,13 +3203,13 @@ def run_main_window():
             
         custom_font_annotation = {'family': 'sans-serif', 'color': 'black', 'size': 9}
         
-        if len(reanalysis_path) > 0 and chromatograms_list.item(selected_item_chromatograms, "text") != "Base Peak Chromatogram/Electropherogram":
+        if len(reanalysis_path) > 0 and chromatograms_list.item(chromatograms_list.selection(), "text") != "Base Peak Chromatogram/Electropherogram":
             if level == 2:
-                parent_text = chromatograms_list.item(selected_item_chromatograms, "text").split(" ") #adduct
-                grand_parent_item = chromatograms_list.parent(selected_item_chromatograms)
+                parent_text = chromatograms_list.item(chromatograms_list.selection(), "text").split(" ") #adduct
+                grand_parent_item = chromatograms_list.parent(chromatograms_list.selection())
                 grand_parent_text = chromatograms_list.item(grand_parent_item, "text")
             if level == 3:
-                parent_item = chromatograms_list.parent(selected_item_chromatograms)
+                parent_item = chromatograms_list.parent(chromatograms_list.selection())
                 parent_text = chromatograms_list.item(parent_item, "text").split(" ") #adduct
                 grand_parent_item = chromatograms_list.parent(parent_item)
                 grand_parent_text = chromatograms_list.item(grand_parent_item, "text")
@@ -4027,12 +4056,12 @@ def run_main_window():
         ax_pv.set_ylabel('Intensity (AU)')
         
         sample_index = list(glycans_per_sample.keys()).index(selected_item)
-        parent_item = chromatograms_list.parent(selected_item_chromatograms)
+        parent_item = chromatograms_list.parent(chromatograms_list.selection())
         parent_text = chromatograms_list.item(parent_item, "text") #adduct
         grand_parent_item = chromatograms_list.parent(parent_item)
         grand_parent_text = chromatograms_list.item(grand_parent_item, "text")
         parent_text_split_zero = parent_text.split(" ")[0]
-        chromatograms_list_selected_item_text = chromatograms_list.item(selected_item_chromatograms, "text")
+        chromatograms_list_selected_item_text = chromatograms_list.item(chromatograms_list.selection(), "text")
         if f"{grand_parent_text}+{parent_text_split_zero}_{chromatograms_list_selected_item_text}_RTs" in curve_fittings[sample_index]:
             y_values_ideal = curve_fittings[sample_index][f"{grand_parent_text}+{parent_text_split_zero}_{chromatograms_list_selected_item_text}_Ideal_ints"]
             y_values_found = curve_fittings[sample_index][f"{grand_parent_text}+{parent_text_split_zero}_{chromatograms_list_selected_item_text}_Found_ints"]
@@ -4068,7 +4097,7 @@ def run_main_window():
         
         parent_text_split_zero = parent_text.split(" ")[0]
         chromatogram_parent_item_adduct = chromatograms_list.item(parent_item, "text").split(" ")[0]
-        chromatograms_list_selected_item_text = chromatograms_list.item(selected_item_chromatograms, "text")
+        chromatograms_list_selected_item_text = chromatograms_list.item(chromatograms_list.selection(), "text")
         chromatograms_list_grand_parent_text = chromatograms_list.item(grand_parent_item, "text")
         
         iso_fitting_score = glycans_per_sample[selected_item][grand_parent_text][parent_text_split_zero]['iso'][glycans_per_sample[selected_item][chromatograms_list_grand_parent_text][chromatogram_parent_item_adduct]['peaks'].index(chromatograms_list_selected_item_text)]
@@ -4094,7 +4123,7 @@ def run_main_window():
         if 'ms2' in glycans_per_sample[selected_item][grand_parent_text][parent_text.split(" ")[0]]:
             highest_tic_explained = 0
             for i in list(glycans_per_sample[selected_item][grand_parent_text][parent_text.split(" ")[0]]['ms2'].keys()):
-                if abs(float(i)-float(chromatograms_list.item(selected_item_chromatograms, "text"))) < 1: #change number from 1?
+                if abs(float(i)-float(chromatograms_list.item(chromatograms_list.selection(), "text"))) < 1: #change number from 1?
                     current_tic_explained = (sum(glycans_per_sample[selected_item][grand_parent_text][parent_text.split(" ")[0]]['ms2'][i][1])/glycans_per_sample[selected_item][grand_parent_text][parent_text.split(" ")[0]]['ms2'][i][3])*100
                     if current_tic_explained > highest_tic_explained:
                         highest_tic_explained = current_tic_explained
@@ -4129,18 +4158,15 @@ def run_main_window():
         peak_visualizer.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
 
     def click_treeview(event):
-        global chromatograms_list, selected_item, selected_item_chromatograms, samples_list
+        global chromatograms_list, selected_item, samples_list
         
         if event.keysym == "Escape": #removes selection and clears zoom and rectangles
             selected_items = chromatograms_list.selection()
             if len(selected_items) > 0:
                 chromatograms_list.selection_remove(selected_items)
-                ax.set_xlim(og_x_range)
-                ax.set_ylim(og_y_range)
-                selected_item_chromatograms = ''
                 plot_graph_button.config(state=tk.NORMAL)
                 compare_samples_button.config(state=tk.DISABLED)
-                canvas.draw_idle()
+                clear_plot(ax, canvas)
             return 
             
         region = chromatograms_list.identify_region(event.x, event.y)
@@ -4151,13 +4177,13 @@ def run_main_window():
             values = chromatograms_list.item(item, "values")
             if "MS2" in values:
                 handle_treeview_select(event)
-                parent_item = chromatograms_list.parent(selected_item_chromatograms)
+                parent_item = chromatograms_list.parent(chromatograms_list.selection())
                 parent_text = chromatograms_list.item(parent_item, "text").split(" ") #adduct
                 grand_parent_item = chromatograms_list.parent(parent_item)
                 grand_parent_text = chromatograms_list.item(grand_parent_item, "text")
                 distance = 99999
                 rt_closest = 0
-                rt = float(chromatograms_list.item(selected_item_chromatograms, "text"))
+                rt = float(chromatograms_list.item(chromatograms_list.selection(), "text"))
                 for i in glycans_per_sample[selected_item][grand_parent_text][parent_text[0]]['ms2']:
                     if abs(float(i)-rt) < distance:
                         distance = abs(float(i)-rt)
@@ -4475,7 +4501,7 @@ def run_main_window():
         process_2d_plot()
         
     def compare_samples_window():
-        global compare_samples, compare_samples_opened, selected_item_chromatograms, samples_dropdown_options, level, ret_time_interval, df1, df2, aligning_samples
+        global compare_samples, compare_samples_opened, samples_dropdown_options, level, ret_time_interval, df1, df2, aligning_samples
         
         def aligning_samples_window():
             def process_alignment():
@@ -4793,10 +4819,10 @@ def run_main_window():
         
         global item_text_comp, parent_text_comp, grand_parent_item_comp, grand_parent_text_comp
         if level == 1:
-            item_text_comp = chromatograms_list.item(selected_item_chromatograms, "text")
+            item_text_comp = chromatograms_list.item(chromatograms_list.selection(), "text")
         if level == 2:
-            parent_text_comp = chromatograms_list.item(selected_item_chromatograms, "text")
-            grand_parent_item_comp = chromatograms_list.parent(selected_item_chromatograms)
+            parent_text_comp = chromatograms_list.item(chromatograms_list.selection(), "text")
+            grand_parent_item_comp = chromatograms_list.parent(chromatograms_list.selection())
             grand_parent_text_comp = chromatograms_list.item(grand_parent_item_comp, "text")
     
         compare_samples = tk.Toplevel()
@@ -5662,7 +5688,6 @@ def run_main_window():
         chromatograms_list.selection_remove(selected_items)
         
     def plot_graph_window():
-        global selected_item_chromatograms
         
         def exit_plot_window():
             plot_window.destroy()
@@ -5820,21 +5845,21 @@ def run_main_window():
         elif mode == 'compare_samples':
             glycans = {}
             glycan = ''
-            treeview_level = determine_treeview_level(chromatograms_list, selected_item_chromatograms)
+            treeview_level = determine_treeview_level(chromatograms_list, chromatograms_list.selection())
             if treeview_level == 3:
-                rt_text = chromatograms_list.item(selected_item_chromatograms, "text")
-                adduct = chromatograms_list.parent(selected_item_chromatograms)
+                rt_text = chromatograms_list.item(chromatograms_list.selection(), "text")
+                adduct = chromatograms_list.parent(chromatograms_list.selection())
                 adduct_text = chromatograms_list.item(adduct, "text")
                 glycan = chromatograms_list.parent(adduct)
                 glycan_text = chromatograms_list.item(glycan, "text")
                 glycan = glycan_text+'_'+adduct_text.split(' ')[0]+'_'+str(rt_text)
             if treeview_level == 2:
-                adduct_text = chromatograms_list.item(selected_item_chromatograms, "text")
-                glycan = chromatograms_list.parent(selected_item_chromatograms)
+                adduct_text = chromatograms_list.item(chromatograms_list.selection(), "text")
+                glycan = chromatograms_list.parent(chromatograms_list.selection())
                 glycan_text = chromatograms_list.item(glycan, "text")
                 glycan = glycan_text+'_'+adduct_text.split(' ')[0]
             if treeview_level == 1:
-                glycan_text = chromatograms_list.item(selected_item_chromatograms, "text")
+                glycan_text = chromatograms_list.item(chromatograms_list.selection(), "text")
                 glycan = glycan_text
             
             for i in glycans_per_sample:
@@ -6787,7 +6812,8 @@ def run_main_window():
             gg_draw_zoom_scale_value.set(0.2)
             ToolTip(gg_draw_zoom_scale, "Set the size of the glycans drawings on the chromatogram/electropherogram plot.")
             
-            check_gg_drawings_available(treeview)
+            if reanalysis_path != "":
+                check_gg_drawings_available(treeview)
     
     def gg_draw_zoom_scale_moved(value):
         '''
@@ -6800,15 +6826,9 @@ def run_main_window():
     def check_gg_drawings_available(treeview, draw = True):
         '''
         '''
-        os.makedirs(os.path.join(current_dir, "Assets/glycans"), exist_ok=True)
-        directory_content = os.listdir(os.path.join(current_dir, "Assets/glycans"))
+        directory_content = os.listdir(gg_draw_glycans_path)
         glycans_to_draw = []
-        for treeview_item in treeview.get_children():
-            glycan = treeview.item(treeview_item, "text")
-            
-            if len(glycan.split("/")) > 1:
-                continue
-            
+        for glycan in glycans_per_sample[selected_item]:
             comp = General_Functions.form_to_comp(glycan)
             possibilities = [glycan]
             
@@ -6861,7 +6881,7 @@ def run_main_window():
             with concurrent.futures.ProcessPoolExecutor(max_workers = cpu_number) as executor:
                 for glycan in glycans_list:
                     result = executor.submit(draw_glycan, 
-                                             os.path.join(current_dir, "Assets/glycans"),
+                                             gg_draw_glycans_path,
                                              30,
                                              glycan,
                                              'none')
@@ -6929,7 +6949,7 @@ def run_main_window():
                 
                 peaks = treeview.get_children(treeview.parent(selected_item))
                 for peak in peaks:
-                    if "good" in treeview.item(peak, 'tags'):
+                    if "good" in treeview.item(peak, 'tags') or len(treeview.selection()) == 1:
                         rts.append(treeview.item(peak, 'text'))
             elif level == 2:
                 target_item = treeview.parent(selected_item)
@@ -6937,7 +6957,7 @@ def run_main_window():
                 
                 peaks = treeview.get_children(selected_item)
                 for peak in peaks:
-                    if "good" in treeview.item(peak, 'tags'):
+                    if "good" in treeview.item(peak, 'tags') or len(treeview.selection()) == 1:
                         rts.append(treeview.item(peak, 'text'))
             else:
                 selected_name = treeview.item(selected_item, 'text')
@@ -6947,11 +6967,11 @@ def run_main_window():
                 for adduct in adducts:
                     peaks += list(treeview.get_children(adduct))
                 for peak in peaks:
-                    if "good" in treeview.item(peak, 'tags'):
+                    if "good" in treeview.item(peak, 'tags') or len(treeview.selection()) == 1:
                         rts.append(treeview.item(peak, 'text'))
-                        
+            
             if len(rts) == 0:
-                return
+                continue
             
             intensities = []
             lines = ax.get_lines()
@@ -6972,7 +6992,7 @@ def run_main_window():
             
             # Find the possibilities of drawings for the given glycan
             possibilities = []
-            directory_files = os.listdir(os.path.join(current_dir, f"Assets/glycans/{selected_name}"))
+            directory_files = os.listdir(os.path.join(gg_draw_glycans_path, f"{selected_name}"))
             for file in directory_files:
                 if parameters_gg[0][8] == 'n_glycans':
                     if file.split(".")[0].split("_")[2] == "N":
@@ -6982,7 +7002,7 @@ def run_main_window():
                         possibilities.append(file)
                 else:
                     possibilities.append(file)
-                
+            
             if level == 1:
                 sorted_pairs = sorted(zip(rts, intensities))
                 rts, intensities = zip(*sorted_pairs)
@@ -7018,7 +7038,7 @@ def run_main_window():
             else:
                 ybox = y+(max_int*0.2)
             
-            image = mpimg.imread(os.path.join(current_dir, f"Assets/glycans/{glycan[3]}"))
+            image = mpimg.imread(os.path.join(gg_draw_glycans_path, f"{glycan[3]}"))
             imagebox = OffsetImage(image, zoom=gg_draw_zoom_scale_value.get())
             ab = AnnotationBbox(imagebox, xy=[x, y], xybox=[xbox, ybox], frameon=True, bboxprops=dict(boxstyle='square', fc='none', ec='none', lw=1, linestyle=':'), xycoords='data', arrowprops=dict(arrowstyle="->", color='black', connectionstyle="angle3,angleA=90,angleB=0"))
             ax.add_artist(ab)
@@ -7034,7 +7054,7 @@ def run_main_window():
         if zoom_level == '':
             zoom_level = gg_draw_zoom_scale_value.get()
         gg_draw_list[gg_draw_list_index][1].remove()
-        image = mpimg.imread(os.path.join(current_dir, f"Assets/glycans/{new_image}"))
+        image = mpimg.imread(os.path.join(gg_draw_glycans_path, f"{new_image}"))
         if mirrored:
             image = np.flip(image, axis=1)
         imagebox = OffsetImage(image, zoom=zoom_level)
@@ -7066,7 +7086,7 @@ def run_main_window():
             state = mirror_checkbox_variable.get()
             
         def change_glycan():
-            recreate_gg_draw(gg_draw_list_index, "/".join(gallery.get_selected().split("/")[-2:]), mirrored=mirror_checkbox_variable.get())
+            recreate_gg_draw(gg_draw_list_index, "/".join(gallery.get_selected().split("/")[-2:]).split("\\")[-1], mirrored=mirror_checkbox_variable.get())
             
         def remove_glycan():
             gg_draw_list[gg_draw_list_index][1].remove()
@@ -7161,10 +7181,10 @@ def run_main_window():
         possibilities = []
         generic_n_added = False
         generic_o_added = False
-        directory_files = os.listdir(os.path.join(current_dir, "Assets/glycans"))
+        directory_files = os.listdir(gg_draw_glycans_path)
         for file in directory_files:
             if file in possibilities_glycans:
-                for glycan in os.listdir(os.path.join(current_dir, f"Assets/glycans/{file}")):
+                for glycan in os.listdir(os.path.join(gg_draw_glycans_path, f"{file}")):
                     if "G" in glycan.split("_") and "N" in glycan.split(".")[0].split("_"):
                         if generic_n_added:
                             continue
@@ -7175,7 +7195,7 @@ def run_main_window():
                             continue
                         else:
                             generic_o_added = True
-                    possibilities.append(os.path.join(current_dir, f"Assets/glycans/{file}/{glycan}"))
+                    possibilities.append(os.path.join(gg_draw_glycans_path, f"{file}/{glycan}"))
         
         browse_glycans_window = tk.Toplevel()
         icon = ImageTk.PhotoImage(ico_image)
@@ -8004,6 +8024,9 @@ def run_select_files_window(samples_dropdown):
         
     def get_gg_parameters():        
         test_access = gg_archive(gg_file_label.cget("text"))
+        if str(test_access) == 'File is unloaded.':
+            error_window("This GG file is corrupted or incompatible with this version of GlycoGenius.")
+            return
         parameters_gg = test_access.get_metadata()
         samples_list = list(test_access.list_samples().values())
         version_gg = test_access.get_version()
@@ -8229,6 +8252,11 @@ def run_set_parameters_window():
         file_dialog.grab_set()
         
         dir_path = filedialog.askdirectory()
+        
+        if dir_path != '':
+            if dir_path[-1] != "/":
+                dir_path += "/"
+            
         working_dir_label.config(text=dir_path)
         
         file_dialog.destroy()
@@ -8383,9 +8411,22 @@ def run_set_parameters_window():
             close_peaks_entry.config(state=tk.NORMAL)
         else:
             close_peaks_entry.config(state=tk.DISABLED)
+        
+    def lyase_digested_checkbox_state_check():
+        state = lyase_digested_checkbox_state.get()
+            
+    def on_forced_class_selected(event):
+        global gallery_warning_label
+        
+        forced_class = forced_class_dropdown.get()
+        
+        if forced_class == 'GAGs':
+            lyase_digested_checkbox.config(state=tk.NORMAL)
+        else:
+            lyase_digested_checkbox.config(state=tk.DISABLED)
             
     def ok_sp_window():
-        global save_path, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_fuc,  min_max_sia, min_max_ac, min_max_gc, min_max_hn, min_max_ua, internal_standard, reducing_end_boolean, reducing_end_tag, permethylated, reduced, lactonized_ethyl_esterified,  min_max_sulfation,  min_max_phosphorylation,  forced, fast_iso, high_res, multithreaded_analysis, number_cores, min_ppp,  close_peaks, iso_fit_score, curve_fit_score, s_to_n, max_ppm, h_adduct, na_adduct, k_adduct, li_adduct, max_charges, max_adducts, adducts_exclusion, custom_glycans_list
+        global save_path, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_fuc,  min_max_sia, min_max_ac, min_max_gc, min_max_hn, min_max_ua, internal_standard, reducing_end_boolean, reducing_end_tag, permethylated, reduced, lactonized_ethyl_esterified,  min_max_sulfation,  min_max_phosphorylation,  forced, fast_iso, high_res, multithreaded_analysis, number_cores, min_ppp,  close_peaks, iso_fit_score, curve_fit_score, s_to_n, max_ppm, h_adduct, na_adduct, k_adduct, li_adduct, max_charges, max_adducts, adducts_exclusion, custom_glycans_list, lyase_digested
         
         parameters_dict = {'Min. Monosaccharides':min_monosaccharides_entry.get(), 
                            'Max. Monosaccharides':max_monosaccharides_entry.get(), 
@@ -8542,8 +8583,12 @@ def run_set_parameters_window():
                     tolerance[0] = 'mz'
                 if len(working_dir_label.cget('text')) != 0:
                     save_path = working_dir_label.cget('text')
-                    if save_path[-1] != "/":
-                        save_path = save_path+"/"
+                        
+                    try:
+                        pathlib.Path(save_path).mkdir(exist_ok = True, parents = True)
+                    except Exception:
+                        error_window("There was an issue while creating the working directory.")
+                        return
                 else:
                     save_path = ""
                 custom_glycans_list = local_custom_glycans_list
@@ -8565,6 +8610,7 @@ def run_set_parameters_window():
                 min_max_phosphorylation = [int(min_phosphorylation_entry.get()), int(max_phosphorylation_entry.get())]
                 
                 forced = forced_classes[forced_class_dropdown.get()]
+                lyase_digested = lyase_digested_checkbox_state.get()
                 fast_iso = fast_iso_checkbox_state.get()
                 high_res = hires_iso_checkbox_state.get()
                 multithreaded_analysis = multithreaded_checkbox_state.get()
@@ -8574,7 +8620,7 @@ def run_set_parameters_window():
                 else:
                     set_parameters_frame.config(bg="red")
                 close_sp_window()
-            except:
+            except Exception:
                 last_line = traceback.format_exc().split(" ")[-1][1:-2]
                 for i_i, i in enumerate(list(parameters_dict.values())):
                     if i == last_line:
@@ -8676,6 +8722,7 @@ def run_set_parameters_window():
             f.write(f"reduced = {reduced_checkbox_state.get()}\n")
             f.write(f"min_max_sulfation_per_glycan = {min_sulfation_entry.get()}, {max_sulfation_entry.get()}\n")
             f.write(f"min_max_phosphorylation_per_glycan = {min_phosphorylation_entry.get()}, {max_phosphorylation_entry.get()}\n")
+            f.write(f"lyase_digested = {lyase_digested_checkbox_state.get()}\n")
             f.write(f"aminated_ethyl_esterified = {lac_ee_checkbox_state.get()}\n")
             f.write(f"fast_iso = {fast_iso_checkbox_state.get()}\n")
             f.write(f"high_resolution_isotopic_dist = {hires_iso_checkbox_state.get()}\n")
@@ -8730,6 +8777,8 @@ def run_set_parameters_window():
             set_parameters_window.grab_set()
             return
         parameters = Config_Handler.config_handler(True, file_path)
+        
+        # Sort out adducts and its exclusions
         max_h_excluded = 0
         max_na_excluded = 0
         max_k_excluded = 0
@@ -8794,6 +8843,7 @@ def run_set_parameters_window():
             negative_mode_checkbox_state.set(True)
         else:
             negative_mode_checkbox_state.set(False)
+            
         ppm_error_min_entry.delete(0, tk.END)
         if type(parameters[1][12]) == int:
             ppm_error_min_entry.insert(0, 0-parameters[1][12])
@@ -8887,11 +8937,54 @@ def run_set_parameters_window():
             from_file_button.config(state = from_file_button_state)
             local_custom_glycans_list[0] = True
             local_custom_glycans_list[1] = parameters[0][0][1]
+            
+            min_monosaccharides_entry.config(state=tk.DISABLED)
+            max_monosaccharides_entry.config(state=tk.DISABLED)
+            min_hex_entry.config(state=tk.DISABLED)
+            max_hex_entry.config(state=tk.DISABLED)
+            min_hn_entry.config(state=tk.DISABLED)
+            max_hn_entry.config(state=tk.DISABLED)
+            min_hexnac_entry.config(state=tk.DISABLED)
+            max_hexnac_entry.config(state=tk.DISABLED)
+            min_xyl_entry.config(state=tk.DISABLED)
+            max_xyl_entry.config(state=tk.DISABLED)
+            min_dhex_entry.config(state=tk.DISABLED)
+            max_dhex_entry.config(state=tk.DISABLED)
+            min_sia_entry.config(state=tk.DISABLED)
+            max_sia_entry.config(state=tk.DISABLED)
+            min_ua_entry.config(state=tk.DISABLED)
+            max_ua_entry.config(state=tk.DISABLED)
+            min_neu5ac_entry.config(state=tk.DISABLED)
+            max_neu5ac_entry.config(state=tk.DISABLED)
+            min_neu5gc_entry.config(state=tk.DISABLED)
+            max_neu5gc_entry.config(state=tk.DISABLED)
         else:
             use_custom_library_checkbox_state.set(False)
             from_file_button_state = tk.DISABLED
             from_file_button.config(state = from_file_button_state)
             local_custom_glycans_list[0] = False
+            local_custom_glycans_list[0] = False
+            
+            min_monosaccharides_entry.config(state=tk.NORMAL)
+            max_monosaccharides_entry.config(state=tk.NORMAL)
+            min_hex_entry.config(state=tk.NORMAL)
+            max_hex_entry.config(state=tk.NORMAL)
+            min_hn_entry.config(state=tk.NORMAL)
+            max_hn_entry.config(state=tk.NORMAL)
+            min_hexnac_entry.config(state=tk.NORMAL)
+            max_hexnac_entry.config(state=tk.NORMAL)
+            min_xyl_entry.config(state=tk.NORMAL)
+            max_xyl_entry.config(state=tk.NORMAL)
+            min_dhex_entry.config(state=tk.NORMAL)
+            max_dhex_entry.config(state=tk.NORMAL)
+            min_sia_entry.config(state=tk.NORMAL)
+            max_sia_entry.config(state=tk.NORMAL)
+            min_ua_entry.config(state=tk.NORMAL)
+            max_ua_entry.config(state=tk.NORMAL)
+            min_neu5ac_entry.config(state=tk.NORMAL)
+            max_neu5ac_entry.config(state=tk.NORMAL)
+            min_neu5gc_entry.config(state=tk.NORMAL)
+            max_neu5gc_entry.config(state=tk.NORMAL)
         if parameters[1][2][0]:
             analyze_ms2_checkbox_state.set(True)
             force_ms2_comp_checkbox_active_state = tk.NORMAL
@@ -8976,6 +9069,12 @@ def run_set_parameters_window():
             multithreaded_checkbox_state.set(False)
             number_cores_entry_state = tk.DISABLED
             number_cores_entry.config(state = number_cores_entry_state)
+        if parameters[0][28] and parameters[0][8] == 'gags':
+            lyase_digested_checkbox.config(state=tk.NORMAL)
+            lyase_digested_checkbox_state.set(True)
+        else:
+            lyase_digested_checkbox.config(state=tk.DISABLED)
+            lyase_digested_checkbox_state.set(False)
         min_sulfation_entry.delete(0, tk.END)
         min_sulfation_entry.insert(0, parameters[0][26][0])
         max_sulfation_entry.delete(0, tk.END)
@@ -9568,6 +9667,7 @@ def run_set_parameters_window():
     swapped_forced_classes = {v: k for k, v in forced_classes.items()}
     forced_class_dropdown.set(swapped_forced_classes[forced])
     forced_class_dropdown.grid(row=25, column=0, columnspan=2, padx=(140, 10), sticky="w")
+    forced_class_dropdown.bind("<<ComboboxSelected>>", on_forced_class_selected)
     ToolTip(forced_class_dropdown, "Forces the compositions to match a known glycan class biological features, reducing the search space, allowing for faster analysis and reducing false positives. Details on the constraints imposed can be found on the User Guide.")
     
     fast_iso_checkbox_state = tk.BooleanVar(value=fast_iso)
@@ -9661,6 +9761,14 @@ def run_set_parameters_window():
     negative_mode_checkbox = ttk.Checkbutton(library_building_frame, text="Negative Mode", variable=negative_mode_checkbox_state, command=negative_mode_checkbox_state_check)
     negative_mode_checkbox.grid(row=23, column=1, padx=(20, 10), pady=(0, 10), sticky="w")
     ToolTip(negative_mode_checkbox, "Allows analysis of data acquired in negative mode. For now only supports proton adducts.")
+    
+    lyase_digested_checkbox_activation_state = tk.NORMAL
+    if forced_class_dropdown.get() != 'GAGs':
+        lyase_digested_checkbox_activation_state = tk.DISABLED
+    lyase_digested_checkbox_state = tk.BooleanVar(value=lyase_digested)
+    lyase_digested_checkbox = ttk.Checkbutton(library_building_frame, text="Lyase Digested", variable=lyase_digested_checkbox_state, command=lyase_digested_checkbox_state_check, state=lyase_digested_checkbox_activation_state)
+    lyase_digested_checkbox.grid(row=25, column=1, padx=(30, 10), sticky="w")
+    ToolTip(lyase_digested_checkbox, "")
     
     # Widgets to analysis_frame
     multithreaded_checkbox_state = tk.BooleanVar(value=multithreaded_analysis)
