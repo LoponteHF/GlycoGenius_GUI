@@ -17,8 +17,8 @@
 # by typing 'glycogenius'. If not, see <https://www.gnu.org/licenses/>.
 
 global gg_version, GUI_version
-gg_version = '1.2.5'
-GUI_version = '0.2.8'
+gg_version = '1.2.6'
+GUI_version = '1.0.0'
 
 from PIL import Image, ImageTk
 import tkinter as tk
@@ -1786,6 +1786,15 @@ def on_right_click_plot(event, ax_here, canvas_here, clean_plot):
     
     if over_x or over_y:
         return
+        
+    if not over_x and not over_y:  # Right mouse button
+        # Open a context menu
+        context_menu = tk.Menu(main_window, tearoff=0)
+        context_menu.add_command(label="Save Image", command=lambda: save_image(event, canvas_here, ax_here, clean_plot))
+        context_menu.post(screen_x, screen_y)
+        
+def save_image(event, canvas_here, ax_here, clean_plot):
+    '''This is the working function of the on_right_click_plot function. It saves an image of the right clicked plot.'''
     
     def remove_marker():
         removed_markers = []
@@ -1793,24 +1802,14 @@ def on_right_click_plot(event, ax_here, canvas_here, clean_plot):
         for artist in artists:
             if isinstance(artist, matplotlib.lines.Line2D) and (artist.get_markersize() == 4 or artist.get_linestyle() == '--'):
                 removed_markers.append(artist)
-                artist.remove() #evaluate less destructive alternatives to this command
+                artist.remove()
         return removed_markers
     
     removed_markers = []
     if clean_plot:
         removed_markers = remove_marker()
     canvas_here.draw()
-    if not over_x and not over_y:  # Right mouse button
-        # Open a context menu
-        context_menu = tk.Menu(main_window, tearoff=0)
-        context_menu.add_command(label="Save Image", command=lambda: save_image(event, canvas_here))
-        context_menu.post(screen_x, screen_y)
-        
-    for artist in removed_markers:
-        ax_here.add_line(artist)
-        
-def save_image(event, canvas_here):
-    '''This is the working function of the on_right_click_plot function. It saves an image of the right clicked plot.'''
+    
     # Open a save dialog window
     file_dialog = tk.Toplevel()
     file_dialog.attributes("-topmost", True)
@@ -1823,6 +1822,10 @@ def save_image(event, canvas_here):
             canvas_here.figure.savefig(file_path, format='svg', dpi=600)
         else:
             canvas_here.figure.savefig(file_path, dpi=600)
+        
+    for artist in removed_markers:
+        ax_here.add_line(artist)
+    canvas_here.draw()
         
     file_dialog.destroy()
     
@@ -6992,16 +6995,17 @@ def run_main_window():
             
             # Find the possibilities of drawings for the given glycan
             possibilities = []
-            directory_files = os.listdir(os.path.join(gg_draw_glycans_path, f"{selected_name}"))
-            for file in directory_files:
-                if parameters_gg[0][8] == 'n_glycans':
-                    if file.split(".")[0].split("_")[2] == "N":
+            if selected_name in os.listdir(gg_draw_glycans_path):
+                directory_files = os.listdir(os.path.join(gg_draw_glycans_path, f"{selected_name}"))
+                for file in directory_files:
+                    if parameters_gg[0][8] == 'n_glycans':
+                        if file.split(".")[0].split("_")[2] == "N":
+                            possibilities.append(file)
+                    elif parameters_gg[0][8] == 'o_glycans':
+                        if file.split(".")[0].split("_")[2] == "O":
+                            possibilities.append(file)
+                    else:
                         possibilities.append(file)
-                elif parameters_gg[0][8] == 'o_glycans':
-                    if file.split(".")[0].split("_")[2] == "O":
-                        possibilities.append(file)
-                else:
-                    possibilities.append(file)
             
             if level == 1:
                 sorted_pairs = sorted(zip(rts, intensities))
@@ -7022,7 +7026,8 @@ def run_main_window():
                 intensities = new_ints
             
             for x, y in zip(rts, intensities):
-                to_plot.append([selected_name, x, y, f"{selected_name}/{random.choice(possibilities)}"])
+                if len(possibilities) > 0:
+                    to_plot.append([selected_name, x, y, f"{selected_name}/{random.choice(possibilities)}"])
                 
         to_plot = sorted(to_plot, key=lambda item: item[1])
         for index, glycan in enumerate(to_plot):
@@ -7086,7 +7091,8 @@ def run_main_window():
             state = mirror_checkbox_variable.get()
             
         def change_glycan():
-            recreate_gg_draw(gg_draw_list_index, "/".join(gallery.get_selected().split("/")[-2:]).split("\\")[-1], mirrored=mirror_checkbox_variable.get())
+            if gallery.get_selected():
+                recreate_gg_draw(gg_draw_list_index, "/".join(gallery.get_selected().split("/")[-2:]).split("\\")[-1], mirrored=mirror_checkbox_variable.get())
             
         def remove_glycan():
             gg_draw_list[gg_draw_list_index][1].remove()

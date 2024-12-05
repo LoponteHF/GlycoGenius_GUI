@@ -12,16 +12,16 @@ Glycobiologists analyzing glycans' mass spectrometer data usually rely on severa
 
 With that in mind, this tool aims to put all the usual workflow for glycomics in a single place.
 
-In order to do that, this tool is able to do several different tasks:
+In order to do that, this tool is able to do several different tasks automatically:
 - Create glycans libraries based on user input, which can be monosaccharides numbers or specific glycans;
 - Automatically identify noise level in samples;
 - Process the spectra data and creates refined extracted ion chromatograms (EICs) for each glycan analyzed;
-- Peak-picks multiple peaks in a single EIC, which allows the identification and possibly quantification of plausible isomers;
-- Provides scorings of isotopic distribution peaks and chromatogram peak curve fitting based on relation and correlation;
+- Peak-pick multiple peaks in a single EIC, which allows the identification and possibly quantification of plausible isomers;
+- Provide scorings of isotopic distribution peaks and chromatogram peak curve fitting based on relation and correlation;
 - Identify PPM differences between theoretical mass and identified mz;
-- Calculates signal-to-noise ratio;
-- Identifies MS2 glycans' fragments and assign them to its respective precursor;
-- Many other features.
+- Calculate signal-to-noise ratio;
+- Identify MS2 glycans' fragments and assign them to its respective precursor;
+- And much more!
 
 ## Installation
 
