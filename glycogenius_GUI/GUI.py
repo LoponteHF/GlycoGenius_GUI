@@ -18,7 +18,7 @@
 
 global gg_version, GUI_version
 gg_version = '1.2.6'
-GUI_version = '1.0.0'
+GUI_version = '1.0.1'
 
 from PIL import Image, ImageTk
 import tkinter as tk
@@ -106,6 +106,7 @@ from collections import defaultdict
 import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+import winreg as reg
 import numpy as np
 import threading
 import matplotlib
@@ -382,6 +383,10 @@ class gg_archive:
         else:
             self.begin_time = datetime.datetime.now()
             self.begin_time_string = str(self.begin_time)[2:4]+str(self.begin_time)[5:7]+str(self.begin_time)[8:10]+"_"+str(self.begin_time)[11:13]+str(self.begin_time)[14:16]+str(self.begin_time)[17:19]
+            while "gg_"+self.begin_time_string in os.listdir(tempfile.gettempdir()):
+                self.begin_time_string = f"{self.begin_time_string[:-2]}{int(self.begin_time_string[-2:])+1}"
+                if int(self.begin_time_string[-2:]) > 59:
+                    self.begin_time_string = f"{self.begin_time_string[:-4]}{int(self.begin_time_string[-4:-2])+1}00"
             self.temp_path = os.path.join(tempfile.gettempdir(), "gg_"+self.begin_time_string)
             os.makedirs(self.temp_path, exist_ok=True)
             
@@ -886,6 +891,108 @@ class TextRedirector_save_result(object):
     def flush(self):
         pass
         
+# Functions to manage file association with .gg files
+def check_file_association(extension, file_type):
+    """
+    Check if a file association already exists for the given extension and file type.
+    """
+    try:
+        # Check if the extension key exists
+        extension_key = f"SOFTWARE\\Classes\\{extension}"
+        with reg.OpenKey(reg.HKEY_CURRENT_USER, extension_key) as key:
+            associated_file_type, _ = reg.QueryValueEx(key, "")
+            if associated_file_type != file_type:
+                return False, 1
+        
+        # Check if the file type key exists and the associated script is valid
+        command_key = f"SOFTWARE\\Classes\\{file_type}\\shell\\open\\command"
+        with reg.OpenKey(reg.HKEY_CURRENT_USER, command_key) as key:
+            command, _ = reg.QueryValueEx(key, "")
+            # Extract the .exe path from the command string (strip quotes and arguments)
+            if len(command.split('" "')) > 2:
+                exe_path = command.split('" "')[1].strip('"')
+            else:
+                exe_path = command.split('" "')[0].strip('"')
+            
+            if not os.path.exists(exe_path):
+                return False, 2
+            if exe_path != os.path.abspath(sys.argv[0]):
+                return False, 3
+
+        return True, 0
+    except FileNotFoundError:
+        return False, 4
+        
+def remove_file_association(extension, file_type):
+    """
+    Remove the file association for the given extension and file type.
+    """
+    try:
+        # Define registry keys
+        extension_key = f"SOFTWARE\\Classes\\{extension}"
+        filetype_key = f"SOFTWARE\\Classes\\{file_type}"
+
+        # Delete the extension key
+        try:
+            reg.DeleteKey(reg.HKEY_CURRENT_USER, extension_key)
+        except FileNotFoundError:
+            error_window(f"Registry key not found: {extension_key}")
+
+        # Delete the file type key (recursively)
+        def delete_recursively(key_path):
+            try:
+                with reg.OpenKey(reg.HKEY_CURRENT_USER, key_path, 0, reg.KEY_READ) as key:
+                    subkeys_count, _, _ = reg.QueryInfoKey(key)
+                    for i in range(subkeys_count):
+                        subkey_name = reg.EnumKey(key, 0)  # Always delete the first subkey
+                        delete_recursively(f"{key_path}\\{subkey_name}")
+                reg.DeleteKey(reg.HKEY_CURRENT_USER, key_path)
+            except FileNotFoundError:
+                error_window(f"Registry key not found: {key_path}")
+
+        delete_recursively(filetype_key)
+    except Exception as e:
+        error_window(f"Failed to remove file association: {e}")
+
+def create_file_association(file_extension, file_type, description):
+    try:
+        # Paths
+        python_executable = sys.executable
+        script_path = os.path.abspath(sys.argv[0])  # Path to your Python script
+
+        # Command to execute the file (using pythonw for no terminal window)
+        if script_path.split(".")[-1] == "exe":
+            command = f'"{script_path}" "%1"'
+        else:
+            command = f'"{python_executable}" "{script_path}" "%1"'
+
+        # Registry keys
+        extension_key = f"SOFTWARE\\Classes\\{file_extension}"
+        filetype_key = f"SOFTWARE\\Classes\\{file_type}"
+        command_key = f"{filetype_key}\\shell\\open\\command"
+        default_icon_key = f"{filetype_key}\\DefaultIcon"
+
+        # Create the extension key and associate it with the file type
+        with reg.CreateKey(reg.HKEY_CURRENT_USER, extension_key) as key:
+            reg.SetValue(key, "", reg.REG_SZ, file_type)
+
+        # Create the file type key and set its description
+        with reg.CreateKey(reg.HKEY_CURRENT_USER, filetype_key) as key:
+            reg.SetValue(key, "", reg.REG_SZ, description)
+
+        # Set the command to execute when the file is opened
+        with reg.CreateKey(reg.HKEY_CURRENT_USER, command_key) as key:
+            reg.SetValue(key, "", reg.REG_SZ, command)
+
+        # Set the default icon for the file type
+        with reg.CreateKey(reg.HKEY_CURRENT_USER, default_icon_key) as key:
+            reg.SetValue(key, "", reg.REG_SZ, ico_path)
+        
+        confirmation_window(f"File association with {file_extension} files created succesfully!")
+        
+    except Exception as e:
+        error_window(f"Failed to create file association: {e}")
+        
 # Custom square root function that handles negative values
 def custom_sqrt(x):
     return np.where(x >= 0, np.sqrt(x), -np.sqrt(-x))
@@ -1371,6 +1478,9 @@ def error_window(text):
 def warning_window(text):
     response = messagebox.askokcancel("Warning", text)
     return response
+    
+def confirmation_window(text):
+    messagebox.showinfo("Confirmation", text)
         
 def kill_concurrent_futures():
     '''This function finishes off all instances of GG multithreading executions.'''
@@ -1416,7 +1526,10 @@ def clean_temp_folder():
                     except:
                         pass
     else:
-        shutil.rmtree(temp_folder)
+        try:
+            shutil.rmtree(temp_folder)
+        except:
+            pass
                 
 def on_closing():
     '''This function is used to remove the function from the Close Window button (x button).'''
@@ -3901,7 +4014,7 @@ def run_main_window():
     # Initialize press_coords attribute
     on_click.press_coords = None
             
-    def exit_window():
+    def exit_window(direct_close = False):
         def ok_close_main_window():
             # Remove GG windows
             main_window.quit()
@@ -3953,6 +4066,9 @@ def run_main_window():
         x_position = (screen_width - window_width) // 2
         y_position = (screen_height - window_height) // 2
         exit_window.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
+        
+        if direct_close:
+            ok_close_main_window()
     
     def handle_double_left_click(event): #peak visualizer
         selected_item_pv = chromatograms_list.selection()
@@ -7317,6 +7433,45 @@ def run_main_window():
     
         t = threading.Thread(target=glycan_browser, args=(gg_draw_list_index,))
         t.start()
+        
+    def loading_files_from_explorer():
+        def close_lf():
+            loading_files.destroy()
+            
+        def wait_thread():
+            if len(reanalysis_path) > 0:
+                reanalysis_file.join()
+            if len(samples_dropdown['values']) != 0:
+                samples_dropdown.current(0)
+                handle_selection(None)
+            close_lf()
+        
+        global loading_files
+        loading_files = tk.Toplevel()
+        # loading_files.attributes("-topmost", True)
+        loading_files.withdraw()
+        loading_files.title("Loading Files")
+        icon = ImageTk.PhotoImage(ico_image)
+        loading_files.iconphoto(False, icon)
+        loading_files.resizable(False, False)
+        loading_files.grab_set()
+        loading_files.protocol("WM_DELETE_WINDOW", on_closing)
+        
+        loading_files_label = ttk.Label(loading_files, text="Loading files, please wait.", font=("Segoe UI", list_font_size))
+        loading_files_label.pack(pady=35, padx=70)
+        
+        loading_files.update_idletasks()
+        loading_files.deiconify()
+        window_width = loading_files.winfo_width()
+        window_height = loading_files.winfo_height()
+        screen_width = loading_files.winfo_screenwidth()
+        screen_height = loading_files.winfo_screenheight()
+        x_position = (screen_width - window_width) // 2
+        y_position = (screen_height - window_height) // 2
+        loading_files.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
+        
+        t = threading.Thread(target=wait_thread)
+        t.start()
             
     # Create the main window
     global main_window
@@ -7768,6 +7923,40 @@ def run_main_window():
     
     main_window.deiconify()
     main_window.attributes("-topmost", False)
+    
+    # Check file associations
+    curr_os = platform.system()
+    if curr_os == "Windows":
+        association_exists = check_file_association(".gg", "ggfile")
+        if not association_exists[0]:
+            if association_exists[1] == 2:
+                create_new_association = warning_window("Former association of analysis result files (.gg) created by GlycoGenius is broken. Do you wish to fix it?")
+            elif association_exists[1] == 3:
+                create_new_association = warning_window("Analysis result files (.gg) created by GlycoGenius are associated with another installation of GlycoGenius. Do you wish to change it to this installation?")
+            else:
+                create_new_association = warning_window("Analysis result files (.gg) created by GlycoGenius are currently not associated to open with GlycoGenius. Do you wish to create this association?")
+            if create_new_association:
+                if association_exists[1] == 2 or association_exists[1] == 3:
+                    remove_file_association(".gg", "ggfile")
+                create_file_association(".gg", "ggfile", "GlycoGenius Analysis Results File")
+                
+        # Check if running GG from .gg file
+        if len(sys.argv) > 1:
+            if sys.argv[1].split(".")[-1] == 'gg':
+                global reanalysis_path
+                try:
+                    test_access = gg_archive(sys.argv[1])
+                    if str(test_access) == 'File is unloaded.':
+                        error_window("Invalid reanalysis file. Check it and try again.")
+                        exit_window(True)
+                    else:
+                        reanalysis_path = sys.argv[1]
+                        reanalysis_file = threading.Thread(target=load_reanalysis, args=(reanalysis_path,))
+                        reanalysis_file.start()
+                        select_files_frame.config(bg='lightgreen')
+                        loading_files_from_explorer()
+                except:
+                    error_window("Invalid reanalysis file. Check it and try again.")
     
     # Start the event loop
     main_window.mainloop()
