@@ -18,7 +18,7 @@
 
 global gg_version, GUI_version
 gg_version = '1.2.6'
-GUI_version = '1.0.1'
+GUI_version = '1.0.2'
 
 from PIL import Image, ImageTk
 import tkinter as tk
@@ -7950,6 +7950,7 @@ def run_main_window():
                         error_window("Invalid reanalysis file. Check it and try again.")
                         exit_window(True)
                     else:
+                        global reanalysis_file
                         reanalysis_path = sys.argv[1]
                         reanalysis_file = threading.Thread(target=load_reanalysis, args=(reanalysis_path,))
                         reanalysis_file.start()

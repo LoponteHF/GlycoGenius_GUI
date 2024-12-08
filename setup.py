@@ -31,7 +31,7 @@ with open("README.md", "r", encoding="utf-8") as f:
 
 setup(
     name='glycogenius_GUI',
-    version='1.0.1',
+    version='1.0.2',
     author='Hector Franco Loponte',
     author_email='hectorfloponte@gmail.com',
     description='Accessory GUI for Glycogenius',
