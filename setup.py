@@ -103,7 +103,3 @@ setup(
         ]
     }
 )
-
-# Save install_requires to requirements.txt
-with open('requirements.txt', 'w') as f:
-    f.write("\n".join(install_requires))
