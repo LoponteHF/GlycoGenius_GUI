@@ -18,7 +18,7 @@
 
 global gg_version, GUI_version
 gg_version = '1.2.6'
-GUI_version = '1.0.2'
+GUI_version = '1.0.3'
 
 from PIL import Image, ImageTk
 import tkinter as tk
@@ -106,7 +106,6 @@ from collections import defaultdict
 import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-import winreg as reg
 import numpy as np
 import threading
 import matplotlib
@@ -124,6 +123,10 @@ import dill
 import random
 import math
 
+# Windows only
+if platform.system() == 'Windows':
+    import winreg as reg
+
 # For File Editor
 from reportlab.lib.pagesizes import letter, A4
 from reportlab.pdfgen import canvas as pdf_canvas
@@ -135,6 +138,7 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle
 # For GG Draw
 from PIL import ImageDraw
 
+# Fix multiprocessing on linux and presumably mac
 if platform.system() != 'Windows':
     multiprocessing.set_start_method('spawn', force=True)
     
@@ -148,7 +152,7 @@ except Exception:
     gg_draw_glycans_path = os.path.join(tempfile.gettempdir(), "glycans_gg")
     os.makedirs(gg_draw_glycans_path, exist_ok=True)
 
-#all the settings necessary to make a Glycogenius run
+# All the settings necessary to make a Glycogenius run
 global min_max_monos, min_max_hex, min_max_hn, min_max_hexnac, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, min_max_ua, forced, max_adducts, max_charges, reducing_end_tag, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, fast_iso, high_res, number_cores, multithreaded_analysis, exp_lib_name, min_samples, lyase_digested
 
 custom_glycans_list = [False, '']
@@ -322,6 +326,7 @@ list_font_size_smaller = 8
 button_font_size = 10
 big_button_size = (int(button_font_size), int(button_font_size*2))
 
+# Classes
 class gg_archive:
     '''A class to manage access to .gg files.
     
@@ -7925,8 +7930,7 @@ def run_main_window():
     main_window.attributes("-topmost", False)
     
     # Check file associations
-    curr_os = platform.system()
-    if curr_os == "Windows":
+    if platform.system() == "Windows":
         association_exists = check_file_association(".gg", "ggfile")
         if not association_exists[0]:
             if association_exists[1] == 2:
