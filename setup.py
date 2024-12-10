@@ -18,8 +18,10 @@
 
 from setuptools import setup, find_packages
 from distutils.command.install import INSTALL_SCHEMES
+import sys
+import os
 
-current_version='1.0.2'
+current_version='1.0.3'
 
 for scheme in INSTALL_SCHEMES.values():
     scheme['data'] = scheme['purelib']
