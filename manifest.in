@@ -1,3 +1,4 @@
+include requirements.txt
 recursive-include *py
 recursive-include glycogenius_GUI/Assets *ico *png *gga
-recursive-exclude glycogenius_GUI/Assets/glycans *png
+prune glycogenius_GUI/Assets/glycans
