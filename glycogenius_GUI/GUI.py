@@ -18,7 +18,7 @@
 
 global gg_version, GUI_version
 gg_version = '1.2.6'
-GUI_version = '1.0.4'
+GUI_version = '1.0.5'
 
 from PIL import Image, ImageTk
 import tkinter as tk

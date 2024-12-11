@@ -1,0 +1,16 @@
+pandas
+scipy
+pyteomics
+pillow
+ttkwidgets
+matplotlib
+dill
+numpy==1.26.4
+lxml
+openpyxl
+setuptools
+xlsxwriter
+psutil
+glycogenius==1.2.6
+mpl_scatter_density
+reportlab
