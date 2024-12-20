@@ -17,8 +17,8 @@
 # by typing 'glycogenius'. If not, see <https://www.gnu.org/licenses/>.
 
 global gg_version, GUI_version
-gg_version = '1.2.6'
-GUI_version = '1.0.5'
+gg_version = '1.2.7'
+GUI_version = '1.0.6'
 
 from PIL import Image, ImageTk
 import tkinter as tk
@@ -1542,7 +1542,7 @@ def on_closing():
         
 def handle_selection(event):
     '''This function handles the selection of the samples dropdown menu.'''
-    global current_data, ax, canvas, ax_spec, canvas_spec, samples_dropdown, chromatograms_list, selected_item, compare_samples_button, loading_files, filter_list, samples_list, spectra_plot_frame, no_spectra_loaded_label, ms1_bound, ms1_binds, ms2_bound, ms2_binds, chromatogram_bound, chromatogram_binds, rt_label, precursor_label, gg_draw_on, check_gg_drawings_available, former_selected_sample
+    global current_data, ax, canvas, ax_spec, canvas_spec, samples_dropdown, chromatograms_list, selected_item, compare_samples_button, loading_files, filter_list, samples_list, spectra_plot_frame, no_spectra_loaded_label, ms1_bound, ms1_binds, ms2_bound, ms2_binds, chromatogram_bound, chromatogram_binds, rt_label, precursor_label, gg_draw_on, former_selected_sample
     
     selected_item = samples_dropdown.get()
     if selected_item == former_selected_sample:
@@ -1607,9 +1607,6 @@ def handle_selection(event):
     
     if f"mzml_window_{this_process_id}.txt" in os.listdir(check_folder):
         mzml_window_start(change_sample = selected_item)
-    
-    if gg_draw_on:
-        check_gg_drawings_available(chromatograms_list, False)
     
     no_spectra_loaded_label_ms2.config(text=f"No MS2 spectra selected. If your raw data file\ncontains MS2 data, click on a purple diamond on\nan MS1 spectra or if you've analyzed your data\nwith MS2 analysis included, click on 'MS2'\nbesides a glycan peak retention time in the\nglycan's list.")
     no_spectra_loaded_label_ms2.place(relx=0.50, rely=0.45)
@@ -4284,6 +4281,9 @@ def run_main_window():
     def click_treeview(event):
         global chromatograms_list, selected_item, samples_list
         
+        if gg_draw_on:
+            check_gg_drawings_available(chromatograms_list, False)
+        
         if event.keysym == "Escape": #removes selection and clears zoom and rectangles
             selected_items = chromatograms_list.selection()
             if len(selected_items) > 0:
@@ -6952,7 +6952,20 @@ def run_main_window():
         '''
         directory_content = os.listdir(gg_draw_glycans_path)
         glycans_to_draw = []
-        for glycan in glycans_per_sample[selected_item]:
+        selected_glycans = []
+        for element in treeview.selection():
+        
+            # Get the level of the treeview
+            glycan = element
+            while True:
+                test_parent = treeview.parent(glycan)
+                if test_parent != '':
+                    glycan = treeview.parent(glycan)
+                else:
+                    break
+            selected_glycans.append(treeview.item(glycan, "text"))
+            
+        for glycan in selected_glycans:
             comp = General_Functions.form_to_comp(glycan)
             possibilities = [glycan]
             
@@ -6970,16 +6983,6 @@ def run_main_window():
                         new_comp = copy.deepcopy(comp)
                         new_comp = replace_dict_keys(new_comp, 'G', i)
                         possibilities.append(General_Functions.comp_to_formula(new_comp))
-                    # to_add = []
-                    # for new_glycan_wip in possibilities[1:-1]:
-                        # comp = General_Functions.form_to_comp(new_glycan_wip)
-                        # new_combos = der_sialics_combo('G', comp['G'])
-                        # for i in new_combos:
-                            # new_comp = copy.deepcopy(comp)
-                            # new_comp = replace_dict_keys(new_comp, 'G', i)
-                            # to_add.append(General_Functions.comp_to_formula(new_comp))
-                    # for item in to_add:
-                        # possibilities.append(to_add)
                         
             for possibility in possibilities:
                 if possibility not in directory_content:
@@ -7029,7 +7032,7 @@ def run_main_window():
         background_glycan_drawing.grab_set()
         background_glycan_drawing.protocol("WM_DELETE_WINDOW", on_closing)
         
-        generating_glycans_label = ttk.Label(background_glycan_drawing, text=f"Generating glycans drawings...\nThis may take up to several minutes.\nPlease wait.", font=("Segoe UI", list_font_size))
+        generating_glycans_label = ttk.Label(background_glycan_drawing, text=f"Generating glycans drawings...\nThis may take up to a few minutes.\nPlease wait.", font=("Segoe UI", list_font_size))
         generating_glycans_label.pack(pady=20, padx=50)
         
         background_glycan_drawing.update_idletasks()
@@ -7602,7 +7605,7 @@ def run_main_window():
     global generate_library
     global generate_library_button_frame
     generate_library_button_frame = tk.Frame(main_window, bd=3, relief="flat")
-    generate_library_button_frame.grid(row=0, column=0, columnspan=3, padx=(450, 0), sticky='nw', pady=31)
+    generate_library_button_frame.grid(row=0, column=0, columnspan=3, padx=(450, 0), sticky='nw', pady=29)
     generate_library = ttk.Button(generate_library_button_frame, text="Generate Library", style="small_button_style2.TButton", command=lambda: file_name_window(file_type = 'library'))
     generate_library.pack(padx=0, pady=0)
     ToolTip(generate_library, "Generates a new library based on the parameters set on Set Parameters menu.")
@@ -7610,7 +7613,7 @@ def run_main_window():
     global import_library
     global import_library_button_frame
     import_library_button_frame = tk.Frame(main_window, bd=3, relief="flat")
-    import_library_button_frame.grid(row=0, column=0, columnspan=3, padx=(450, 0), sticky='sw', pady=31)
+    import_library_button_frame.grid(row=0, column=0, columnspan=3, padx=(450, 0), sticky='sw', pady=29)
     import_library = ttk.Button(import_library_button_frame, text="Import\nLibrary", style="small_button_style3.TButton", command=open_file_dialog_import_button)
     import_library.pack(padx=0, pady=0)
     ToolTip(import_library, "Import a previously generated library in .ggl format.")
@@ -7618,7 +7621,7 @@ def run_main_window():
     global import_library_info
     global import_library_info_button_frame
     import_library_info_button_frame = tk.Frame(main_window, bd=3, relief="flat")
-    import_library_info_button_frame.grid(row=0, column=0, columnspan=3, padx=(542, 0), sticky='sw', pady=31)
+    import_library_info_button_frame.grid(row=0, column=0, columnspan=3, padx=(542, 0), sticky='sw', pady=29)
     import_library_info = ttk.Button(import_library_info_button_frame, text="Check\nInfo", style="small_button_style4.TButton", command=get_lib_info, state=tk.DISABLED)
     import_library_info.pack(padx=0, pady=0)
     ToolTip(import_library_info, "Click to access information regarding how the imported library was built.")
@@ -7671,7 +7674,7 @@ def run_main_window():
     global gg_draw
     gg_draw = ttk.Button(main_window, image=photo_ggdraw, style="two_d_button_style.TButton", command=lambda: toggle_gg_draw(chromatograms_list), state=tk.NORMAL)
     gg_draw.grid(row=0, column=2, padx=(10,160), sticky='se')
-    ToolTip(gg_draw, "Display on the chromatogram/electropherogram viewer the drawings of glycans that meet QC thresholds. The initial glycan structures are chosen randomly. Double click a structure to change or remove the displayed structure. Click and drag on a structure to reposition it in the plot. The first time you activate it, it may take up to an hour to generate glycans. Subsequent activations will be much faster.")
+    ToolTip(gg_draw, "Display on the chromatogram/electropherogram viewer the drawings of glycans that meet QC thresholds. The initial glycan structures are chosen randomly. Double click a structure to change or remove the displayed structure. Click and drag on a structure to reposition it in the plot.")
     
     # Create panned window for bottom side widgets
     paned_window = tk.PanedWindow(main_window, sashwidth=5, orient=tk.HORIZONTAL)
@@ -9968,7 +9971,7 @@ def run_set_parameters_window():
     lyase_digested_checkbox_state = tk.BooleanVar(value=lyase_digested)
     lyase_digested_checkbox = ttk.Checkbutton(library_building_frame, text="Lyase Digested", variable=lyase_digested_checkbox_state, command=lyase_digested_checkbox_state_check, state=lyase_digested_checkbox_activation_state)
     lyase_digested_checkbox.grid(row=25, column=1, padx=(30, 10), sticky="w")
-    ToolTip(lyase_digested_checkbox, "")
+    ToolTip(lyase_digested_checkbox, "Check this if your GAGs were digested using Lyase enzyme.")
     
     # Widgets to analysis_frame
     multithreaded_checkbox_state = tk.BooleanVar(value=multithreaded_analysis)
