@@ -11,6 +11,6 @@ openpyxl
 setuptools
 xlsxwriter
 psutil
-glycogenius==1.2.7
+glycogenius==1.2.8
 mpl_scatter_density
 reportlab
