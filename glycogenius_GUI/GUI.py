@@ -17,8 +17,8 @@
 # by typing 'glycogenius'. If not, see <https://www.gnu.org/licenses/>.
 
 global gg_version, GUI_version
-gg_version = '1.2.8'
-GUI_version = '1.0.7'
+gg_version = '1.2.9'
+GUI_version = '1.0.8'
 
 from PIL import Image, ImageTk
 import tkinter as tk
