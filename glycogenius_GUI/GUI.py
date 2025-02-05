@@ -17,8 +17,8 @@
 # by typing 'glycogenius'. If not, see <https://www.gnu.org/licenses/>.
 
 global gg_version, GUI_version
-gg_version = '1.2.9'
-GUI_version = '1.0.8'
+gg_version = '1.2.10'
+GUI_version = '1.0.9'
 
 from PIL import Image, ImageTk
 import tkinter as tk
@@ -10045,7 +10045,7 @@ def run_set_parameters_window():
     rt_int_min_entry = ttk.Entry(analysis_frame, width=6)
     rt_int_min_entry.insert(0, ret_time_interval[0])
     rt_int_min_entry.grid(row=4, column=0, columnspan=2, padx=(0, 61), pady=(5, 0), sticky='e')
-    ToolTip(rt_int_min_entry, "Set the beggining of the retention/migration time interval to analyze.")
+    ToolTip(rt_int_min_entry, "Set the beginning of the retention/migration time interval to analyze.")
     
     rt_int_dash_label = ttk.Label(analysis_frame, text='-', font=("Segoe UI", list_font_size))
     rt_int_dash_label.grid(row=4, column=0, columnspan=2, padx=(0, 52), pady=(5, 0), sticky="e")
