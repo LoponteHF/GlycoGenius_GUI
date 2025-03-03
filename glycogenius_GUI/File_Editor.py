@@ -73,6 +73,9 @@ trimming_range = []
 global last_selection
 last_selection = {}
 
+global rt_bpc
+rt_bpc = {}
+
 class ToolTip:
     '''This allows to create the mouse hover tooltips'''
     def __init__(self, widget, text, delay=750):
@@ -119,7 +122,7 @@ class ToolTip:
     def hide_tooltip(self):
         if self.tip_window:
             self.tip_window.destroy()
-            self.tip_window = None      
+            self.tip_window = None    
 
 def binary_search_with_tolerance(arr, target, low, high, tolerance, int_arr = [], black_list = []):
     '''A function to quickly find a target in an array by splitting the array recurssively in two and looking for the mid point, finding out if value is bigger or smaller than  target, then splitting again. It also checks if found target in target array is within a tolerance, and picks the most intense one within the tolerance if intensity array is available, else picks the closest one to target.
@@ -379,7 +382,7 @@ def make_calibration_report(output_path, file_name, calibrants_list, labels, plo
     
     c.save()
 
-def create_mzml(spectra_file, mode, calibrants_list, labels, plot_area, samples_list):
+def create_mzml(spectra_file, mode, samples_list, calibration_parameters = [], trimming_parameters = []):
     '''
     '''
     global equation, file_path
@@ -519,6 +522,10 @@ def create_mzml(spectra_file, mode, calibrants_list, labels, plot_area, samples_
                                     "spectrumList",
                                     count=f"{len(spectra)}",
                                     defaultDataProcessingRef="gg_calibration")
+    
+    if mode == 'trimming':
+        first_spectrum_num = None
+        spectra_count = 0
 
     # Loop through each spectrum in the existing file
     for spectrum in spectra:
@@ -553,6 +560,20 @@ def create_mzml(spectra_file, mode, calibrants_list, labels, plot_area, samples_
             temp_spectrum['intensity array'] = spectrum['intensity array']
             
             spectrum = temp_spectrum
+        
+        if mode == 'trimming':
+            if spectrum['scanList']['scan'][0]['scan start time'] > (trimming_range[1] if time_unit == 'minute' else trimming_range[1]*60):
+                break
+            if not first_spectrum_num and spectrum['scanList']['scan'][0]['scan start time'] < (trimming_range[0] if time_unit == 'minute' else trimming_range[0]*60):
+                continue
+            elif not first_spectrum_num:
+                if int(spectrum['ms level']) == 1:
+                    first_spectrum_num = int(spectrum['id'].split("=")[-1])
+                else:
+                    continue
+            spectra_count += 1
+            spectrum['id'] = f"scan={int(spectrum['id'].split("=")[-1]) - first_spectrum_num}"
+            spectrum['scanList']['scan'][0]['scan start time'] = f"{(float(spectrum['scanList']['scan'][0]['scan start time']) - trimming_range[0]) if time_unit == 'minute' else (float(spectrum['scanList']['scan'][0]['scan start time']) - trimming_range[0]*60)}"
 
         # Create a spectrum element
         spectrum_id = spectrum['id']
@@ -834,6 +855,13 @@ def create_mzml(spectra_file, mode, calibrants_list, labels, plot_area, samples_
                                                    'binary')
         if len(spectrum['intensity array']) > 0:
             int_array_binary_element.text = int_array_binary_string
+    
+    if mode == 'trimming':
+    # Create a spectrumList element
+        spectrumList = etree.SubElement(run, 
+                                        "spectrumList",
+                                        count=f"{spectra_count}",
+                                        defaultDataProcessingRef="gg_calibration")
 
     # Convert to a pretty XML string, decoded for indexing
     xml_str = etree.tostring(mzML, pretty_print=True, xml_declaration=True, encoding='UTF-8').decode('utf-8')
@@ -876,7 +904,7 @@ def create_mzml(spectra_file, mode, calibrants_list, labels, plot_area, samples_
         f.write(xml_str)
     
     if mode == 'calibration':
-        make_calibration_report(output_file_path, new_file_name, calibrants_list, labels, plot_area)
+        make_calibration_report(output_file_path, new_file_name, calibration_parameters[0], calibration_parameters[1], calibration_parameters[2])
         
     return os.path.join(output_file_path, new_file_name)
     
@@ -1013,17 +1041,111 @@ def remove_all_items(treeview, file_name, plot_area, labels):
         
     last_selection[file_name] = [treeview.item(calibrant, "values") for calibrant in treeview.get_children()]
         
-def load_file(label, mzml_window):
+def load_file(labels, mzml_window, trimming_args=[]):
     '''
     '''
     global file_path
     file_path = filedialog.askopenfilename(filetypes=[("MzXML or MzML files", "*.mzML *.mzXML"), ("All files", "*.*")])
     file_name = file_path.split("/")[-1]
-    ToolTip(label, f"{file_name}")
     if len(file_name) > 40:
         file_name = file_name[:40]+'...'
-    label.config(text=f"File: {file_name}")
+    for label in labels:
+        ToolTip(label, f"{file_path}")
+        label.config(text=f"File: {file_name}")
+    if len(file_path) > 0 and len(trimming_args) > 0:
+        loading_bpc_data(file_path, trimming_args[0], trimming_args[1], trimming_args[2])
     mzml_window.lift()
+    
+    
+def loading_bpc_data(file_path, trimmer_fig, trimmer_ax, trimmer_canvas):
+    '''
+    '''
+
+    def close_cs():
+        loading_file_window.destroy()
+
+    def on_closing():
+        '''This function is used to remove the function from the Close Window button (x button).'''
+        return
+        
+    def wait_thread():
+        bpc_data = load_bpc_data(file_path)
+        if len(bpc_data[0]) > 0:
+            plot_sample_bpc(trimmer_fig, trimmer_ax, trimmer_canvas, bpc_data[0], bpc_data[1])
+        
+        close_cs()
+        
+    loading_file_window = tk.Toplevel()
+    loading_file_window.withdraw()
+    loading_file_window.title("Calibrating Spectra")
+    icon = ImageTk.PhotoImage(ico_image)
+    loading_file_window.iconphoto(False, icon)
+    loading_file_window.resizable(False, False)
+    loading_file_window.grab_set()
+    loading_file_window.protocol("WM_DELETE_WINDOW", on_closing)
+    
+    calibrating_spectra_window_label = ttk.Label(loading_file_window, text="Loading spectra file...\nPlease wait.", font=("Segoe UI", fontsize))
+    calibrating_spectra_window_label.pack(pady=35, padx=70)
+    
+    loading_file_window.update_idletasks()
+    loading_file_window.deiconify()
+    window_width = loading_file_window.winfo_width()
+    window_height = loading_file_window.winfo_height()
+    screen_width = loading_file_window.winfo_screenwidth()
+    screen_height = loading_file_window.winfo_screenheight()
+    x_position = (screen_width - window_width) // 2
+    y_position = (screen_height - window_height) // 2
+    loading_file_window.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
+    
+    t = threading.Thread(target=wait_thread)
+    t.start()
+    
+def load_bpc_data(sample):
+    file_type = sample.split('.')[-1].lower()
+    
+    rt_array = []
+    bpc = []
+    
+    if file_type == 'mzml':
+        access = mzml.MzML(sample)
+        rt_key = 'scanList'
+        rt_subkey = 'scan start time'
+        ms_key = 'ms level'
+        intensity_key = 'base peak intensity'
+        
+    elif file_type == 'mzxml':
+        access = mzxml.MzXML(sample)
+        rt_key = 'retentionTime'
+        rt_subkey = None
+        ms_key = 'msLevel'
+        intensity_key = 'basePeakIntensity'
+        
+    try:
+        # Determine time unit
+        if file_type == 'mzml':
+            if float(access[-1][rt_key]['scan'][0][rt_subkey]) > 300:
+                time_unit = 'seconds'
+            else:
+                time_unit = 'minutes'
+        elif file_type == 'mzxml':
+            time_unit = 'minutes'
+            
+        last_ms1 = ''
+        max_mz = 0
+        for i_i, i in enumerate(access):
+            ms_level = i[ms_key]
+            current_rt = float(i[rt_key]['scan'][0][rt_subkey]) if file_type == 'mzml' else float(i[rt_key])
+
+            if ms_level == 1:
+                rt_array.append(current_rt)
+
+                # Get base peak intensity
+                intensity_value = i.get(intensity_key, numpy.max(i['intensity array']) if len(i['intensity array']) > 0 else 0.0)
+                bpc.append(float(intensity_value))
+                
+        return [rt_array, bpc], time_unit
+    except:
+        return [], None
     
 def quit_mzml_window(mzml_window, from_GG):
     '''
@@ -1392,7 +1514,7 @@ def calibrating_spectra(spectra_file_path, mode, calibrants_list, labels, plot_a
         return
         
     def wait_thread():
-        new_file_name = create_mzml(spectra_file_path, mode, calibrants_list, labels, plot_area, file_list)
+        new_file_name = create_mzml(spectra_file_path, mode, file_list, calibration_parameters = [calibrants_list, labels, plot_area])
         
         close_cs()
         
@@ -1437,6 +1559,107 @@ def calibrating_spectra(spectra_file_path, mode, calibrants_list, labels, plot_a
     
     t = threading.Thread(target=wait_thread)
     t.start()
+    
+def trimming_spectra(spectra_file_path, mode, trimming_range, file_list = []):
+    '''
+    '''
+
+    def close_cs():
+        calibrating_spectra_window.destroy()
+
+    def on_closing():
+        '''This function is used to remove the function from the Close Window button (x button).'''
+        return
+        
+    def wait_thread():
+        new_file_name = create_mzml(spectra_file_path, mode, file_list, trimming_range)
+        
+        close_cs()
+        
+        if len(file_list) > 0:
+            trimming_done(new_file_name, True)
+        else:
+            trimming_done(new_file_name, False)
+        
+    global file_path
+    
+    if len(file_list) != 0:
+        test_spectra_file_path = spectra_file_path.get()
+        for file in file_list:
+            if test_spectra_file_path in file:
+                test_spectra_file_path = file
+                break
+    else:
+        test_spectra_file_path = file_path
+        
+    calibrating_spectra_window = tk.Toplevel()
+    # calibrating_spectra_window.attributes("-topmost", True)
+    calibrating_spectra_window.withdraw()
+    calibrating_spectra_window.title("Calibrating Spectra")
+    icon = ImageTk.PhotoImage(ico_image)
+    calibrating_spectra_window.iconphoto(False, icon)
+    calibrating_spectra_window.resizable(False, False)
+    calibrating_spectra_window.grab_set()
+    calibrating_spectra_window.protocol("WM_DELETE_WINDOW", on_closing)
+    
+    calibrating_spectra_window_label = ttk.Label(calibrating_spectra_window, text="Trimming the spectra file...\nPlease wait.", font=("Segoe UI", fontsize))
+    calibrating_spectra_window_label.pack(pady=35, padx=70)
+    
+    calibrating_spectra_window.update_idletasks()
+    calibrating_spectra_window.deiconify()
+    window_width = calibrating_spectra_window.winfo_width()
+    window_height = calibrating_spectra_window.winfo_height()
+    screen_width = calibrating_spectra_window.winfo_screenwidth()
+    screen_height = calibrating_spectra_window.winfo_screenheight()
+    x_position = (screen_width - window_width) // 2
+    y_position = (screen_height - window_height) // 2
+    calibrating_spectra_window.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
+    
+    t = threading.Thread(target=wait_thread)
+    t.start()
+    
+def trimming_done(file_name, from_GG):
+    '''
+    '''
+    def close_cd():
+        calibration_done_window.destroy()
+
+    def on_closing():
+        '''This function is used to remove the function from the Close Window button (x button).'''
+        return
+        
+    calibration_done_window = tk.Toplevel()
+    # calibration_done_window.attributes("-topmost", True)
+    calibration_done_window.withdraw()
+    calibration_done_window.title("Calibration Done!")
+    icon = ImageTk.PhotoImage(ico_image)
+    calibration_done_window.iconphoto(False, icon)
+    calibration_done_window.resizable(False, False)
+    calibration_done_window.grab_set()
+    calibration_done_window.protocol("WM_DELETE_WINDOW", on_closing)
+    
+    if not from_GG:
+        file_name_split = file_name.split("/")[-1].split("\\")[-1]
+        calibrating_spectra_window_label = ttk.Label(calibration_done_window, text=f"\nTrimmed file name:\n\n{file_name_split}", font=("Segoe UI", fontsize))
+        calibrating_spectra_window_label.pack(pady=10, padx=70)
+    else:
+        file_name_split = file_name.split("/")[-1].split("\\")[-1]
+        calibrating_spectra_window_label = ttk.Label(calibration_done_window, text=f"\nTrimmed file name:\n\n{file_name_split}\n\nYou must load it in GlycoGenius to use it.", font=("Segoe UI", fontsize))
+        calibrating_spectra_window_label.pack(pady=10, padx=70)
+    
+    # ok button
+    ok_button = ttk.Button(calibration_done_window, text="Ok", style="small_button_sfw_style1.TButton", command=close_cd)
+    ok_button.pack(pady=10, padx=70)
+    
+    calibration_done_window.update_idletasks()
+    calibration_done_window.deiconify()
+    window_width = calibration_done_window.winfo_width()
+    window_height = calibration_done_window.winfo_height()
+    screen_width = calibration_done_window.winfo_screenwidth()
+    screen_height = calibration_done_window.winfo_screenheight()
+    x_position = (screen_width - window_width) // 2
+    y_position = (screen_height - window_height) // 2
+    calibration_done_window.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
     
 def calibration_done(file_name, from_GG):
     '''
@@ -1572,7 +1795,7 @@ def click_treeview(event, treeview, file_data, spectra_viewer, search_tolerance,
         
         spectra_viewer[1].draw()
         
-def switch_sample_button(direction, combobox, samples_list, treeview, plot_area, labels, mode_combobox, search_tolerance, intensity_threshold):
+def switch_sample_button(direction, combobox, samples_list, mode, params = []):
     '''
     '''
     sample_name = combobox.get()
@@ -1597,15 +1820,126 @@ def switch_sample_button(direction, combobox, samples_list, treeview, plot_area,
     # Set combobox here
     combobox.set(file_name)
     
-    # load data for given file
-    file_name_plus_data = f"{file_name}_{search_tolerance}_{intensity_threshold}"
-    edit_calibrant_list(treeview, file_name_plus_data, plot_area, labels, mode_combobox, search_tolerance)
+    if mode == 'calibration':
+        # load parameters from args
+        treeview, plot_area, labels, mode_combobox, search_tolerance, intensity_threshold = params
+        
+        # load data for given file
+        file_name_plus_data = f"{file_name}_{search_tolerance}_{intensity_threshold}"
+        edit_calibrant_list(treeview, file_name_plus_data, plot_area, labels, mode_combobox, search_tolerance)
+    elif mode == 'trimming':
+        # load parameters from args
+        trimmer_fig, trimmer_ax, trimmer_canvas, samples_data = params
+        
+        # plot the BPC
+        plot_sample_bpc(trimmer_fig, trimmer_ax, trimmer_canvas, (samples_data[combobox.get()]['rt_array'], samples_data[combobox.get()]['bpc']), samples_data[combobox.get()]['time_unit'])
+
+def plot_sample_bpc(trimmer_fig, trimmer_ax, trimmer_canvas, data, time_unit):
+    global selected_rt_range, trimming_range, slider_min, slider_max
     
+    trimmer_ax.clear()
+    
+    if time_unit == 'seconds':
+        plot_data_x = [x/60 for x in data[0]]
+    else:
+        plot_data_x = data[0]
+    trimmer_ax.plot(plot_data_x, data[1], linewidth=1, color='red')
+    
+    trimmer_ax.set_xlim(0, plot_data_x[-1])
+        
+    trimmer_ax.set_xlabel('Retention/Migration Time (min)')
+    trimmer_ax.set_ylabel('Intensity (AU)')
+        
+    trimmer_ax.yaxis.set_major_formatter(ScalarFormatter(useMathText=True))
+    trimmer_ax.ticklabel_format(axis='y', style='sci', scilimits=(0,0))
+    
+    if len(trimming_range) != 0:
+        selected_rt_range = trimmer_ax.add_patch(Rectangle((trimming_range[0], -1000000000000), trimming_range[0]+trimming_range[1], 2000000000000, color='#03ecfc', alpha=0.3))
+        
+        slider_min.config(to=plot_data_x[-1])
+        slider_max.config(to=plot_data_x[-1])
+        slider_max.set(trimming_range[1])
+    else:
+        selected_rt_range = trimmer_ax.add_patch(Rectangle((0, -1000000000000), trimmer_ax.get_xlim()[1], 2000000000000, color='#03ecfc', alpha=0.3))
+
+        trimming_range = [float(selected_rt_range.get_xy()[0]), float(selected_rt_range.get_xy()[0])+float(selected_rt_range.get_width())]
+        
+        slider_min.config(to=plot_data_x[-1])
+        slider_max.config(to=plot_data_x[-1])
+        slider_max.set(trimming_range[1])
+    
+    trimmer_canvas.draw()
+    
+def update_min_rt(value, slider_value, other_slider_value, rectangle, trimmer_canvas, value_entry, from_spinbox = False, typed = False):
+    global trimming_range
+    
+    if value == '':
+        return
+        
+    if from_spinbox:
+        value = value.get()
+        slider_value.set(value)
+        
+    if float(value) > float(other_slider_value.get()):
+        slider_value.set(float(other_slider_value.get()))
+        value = other_slider_value.get()
+        if from_spinbox and not typed:
+            value_entry.delete(0, tk.END)
+            value_entry.insert(0, f"{float(other_slider_value.get())-0.1:.1f}")
+    
+    if not from_spinbox:
+        value_entry.delete(0, tk.END)
+        value_entry.insert(0, f"{float(value):.1f}")
+    
+    x, y = rectangle.get_xy()
+    width = rectangle.get_width()
+    height = rectangle.get_height()
+    
+    new_width = float(width)-(float(value)-float(x))
+    
+    rectangle.set_xy((float(value), -1000000000000))
+    rectangle.set_width(new_width)
+    trimmer_canvas.draw_idle()
+    
+    trimming_range = [float(rectangle.get_xy()[0]), float(rectangle.get_xy()[0])+float(rectangle.get_width())]
+    
+def update_max_rt(value, slider_value, other_slider_value, rectangle, trimmer_canvas, value_entry, from_spinbox = False, typed = False):
+    global trimming_range
+    
+    if value == '':
+        return
+        
+    if from_spinbox:
+        value = value.get()
+        slider_value.set(value)
+        
+    if float(value) < float(other_slider_value.get()):
+        slider_value.set(float(other_slider_value.get()))
+        value = other_slider_value.get()
+        if from_spinbox and not typed:
+            value_entry.delete(0, tk.END)
+            value_entry.insert(0, f"{float(other_slider_value.get())+0.1:.1f}")
+    
+    if not from_spinbox:
+        value_entry.delete(0, tk.END)
+        value_entry.insert(0, f"{float(value):.1f}")
+    
+    x, y = rectangle.get_xy()
+    width = rectangle.get_width()
+    height = rectangle.get_height()
+    
+    new_width = float(value)-float(x)
+    
+    rectangle.set_xy((float(x), -1000000000000))
+    rectangle.set_width(new_width)
+    trimmer_canvas.draw_idle()
+    
+    trimming_range = [float(rectangle.get_xy()[0]), float(rectangle.get_xy()[0])+float(rectangle.get_width())]
     
 def mzml_window_start(from_GG=False, to_lift=False, change_sample=None):
-    ''' from_GG: [combobox (contains file name), samples path list, library, [spectra ax, spectra canvas, scaling_dropdown, rt_label]]
+    ''' from_GG: [combobox (contains file name), samples path list, library, [spectra ax, spectra canvas, scaling_dropdown, rt_label], processed_data (with BPC and such)]
     '''
-    global current_dir, ico_image, mzml_window, last_selection, calibrants_list, mztol_entry, min_int_entry, ax_calibrate, canvas_calibrate, fig_calibrate, stats_label_SD, stats_label_fitr2, stats_label_eq, fit_combobox
+    global current_dir, ico_image, mzml_window, last_selection, calibrants_list, mztol_entry, min_int_entry, ax_calibrate, canvas_calibrate, fig_calibrate, stats_label_SD, stats_label_fitr2, stats_label_eq, fit_combobox, trimmer_fig, trimmer_ax, trimmer_canvas, rt_bpc
     
     current_dir = pathlib.Path(__file__).parent.resolve()
     
@@ -1630,6 +1964,8 @@ def mzml_window_start(from_GG=False, to_lift=False, change_sample=None):
                 edit_calibrant_list(calibrants_list, f"{change_sample}_{float(mztol_entry.get())}_{float(min_int_entry.get())}", [ax_calibrate, canvas_calibrate, fig_calibrate], [stats_label_SD, stats_label_fitr2, stats_label_eq], fit_combobox, float(mztol_entry.get()), True)
             else:
                 edit_calibrant_list(calibrants_list, f"{change_sample}_{float(mztol_entry.get())}_{float(min_int_entry.get())}", [ax_calibrate, canvas_calibrate, fig_calibrate], [stats_label_SD, stats_label_fitr2, stats_label_eq], fit_combobox, float(mztol_entry.get()))
+              
+        plot_sample_bpc(trimmer_fig, trimmer_ax, trimmer_canvas, (rt_bpc[change_sample][0], rt_bpc[change_sample][1]), rt_bpc[change_sample][2])
         return
     
     if to_lift:
@@ -1769,11 +2105,11 @@ def mzml_window_start(from_GG=False, to_lift=False, change_sample=None):
     
     # sample navigation buttons
     if from_GG != False:
-        sample_back_button = ttk.Button(calibration_frame, text="◄", style="symbol_button_style1.TButton", command=lambda: switch_sample_button('back', from_GG[0], from_GG[1], calibrants_list, [ax_calibrate, canvas_calibrate], [stats_label_SD, stats_label_fitr2, stats_label_eq], fit_combobox, float(mztol_entry.get()), float(min_int_entry.get())))
+        sample_back_button = ttk.Button(calibration_frame, text="◄", style="symbol_button_style1.TButton", command=lambda: switch_sample_button('back', from_GG[0], from_GG[1], 'calibration', [calibrants_list, [ax_calibrate, canvas_calibrate], [stats_label_SD, stats_label_fitr2, stats_label_eq], fit_combobox, float(mztol_entry.get()), float(min_int_entry.get())]))
         sample_back_button.grid(row=1, column=1, padx=(10, 10), pady=(10, 67), sticky="sw")
         ToolTip(sample_back_button, "Go back one sample on your loaded samples list.")
         
-        sample_forward_button = ttk.Button(calibration_frame, text="►", style="symbol_button_style1.TButton", command=lambda: switch_sample_button('forward', from_GG[0], from_GG[1], calibrants_list, [ax_calibrate, canvas_calibrate], [stats_label_SD, stats_label_fitr2, stats_label_eq], fit_combobox, float(mztol_entry.get()), float(min_int_entry.get())))
+        sample_forward_button = ttk.Button(calibration_frame, text="►", style="symbol_button_style1.TButton", command=lambda: switch_sample_button('forward', from_GG[0], from_GG[1], 'calibration', [calibrants_list, [ax_calibrate, canvas_calibrate], [stats_label_SD, stats_label_fitr2, stats_label_eq], fit_combobox, float(mztol_entry.get()), float(min_int_entry.get())]))
         sample_forward_button.grid(row=1, column=1, padx=(10, 10), pady=(10, 67), sticky="se")
         ToolTip(sample_forward_button, "Move to the next sample on your loaded samples list.")
         
@@ -1848,7 +2184,7 @@ def mzml_window_start(from_GG=False, to_lift=False, change_sample=None):
     ToolTip(min_int_entry, "The intensity threshold for peaks that are found within the spectra file that corresponds to calibrants on the list.")
     
     # load file button
-    load_button = ttk.Button(calibration_frame, text="Load File", style="small_button_sfw_style1.TButton", command=lambda: load_file(file_label, mzml_window))
+    load_button = ttk.Button(calibration_frame, text="Load File", style="small_button_sfw_style1.TButton", command=lambda: load_file([file_label, file_label_trimming], mzml_window, [trimmer_fig, trimmer_ax, trimmer_canvas]))
     file_label = ttk.Label(calibration_frame, text=f'File: {file_path}', font=("Segoe UI", fontsize-1))
     if not from_GG:
         load_button.grid(row=5, column=0, padx=(10, 10), pady=(0, 0), sticky="sw")
@@ -1865,6 +2201,96 @@ def mzml_window_start(from_GG=False, to_lift=False, change_sample=None):
         calibrate_button = ttk.Button(calibration_frame, text="    Calibrate File    ", style="small_button_sfw_style1.TButton", command=lambda: calibrating_spectra(from_GG[0], 'calibration', calibrants_list, [stats_label_SD, stats_label_fitr2, stats_label_eq], [ax_calibrate, canvas_calibrate, fig_calibrate], from_GG[1]))
         calibrate_button.grid(row=5, column=0, columnspan=2, padx=(10, 10), pady=(0, 0), sticky="se")
     ToolTip(calibrate_button, "Start the calibration using the selected calibrants derived equation.")
+    
+    if from_GG != False:
+        # Trimming frame
+        rt_bpc = {key:[value['rt_array'], value['bpc'], value['time_unit']] for key, value in from_GG[4].items()}
+    
+    trimming_frame = tk.Frame(function_tabs, bd=0, relief="flat")
+    trimming_frame.pack(fill=tk.BOTH, expand=True)
+    function_tabs.add(trimming_frame, text="Trimming")
+    
+    trimming_frame.grid_rowconfigure(0, weight=2)
+    trimming_frame.grid_rowconfigure(4, weight=1)
+    trimming_frame.grid_columnconfigure(1, weight=1)
+    
+    trimmer_plot_frame = tk.Frame(trimming_frame)
+    trimmer_plot_frame.grid(row=0, column=0, columnspan=3, padx=10, pady=10, sticky="nsew")
+    
+    trimmer_fig = plt.figure(figsize=(0,0))
+    trimmer_ax = trimmer_fig.add_subplot(111)
+    trimmer_canvas = FigureCanvasTkAgg(trimmer_fig, master=trimmer_plot_frame)
+    trimmer_canvas.get_tk_widget().pack(fill = tk.BOTH, expand=True)
+    
+    sliders_label = ttk.Label(trimming_frame, text=f'RT/MT Range:', font=("Segoe UI", fontsize))
+    sliders_label.grid(row=1, column=0, columnspan=3, padx=10, pady=(0, 10), sticky="ew")
+    
+    min_slider_label = ttk.Label(trimming_frame, text=f'Min:', font=("Segoe UI", fontsize))
+    min_slider_label.grid(row=2, column=0, padx=10, pady=(0, 10), sticky="w")
+    
+    global slider_min
+    slider_min_value = tk.DoubleVar()
+    slider_min = ttk.Scale(trimming_frame, from_=0, to=trimmer_ax.get_xlim()[1],  orient='horizontal', variable=slider_min_value, command=lambda value:update_min_rt(value, slider_min_value, slider_max_value, selected_rt_range, trimmer_canvas, min_value_entry))
+    slider_min.grid(row=2, column=0, columnspan=2, padx=(50, 10), pady=(0, 10), sticky="ew")
+    
+    min_value_entry = ttk.Spinbox(trimming_frame, width = 5, from_=0, to=trimmer_ax.get_xlim()[1], increment=0.1)
+    min_value_entry.grid(row=2, column=2, padx=(10, 45), pady=(0, 10), sticky="e")
+    min_value_entry.insert(0, 0.0)
+    min_value_entry.bind("<KeyRelease>", lambda event:update_min_rt(min_value_entry, slider_min_value, slider_max_value, selected_rt_range, trimmer_canvas, min_value_entry, True, True))
+    min_value_entry.bind("<<Increment>>", lambda event:update_min_rt(min_value_entry, slider_min_value, slider_max_value, selected_rt_range, trimmer_canvas, min_value_entry, True))
+    min_value_entry.bind("<<Decrement>>", lambda event:update_min_rt(min_value_entry, slider_min_value, slider_max_value, selected_rt_range, trimmer_canvas, min_value_entry, True))
+    
+    min_value_label = ttk.Label(trimming_frame, text=f'min', font=("Segoe UI", fontsize))
+    min_value_label.grid(row=2, column=2, padx=10, pady=(0, 10), sticky="e")
+    
+    max_sliders_label = ttk.Label(trimming_frame, text=f'Max:', font=("Segoe UI", fontsize))
+    max_sliders_label.grid(row=3, column=0, padx=10, pady=(0, 10), sticky="w")
+    
+    global slider_max
+    slider_max_value = tk.DoubleVar()
+    slider_max = ttk.Scale(trimming_frame, from_=0, to=trimmer_ax.get_xlim()[1],  orient='horizontal', variable=slider_max_value, command=lambda value:update_max_rt(value, slider_max_value, slider_min_value, selected_rt_range, trimmer_canvas, max_value_entry))
+    slider_max.grid(row=3, column=0, columnspan=2, padx=(50, 10), pady=(0, 10), sticky="ew")
+    slider_max_value.set(trimmer_ax.get_xlim()[1])
+    
+    max_value_entry = ttk.Spinbox(trimming_frame, width = 5, from_=0, to=trimmer_ax.get_xlim()[1], increment=0.1)
+    max_value_entry.grid(row=3, column=2, padx=(10, 45), pady=(0, 10), sticky="e")
+    max_value_entry.insert(0, f"{trimmer_ax.get_xlim()[1]:.1f}")
+    max_value_entry.bind("<KeyRelease>", lambda event:update_max_rt(max_value_entry, slider_max_value, slider_min_value, selected_rt_range, trimmer_canvas, max_value_entry, True, True))
+    max_value_entry.bind("<<Increment>>", lambda event:update_max_rt(max_value_entry, slider_max_value, slider_min_value, selected_rt_range, trimmer_canvas, max_value_entry, True))
+    max_value_entry.bind("<<Decrement>>", lambda event:update_max_rt(max_value_entry, slider_max_value, slider_min_value, selected_rt_range, trimmer_canvas, max_value_entry, True))
+    
+    max_value_label = ttk.Label(trimming_frame, text=f'min', font=("Segoe UI", fontsize))
+    max_value_label.grid(row=3, column=2, padx=10, pady=(0, 10), sticky="e")
+    
+    if not from_GG:
+        pass
+    else:
+        plot_sample_bpc(trimmer_fig, trimmer_ax, trimmer_canvas, (from_GG[4][from_GG[0].get()]['rt_array'], from_GG[4][from_GG[0].get()]['bpc']), from_GG[4][from_GG[0].get()]['time_unit'])
+    
+    # load file button
+    load_button_trimming = ttk.Button(trimming_frame, text="Load File", style="small_button_sfw_style1.TButton", command=lambda: load_file([file_label, file_label_trimming], mzml_window, [trimmer_fig, trimmer_ax, trimmer_canvas]))
+    file_label_trimming = ttk.Label(trimming_frame, text=f'File: {file_path}', font=("Segoe UI", fontsize-1))
+    if from_GG != False:
+        sample_back_button_trimming = ttk.Button(trimming_frame, text="◄", style="symbol_button_style1.TButton", command=lambda: switch_sample_button('back', from_GG[0], from_GG[1], "trimming", [trimmer_fig, trimmer_ax, trimmer_canvas, from_GG[4]]))
+        sample_back_button_trimming.grid(row=5, column=0, padx=(10, 10), pady=(0, 2), sticky="sw")
+        ToolTip(sample_back_button_trimming, "Go back one sample on your loaded samples list.")
+        
+        sample_forward_button_trimming = ttk.Button(trimming_frame, text="►", style="symbol_button_style1.TButton", command=lambda: switch_sample_button('forward', from_GG[0], from_GG[1], "trimming", [trimmer_fig, trimmer_ax, trimmer_canvas, from_GG[4]]))
+        sample_forward_button_trimming.grid(row=5, column=0, padx=(55, 10), pady=(0, 2), sticky="sw")
+        ToolTip(sample_forward_button_trimming, "Move to the next sample on your loaded samples list.")
+    else:
+        load_button_trimming.grid(row=5, column=0, padx=(10, 10), pady=(0, 2), sticky="sw")
+        ToolTip(load_button_trimming, "Select a spectra file to load.")
+        file_label_trimming.grid(row=5, column=0, padx=(100, 10), pady=(0, 2), sticky="sw")
+        file_name_trimming = file_path.split("/")[-1]
+        ToolTip(file_label_trimming, f"{file_name_trimming}")
+        
+    if not from_GG:
+        trim_sample_button = ttk.Button(trimming_frame, text="Trim Sample", style="small_button_sfw_style1.TButton", command=lambda: trimming_spectra(file_label_trimming, 'trimming', trimming_range))
+        trim_sample_button.grid(row=5, column=2, padx=10, pady=(0, 2), sticky="se")
+    else:
+        trim_sample_button = ttk.Button(trimming_frame, text="Trim Sample", style="small_button_sfw_style1.TButton", command=lambda: trimming_spectra(from_GG[0], 'trimming', trimming_range, from_GG[1]))
+        trim_sample_button.grid(row=5, column=2, padx=10, pady=(0, 2), sticky="se")
     
     # close button
     close_button = ttk.Button(mzml_window, text="Close", style="small_button_sfw_style1.TButton", command=lambda: quit_mzml_window(mzml_window, from_GG))
