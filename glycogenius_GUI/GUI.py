@@ -17,8 +17,8 @@
 # by typing 'glycogenius'. If not, see <https://www.gnu.org/licenses/>.
 
 global gg_version, GUI_version
-gg_version = '1.2.11'
-GUI_version = '1.0.10'
+gg_version = '1.2.12'
+GUI_version = '1.0.11'
 
 from PIL import Image, ImageTk
 import tkinter as tk
@@ -583,6 +583,13 @@ class ImageGallery(tk.Frame):
             lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
         )
         
+        self.current_os = platform.system()
+        if self.current_os == "Windows":
+            self.scrollable_frame.bind("<MouseWheel>", self.scroll_off_bar)
+        else:
+            self.scrollable_frame.bind("<Button-4>", self.scroll_off_bar)    # Linux Scroll Up
+            self.scrollable_frame.bind("<Button-5>", self.scroll_off_bar)
+        
         self.selected_image_path = ''
 
         self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
@@ -596,6 +603,16 @@ class ImageGallery(tk.Frame):
         self.image_frames = []  # Keep track of image frames
         self.selected_frame = None  # Track the selected frame
         self.load_images(self.image_paths)
+        
+    def scroll_off_bar(self, event):
+        """Handles mouse wheel scrolling based on OS."""
+        if event.delta:  # Windows & macOS
+            self.canvas.yview_scroll(-1 * (event.delta // 120), "units")
+        else:  # Linux (event.num is used instead of event.delta)
+            if event.num == 4:  # Scroll up
+                self.canvas.yview_scroll(-1, "units")
+            elif event.num == 5:  # Scroll down
+                self.canvas.yview_scroll(1, "units")
 
     def load_images(self, image_paths):
         # Clear existing images
@@ -629,6 +646,15 @@ class ImageGallery(tk.Frame):
             # Bind a click event to both the frame and the label (image)
             cell_frame.bind("<Button-1>", lambda e, idx=idx: self.select_image(idx))
             label.bind("<Button-1>", lambda e, idx=idx: self.select_image(idx))
+            
+            if self.current_os == "Windows":
+                cell_frame.bind("<MouseWheel>", self.scroll_off_bar)
+                label.bind("<MouseWheel>", self.scroll_off_bar)
+            else:
+                cell_frame.bind("<Button-4>", self.scroll_off_bar)    # Linux Scroll Up
+                cell_frame.bind("<Button-5>", self.scroll_off_bar)
+                label.bind("<Button-4>", self.scroll_off_bar)    # Linux Scroll Up
+                label.bind("<Button-5>", self.scroll_off_bar)
 
             self.image_frames.append(cell_frame)  # Store the frame for future reference
 
@@ -4389,22 +4415,24 @@ def run_main_window():
                 glycan = chromatograms_list.item(item, "text")
                 parent_item = chromatograms_list.parent(item)
                 parent_text = chromatograms_list.item(parent_item, "text")
+                
+                if type(glycan) == float:
+                    glycan = parent_text
+                    parent_item = chromatograms_list.parent(parent_item)
+                    parent_text = chromatograms_list.item(parent_item, "text")
                     
-                if type(glycan) != float:
-                    
-                    remove = False
-                    for index, element in enumerate(selected_chromatograms):
-                        if glycan == element[0] or f"{parent_text}+{glycan}" == element[0]:
-                            remove = True
-                            del selected_chromatograms[index]
-                            break
-                            
-                    if not remove:
-                        if len(glycan.split("-")) > 1:
-                            
-                            selected_chromatograms.append([f"{parent_text}+{glycan}", 2])
-                        else:
-                            selected_chromatograms.append([glycan, 1])
+                remove = False
+                for index, element in enumerate(selected_chromatograms):
+                    if glycan == element[0] or f"{parent_text}+{glycan}" == element[0]:
+                        remove = True
+                        del selected_chromatograms[index]
+                        break
+                        
+                if not remove:
+                    if len(glycan.split("-")) > 1 or type(glycan) == float:
+                        selected_chromatograms.append([f"{parent_text}+{glycan}", 2])
+                    else:
+                        selected_chromatograms.append([glycan, 1])
                             
             elif key_states.get("Shift", False) or key_states.get("Shift_L", False) or key_states.get("Shift_R", False):
                 for chromatogram in chromatograms_list.selection():
@@ -7118,68 +7146,63 @@ def run_main_window():
         gg_draw_list = []
         
         to_plot = []
-        for selected_item in treeview.selection():
         
-            # Get the level of the treeview
-            level = 0
-            parent_item = selected_item
-            while parent_item:
-                level += 1
-                parent_item = treeview.parent(parent_item)
+        for element in ax.get_lines():
+            label = element.get_label()
             
-            # Operate on the level and get the selected glycan name
-            rts = []
-            if level == 3:
-                target_item = treeview.parent(treeview.parent(selected_item))
-                selected_name = treeview.item(target_item, 'text')
-                
-                peaks = treeview.get_children(treeview.parent(selected_item))
-                for peak in peaks:
-                    if "good" in treeview.item(peak, 'tags') or len(treeview.selection()) == 1:
-                        rts.append(treeview.item(peak, 'text'))
-            elif level == 2:
-                target_item = treeview.parent(selected_item)
-                selected_name = treeview.item(target_item, 'text')
-                
-                peaks = treeview.get_children(selected_item)
-                for peak in peaks:
-                    if "good" in treeview.item(peak, 'tags') or len(treeview.selection()) == 1:
-                        rts.append(treeview.item(peak, 'text'))
+            if label[0] == "_":
+                continue
+            
+            if len(label.split("+")) > 1:
+                glycan = label.split("+")[0]
+                adduct = label.split("+")[-1]
+                level = 2
+            elif len(label.split(" - ")) > 1:
+                glycan = label.split(" - ")[0]
+                adduct = label.split(" - ")[-1]
+                level = 3
             else:
-                selected_name = treeview.item(selected_item, 'text')
+                glycan = label
+                adduct = None
+                level = 1
+            
+            rts = []
+            
+            if level == 1:
+                for adduct in glycans_per_sample[samples_dropdown.get()][glycan]:
+                    for index, peak in enumerate(glycans_per_sample[samples_dropdown.get()][glycan][adduct]['peaks']):
+                        if peak not in rts:
+                            rts.append(peak)
+                        
+                        # To filter by quality
+                        # current_ppm = glycans_per_sample[samples_dropdown.get()][glycan][adduct]['ppm'][index]
+                        # current_iso = glycans_per_sample[samples_dropdown.get()][glycan][adduct]['iso'][index]
+                        # current_curve = glycans_per_sample[samples_dropdown.get()][glycan][adduct]['curve'][index]
+                        # snratio = glycans_per_sample[samples_dropdown.get()][glycan][adduct]['sn'][index]
                 
-                peaks = []
-                adducts = treeview.get_children(selected_item)
-                for adduct in adducts:
-                    peaks += list(treeview.get_children(adduct))
-                for peak in peaks:
-                    if "good" in treeview.item(peak, 'tags') or len(treeview.selection()) == 1:
-                        rts.append(treeview.item(peak, 'text'))
+                        # count = 0
+                        # if current_ppm <= max_ppm[1] and current_ppm >= max_ppm[0] and current_iso >= iso_fit_score and current_curve >= curve_fit_score and snratio >= s_to_n:
+                            # rts.append(peak)
+            elif level == 2 or level == 3:
+                for index, peak in enumerate(glycans_per_sample[samples_dropdown.get()][glycan][adduct]['peaks']):
+                    if peak not in rts:
+                        rts.append(peak)
             
             if len(rts) == 0:
                 continue
             
             intensities = []
-            lines = ax.get_lines()
-            max_int = 0
-            max_rt = 0
-            for line in lines:
-                if selected_name in line.get_label():
-                    y_check_data = line.get_ydata()
-                    x_check_data = line.get_xdata()
-                    max_rt = max(max_rt, x_check_data[-1])
-                    max_int = max(max_rt, np.max(y_check_data))
-                    
-                    for rt in rts:
-                        x_coord = np.abs(x_check_data - rt).argmin()
-                        intensities.append(y_check_data[x_coord])
-                        
-                    break
+            y_check_data = element.get_ydata()
+            x_check_data = element.get_xdata()
+            max_int = np.max(y_check_data)
+            for rt in rts:
+                x_coord = np.abs(x_check_data - rt).argmin()
+                intensities.append(y_check_data[x_coord])
             
             # Find the possibilities of drawings for the given glycan
             possibilities = []
-            if selected_name in os.listdir(gg_draw_glycans_path):
-                directory_files = os.listdir(os.path.join(gg_draw_glycans_path, f"{selected_name}"))
+            if glycan in os.listdir(gg_draw_glycans_path):
+                directory_files = os.listdir(os.path.join(gg_draw_glycans_path, f"{glycan}"))
                 for file in directory_files:
                     if parameters_gg[0][8] == 'n_glycans':
                         if file.split(".")[0].split("_")[2] == "N":
@@ -7210,7 +7233,7 @@ def run_main_window():
             
             for x, y in zip(rts, intensities):
                 if len(possibilities) > 0:
-                    to_plot.append([selected_name, x, y, f"{selected_name}/{random.choice(possibilities)}"])
+                    to_plot.append([glycan, x, y, f"{glycan}/{random.choice(possibilities)}"])
                 
         to_plot = sorted(to_plot, key=lambda item: item[1])
         for index, glycan in enumerate(to_plot):
@@ -7218,7 +7241,7 @@ def run_main_window():
             x = glycan[1]
             y = glycan[2]
             max_int = ax.get_ylim()[1]
-            xbox = x+(x_offset*(max_rt*0.1))
+            xbox = x+(x_offset*((ax.get_xlim()[1]-ax.get_xlim()[0])*0.1))
             if y < max_int*0.2:
                 ybox = y+(max_int*0.4)
             elif y > max_int*0.8:
@@ -7896,7 +7919,7 @@ def run_main_window():
     global gg_draw
     gg_draw = ttk.Button(main_window, image=photo_ggdraw, style="two_d_button_style.TButton", command=lambda: toggle_gg_draw(chromatograms_list), state=tk.NORMAL)
     gg_draw.grid(row=0, column=2, padx=(10,160), sticky='se')
-    ToolTip(gg_draw, "Display on the chromatogram/electropherogram viewer the drawings of glycans that meet QC thresholds. The initial glycan structures are chosen randomly. Double click a structure to change or remove the displayed structure. Click and drag on a structure to reposition it in the plot.")
+    ToolTip(gg_draw, "Display on the chromatogram/electropherogram viewer the glycans cartoons. The initial glycan structures are chosen randomly. Double click a structure to change or remove the displayed structure. Click and drag on a structure to reposition it in the plot.")
     
     # Create panned window for bottom side widgets
     paned_window = tk.PanedWindow(main_window, sashwidth=5, orient=tk.HORIZONTAL)
@@ -8588,6 +8611,166 @@ def run_select_files_window(samples_dropdown):
         
         test_access.close_gg()
         
+    def sample_grouping_window():
+        
+        def adjust_text(widget, text):
+            line_length = 60
+            len_text = len(text)
+            for i in range(line_length, len_text, line_length):
+                text = text[:i]+"\n  "+text[i:]
+            text = "▶"+text
+        
+        def on_drag_start(event):
+            global dragged_widget
+            
+            dragged_widget = event.widget
+            x = event.widget.winfo_pointerx()-event.widget.master.winfo_rootx()
+            y = event.widget.winfo_pointery()-event.widget.master.winfo_rooty()
+            
+            widget_text = dragged_widget.cget("text")
+            dragged_widget.destroy()
+                
+            dragged_widget = ttk.Label(sgw, text=widget_text)
+            dragged_widget.place(x=x, y=y)
+        
+        def on_drag(event):
+            global dragged_widget
+            
+            if not dragged_widget:
+                return
+                
+            x = sgw.winfo_pointerx()-sgw.winfo_rootx()
+            y = sgw.winfo_pointery()-sgw.winfo_rooty()
+            dragged_widget.place(x=x, y=y)
+        
+        def on_drop(event):
+            global dragged_widget
+            
+            if not dragged_widget:
+                return
+            
+            x, y = sgw.winfo_pointerx(), sgw.winfo_pointery()
+            
+            samples_bbox = (samples_frame.winfo_rootx(), samples_frame.winfo_rooty(), samples_frame.winfo_rootx()+samples_frame.winfo_width(), samples_frame.winfo_rooty()+samples_frame.winfo_height())
+            
+            if is_inside_group(x, y, samples_bbox):
+                widget_text = dragged_widget.cget("text")
+                dragged_widget.destroy()
+            
+                label = ttk.Label(samples_frame, text=widget_text)
+                
+                counter = 0
+                while True:
+                    free = True
+                    for widget in group_widgets[0].winfo_children():
+                        grid_info = widget.grid_info()
+                        row = grid_info.get('row', None)
+                        if row == counter:
+                            free = False
+                            break
+                    if free:
+                        break
+                    counter+=1
+                    
+                label.grid(row=counter, column=0, columnspan=3, sticky='w')
+                label.bind("<ButtonPress-1>", on_drag_start)
+                
+                dragged_widget = None
+                
+                return
+            
+            for group_frame in [child for child in groups_frame.winfo_children() if isinstance(child, ttk.Frame)]:
+                group_widgets = group_frame.winfo_children()
+                
+                group_bbox = (group_frame.winfo_rootx(), group_frame.winfo_rooty(), group_frame.winfo_rootx()+group_frame.winfo_width(), group_frame.winfo_rooty()+group_frame.winfo_height())
+                
+                if is_inside_group(x, y, group_bbox):
+                    widget_text = dragged_widget.cget("text")
+                    dragged_widget.destroy()
+                
+                    label = ttk.Label(group_frame, text=widget_text)
+                    
+                    counter = 0
+                    while True:
+                        free = True
+                        for widget in group_frame.winfo_children():
+                            grid_info = widget.grid_info()
+                            row = grid_info.get('row', None)
+                            if row == counter:
+                                free = False
+                                break
+                        if free:
+                            break
+                        counter+=1
+                        
+                    label.grid(row=counter, column=0, columnspan=3, sticky='w')
+                    label.bind("<ButtonPress-1>", on_drag_start)
+                    
+                    break
+                
+            dragged_widget = None
+
+        def is_inside_group(x, y, group_bbox):
+            """Check if the coordinates are inside the group's bounding box."""
+            return group_bbox[0] <= x <= group_bbox[2] and group_bbox[1] <= y <= group_bbox[3]
+        
+        def add_group(parent):    
+            group_frame = ttk.Frame(parent, relief='solid')
+            group_frame.pack(side=tk.LEFT, expand=True, fill=tk.BOTH)
+        
+            group_frame.grid_columnconfigure(1, weight=1)
+            
+            group_label = ttk.Label(group_frame, text="Group: ", font=("Segoe UI", list_font_size))
+            group_label.grid(row=0, column=0, sticky='nsew', padx=5, pady=5)
+            
+            group_entry = ttk.Entry(group_frame, font=("Segoe UI", list_font_size))
+            group_entry.grid(row=0, column=1, sticky='nsew', padx=(0, 5), pady=5)
+            
+            remove_button = tk.Button(group_frame, text=" X ", relief="flat", font=("Segoe UI", list_font_size), command=lambda:group_frame.destroy())
+            remove_button.grid(row=0, column=2, sticky='nwse', padx=(0, 5), pady=5)
+            
+        def add_draggable(parent, text, row):
+            label = ttk.Label(parent, text=text)
+            label.grid(row=row, column=0, padx=10, pady=5, sticky="ew")
+            
+            # Bind drag events to the label
+            label.bind("<ButtonPress-1>", on_drag_start)
+            
+        item_ids = files_list.get_children()
+        samples_list = [files_list.item(item_id, 'text') for item_id in item_ids]
+        samples_names = Execution_Functions.sample_names(samples_list)
+            
+        sgw = tk.Toplevel()
+        sgw.geometry("480x560")
+        icon = ImageTk.PhotoImage(ico_image)
+        sgw.iconphoto(False, icon)
+        sgw.grab_set()
+        
+        global dragged_widget
+        dragged_widget = None
+        
+        sgw.bind("<B1-Motion>", on_drag)
+        sgw.bind("<ButtonRelease-1>", on_drop)
+        
+        sgw.grid_rowconfigure(0, weight=1)
+        sgw.grid_rowconfigure(1, weight=2)
+        sgw.grid_columnconfigure(0, weight=2)
+        
+        groups_frame = ttk.Labelframe(sgw, text="Groups")
+        groups_frame.grid(row=0, column=0, sticky="nsew")
+        
+        group_add_button = ttk.Button(groups_frame, text="Add group", style="small_button_sfw_style1.TButton", command=lambda: add_group(groups_frame))
+        group_add_button.pack(anchor='w')
+        
+        samples_frame = ttk.Labelframe(sgw, text="Samples")
+        samples_frame.grid(row=1, column=0, sticky="nsew")
+        
+        for i in range(2):
+            add_group(groups_frame)
+            
+        for index, name in enumerate(samples_names):
+            add_draggable(samples_frame, name, index)
+        
     # Create a new top-level window
     select_files_window = tk.Toplevel()
     #select_files_window.attributes("-topmost", True)
@@ -8641,8 +8824,12 @@ def run_select_files_window(samples_dropdown):
     remove_selected_button.grid(row=0, column=1, padx=(0,10), pady=(60,10), sticky="new")
     ToolTip(remove_selected_button, "Remove the currently selected file from the list of files to load.")
     
+    arrange_groups_button = ttk.Button(select_files_window, text="Arrange Groups", style="small_button_sfw_style1.TButton", command=sample_grouping_window)
+    arrange_groups_button.grid(row=0, column=1, padx=(0,10), pady=(90,10), sticky="new")
+    ToolTip(arrange_groups_button, "")
+    
     file_amount_label = ttk.Label(select_files_window, text="", font=("Segoe UI", list_font_size), wraplength=310)
-    file_amount_label.grid(row=0, column=1, padx=(0,10), pady=(90,10), sticky="new")
+    file_amount_label.grid(row=0, column=1, padx=(0,10), pady=(120,10), sticky="new")
     if len(files_list.get_children()) > 0:
         if len(files_list.get_children()) == 1:
             file_amount_label.config(text=f'{len(files_list.get_children())} file selected')
@@ -9731,21 +9918,29 @@ def run_set_parameters_window():
             temp_custom_mono = []
             for index, row in enumerate(rows_widgets):
                 if len(row['entry_full_name'].get()) > 0:
-                    if row['entry_single_letter_code'].get().upper().strip() in [x[-1] for x in General_Functions.monosaccharides.values()] or row['entry_single_letter_code'].get().strip().upper() == 'T':
-                        error_window(f"Single letter code for glycan {row['entry_full_name'].get()} already used by other monosaccharides. Please, input a different one.")
-                        return
-                    if row['entry_short_code'].get().upper().strip() in [x.upper() for x in General_Functions.monosaccharides.keys()] or row['entry_short_code'].get().strip().upper() == 'T':
+                    
+                    single_letters_in_use = set([x[-1] for x in General_Functions.monosaccharides.values()]+[x['cm_single_letter_code'] for x in temp_custom_mono]+[x['cm_single_letter_code'] for x in custom_monosaccharides]+['T'])
+                    
+                    short_codes_in_use = set([x.upper() for x in General_Functions.monosaccharides.keys()]+[x['cm_short_code'] for x in temp_custom_mono]+[x['cm_short_code'] for x in custom_monosaccharides]+['T'])
+                    
+                    alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+                    for letter in alphabet:
+                        if letter not in single_letters_in_use:
+                            single_letter_code = letter
+                            break
+                            
+                    if row['entry_short_code'].get().upper().strip() in short_codes_in_use:
                         error_window(f"Short code for glycan {row['entry_full_name'].get()} already used by other monosaccharides. Please, input a different one.")
                         return
-                    if len(row['entry_single_letter_code'].get().strip()) > 1:
-                        error_window(f"Single letter code for glycan {row['entry_full_name'].get()} is too long. Please, input a SINGLE letter code.")
-                        return
+                        
                     if len(row['entry_short_code'].get().strip()) > 3:
                         error_window(f"Short code for glycan {row['entry_full_name'].get()} is too long. Please, input a short code with up to three letters.")
                         return
+                        
                     if int(row['entry_min'].get()) > int(row['entry_max'].get()):
                         error_window(f"Error in glycan {row['entry_full_name'].get()}. Maximum amount of the monosaccharide can't be smaller than the minimum amount.")
                         return
+                        
                     try:
                         test_chem_comp = General_Functions.form_to_comp(row['entry_chemical_comp'].get().strip())
                         for atom in test_chem_comp.keys():
@@ -9755,14 +9950,15 @@ def run_set_parameters_window():
                     except:
                         error_window(f"Something is wrong with the chemical formula of the monosaccharide {row['entry_full_name'].get()}.")
                         return
+                        
                     for number in range(10):
-                        if str(number) in row['entry_single_letter_code'].get().strip() or str(number) in row['entry_short_code'].get().strip():
+                        if str(number) in row['entry_short_code'].get().strip():
                             error_window(f"Short code or single letter code for glycan {row['entry_full_name'].get()} has a number in it. Only letters are accepted.")
                             return
                     temp_custom_mono.append({
                         'cm_name' : row['entry_full_name'].get().strip(), 
                         'cm_short_code' : row['entry_short_code'].get().strip(), 
-                        'cm_single_letter_code' : row['entry_single_letter_code'].get().upper().strip(), 
+                        'cm_single_letter_code' : single_letter_code, 
                         'cm_chem_comp' : row['entry_chemical_comp'].get().strip(), 
                         'cm_min' : int(row['entry_min'].get()), 
                         'cm_max': int(row['entry_max'].get()), 
@@ -9795,7 +9991,6 @@ def run_set_parameters_window():
             default_row = {
                 'entry_full_name' : ttk.Entry(cm_scrollable_frame, width=15),
                 'entry_short_code' : ttk.Entry(cm_scrollable_frame, width=7),
-                'entry_single_letter_code' : ttk.Entry(cm_scrollable_frame, width=7),
                 'entry_chemical_comp' : ttk.Entry(cm_scrollable_frame, width=20),
                 'entry_min' : ttk.Spinbox(cm_scrollable_frame, width=3, from_=0, to=99),
                 'entry_max' : ttk.Spinbox(cm_scrollable_frame, width=3, from_=0, to=99),
@@ -9808,8 +10003,25 @@ def run_set_parameters_window():
             for column, widget in enumerate(default_row.values()):
                 widget.grid(row=row_number, column=column, padx=10, pady=5)
                 
+                if widget.winfo_class() != "TSpinbox":
+                    if current_os == "Windows":
+                        widget.bind("<MouseWheel>", cm_scroll_off_bar)
+                    else:
+                        widget.bind("<Button-4>", cm_scroll_off_bar)    # Linux Scroll Up
+                        widget.bind("<Button-5>", cm_scroll_off_bar)
+                
             rows_widgets.append(default_row)
             row_number += 1
+        
+        def cm_scroll_off_bar(event):
+            """Handles mouse wheel scrolling based on OS."""
+            if event.delta:  # Windows & macOS
+                canvas_cm_window.yview_scroll(-1 * (event.delta // 120), "units")
+            else:  # Linux (event.num is used instead of event.delta)
+                if event.num == 4:  # Scroll up
+                    canvas_cm_window.yview_scroll(-1, "units")
+                elif event.num == 5:  # Scroll down
+                    canvas_cm_window.yview_scroll(1, "units")
         
         custom_monosaccharides_window = tk.Toplevel(main_window)
         #custom_glycans_window.attributes("-topmost", True)
@@ -9819,7 +10031,7 @@ def run_set_parameters_window():
         custom_monosaccharides_window.iconphoto(False, icon)
         custom_monosaccharides_window.resizable(False, False)
         custom_monosaccharides_window.grab_set()
-        custom_monosaccharides_window.geometry("720x450")
+        custom_monosaccharides_window.geometry("580x450")
         custom_monosaccharides_window.columnconfigure(0, weight=1)
         
         # Create a main frame to contain everything
@@ -9830,6 +10042,13 @@ def run_set_parameters_window():
         canvas_cm_window = tk.Canvas(cm_main_frame, borderwidth=0, highlightthickness=0)
         cm_scrollbar = ttk.Scrollbar(cm_main_frame, orient="vertical", command=canvas_cm_window.yview)
         cm_scrollable_frame = ttk.Frame(custom_monosaccharides_window, borderwidth=0)
+        
+        current_os = platform.system()
+        if current_os == "Windows":
+            cm_scrollable_frame.bind("<MouseWheel>", cm_scroll_off_bar)
+        else:
+            cm_scrollable_frame.bind("<Button-4>", cm_scroll_off_bar)    # Linux Scroll Up
+            cm_scrollable_frame.bind("<Button-5>", cm_scroll_off_bar)
         
         canvas_cm_window.configure(yscrollcommand=cm_scrollbar.set)
         cm_scrollbar.pack(side="right", fill="y")
@@ -9845,26 +10064,22 @@ def run_set_parameters_window():
         
         column2_title_label = tk.Label(cm_scrollable_frame, text="Short-Code", font=("Segoe UI", 10, "bold"))
         column2_title_label.grid(row=0, column=1, sticky="w", padx=5)
-        ToolTip(column2_title_label, "The short code for the monosaccharide. It will be used in the glycan formula (e.g. in H5N4Am1 the monosaccharides 'H', 'N' and 'Am' are in short code.")
-        
-        column3_title_label = tk.Label(cm_scrollable_frame, text="Single-Letter Code", font=("Segoe UI", 10, "bold"))
-        column3_title_label.grid(row=0, column=2, sticky="w", padx=5)
-        ToolTip(column3_title_label, "The single letter code for the monosaccharide. It will be used internally and must not be used by another monosaccharide.")
+        ToolTip(column2_title_label, "The short code for the monosaccharide. It will be used in the glycan formula (e.g. in H5N4Am1 the monosaccharides 'H', 'N' and 'Am' are in short code).")
         
         column4_title_label = tk.Label(cm_scrollable_frame, text="Chemical Composition", font=("Segoe UI", 10, "bold"))
-        column4_title_label.grid(row=0, column=3, sticky="w", padx=10)
-        ToolTip(column4_title_label, "The residue chemical composition of the glycan. If only one of a given atom is present, the number must still be indicated (e.g. C8O5NH13 must be inputted as C8O5N1H13.")
+        column4_title_label.grid(row=0, column=2, sticky="w", padx=10)
+        ToolTip(column4_title_label, "The residue chemical composition of the glycan. If only one of a given atom is present, the number must still be indicated (e.g. C8O5NH13 must be inputted as C8O5N1H13).")
         
         column5_title_label = tk.Label(cm_scrollable_frame, text="Min", font=("Segoe UI", 10, "bold"))
-        column5_title_label.grid(row=0, column=4, sticky="w", padx=5)
+        column5_title_label.grid(row=0, column=3, sticky="w", padx=5)
         ToolTip(column5_title_label, "The minimum amount of this monosaccharide in glycans in your library.")
         
         column6_title_label = tk.Label(cm_scrollable_frame, text="Max", font=("Segoe UI", 10, "bold"))
-        column6_title_label.grid(row=0, column=5, sticky="w", padx=5)
+        column6_title_label.grid(row=0, column=4, sticky="w", padx=5)
         ToolTip(column6_title_label, "The maximum amount of this monosaccharide in glycans in your library.")
         
         column7_title_label = tk.Label(cm_scrollable_frame, text="Sialic Acid?", font=("Segoe UI", 10, "bold"))
-        column7_title_label.grid(row=0, column=6, sticky="w", padx=5)
+        column7_title_label.grid(row=0, column=5, sticky="w", padx=5)
         ToolTip(column7_title_label, "Whether or not the monosaccharide is a sialic acid. This will impact internal calculations when building the library.")
         
         # Create labels and entry widgets and pack them into the scrollable frame
@@ -9879,7 +10094,6 @@ def run_set_parameters_window():
             default_row = {
                 'entry_full_name' : ttk.Entry(cm_scrollable_frame, width=15),
                 'entry_short_code' : ttk.Entry(cm_scrollable_frame, width=7),
-                'entry_single_letter_code' : ttk.Entry(cm_scrollable_frame, width=7),
                 'entry_chemical_comp' : ttk.Entry(cm_scrollable_frame, width=20),
                 'entry_min' : ttk.Spinbox(cm_scrollable_frame, width=3, from_=0, to=99),
                 'entry_max' : ttk.Spinbox(cm_scrollable_frame, width=3, from_=0, to=99),
@@ -9887,14 +10101,20 @@ def run_set_parameters_window():
                 }
                 
             default_row['entry_full_name'].insert(0, custom_monosaccharide['cm_name'])
-            default_row['entry_short_code'].insert(0, custom_monosaccharide['cm_short_code']),
-            default_row['entry_single_letter_code'].insert(0, custom_monosaccharide['cm_single_letter_code'])
+            default_row['entry_short_code'].insert(0, custom_monosaccharide['cm_short_code'])
             default_row['entry_chemical_comp'].insert(0, custom_monosaccharide['cm_chem_comp'])
             default_row['entry_min'].insert(0, custom_monosaccharide['cm_min'])
             default_row['entry_max'].insert(0, custom_monosaccharide['cm_max'])
             
             for column, widget in enumerate(default_row.values()):
                 widget.grid(row=row_number, column=column, padx=10, pady=5)
+                
+                if widget.winfo_class() != "TSpinbox":
+                    if current_os == "Windows":
+                        widget.bind("<MouseWheel>", cm_scroll_off_bar)
+                    else:
+                        widget.bind("<Button-4>", cm_scroll_off_bar)    # Linux Scroll Up
+                        widget.bind("<Button-5>", cm_scroll_off_bar)
                 
             rows_widgets.append(default_row)
                 
@@ -9904,7 +10124,6 @@ def run_set_parameters_window():
         default_row = {
             'entry_full_name' : ttk.Entry(cm_scrollable_frame, width=15),
             'entry_short_code' : ttk.Entry(cm_scrollable_frame, width=7),
-            'entry_single_letter_code' : ttk.Entry(cm_scrollable_frame, width=7),
             'entry_chemical_comp' : ttk.Entry(cm_scrollable_frame, width=20),
             'entry_min' : ttk.Spinbox(cm_scrollable_frame, width=3, from_=0, to=99),
             'entry_max' : ttk.Spinbox(cm_scrollable_frame, width=3, from_=0, to=99),
@@ -9915,6 +10134,13 @@ def run_set_parameters_window():
         
         for column, widget in enumerate(default_row.values()):
             widget.grid(row=row_number, column=column, padx=10, pady=5)
+            
+            if widget.winfo_class() != "TSpinbox":
+                if current_os == "Windows":
+                    widget.bind("<MouseWheel>", cm_scroll_off_bar)
+                else:
+                    widget.bind("<Button-4>", cm_scroll_off_bar)    # Linux Scroll Up
+                    widget.bind("<Button-5>", cm_scroll_off_bar)
         
         rows_widgets.append(default_row)
             
@@ -10355,7 +10581,7 @@ def run_set_parameters_window():
     if reducing_end_tag_checkbox_state.get() and reducing_end_tag_dropdown.get() not in reducing_end_tags:
         reducing_end_tag_entry_state = tk.NORMAL
     reducing_end_tag_entry = ttk.Entry(library_building_frame, width=14, state = tk.NORMAL)
-    reducing_end_tag_entry.insert(0, f"{reducing_end_tag.split("-")[-1] if type(reducing_end_tag) == str and reducing_end_tag.startswith("pep-") else reducing_end_tag}") 
+    reducing_end_tag_entry.insert(0, f"{reducing_end_tag.split('-')[-1] if type(reducing_end_tag) == str and reducing_end_tag.startswith('pep-') else reducing_end_tag}") 
     reducing_end_tag_entry.config(state = reducing_end_tag_entry_state)
     reducing_end_tag_entry.grid(row=17, column=0, columnspan=2, padx=(110, 10), pady=0, sticky='w')
     ToolTip(reducing_end_tag_entry, "Select the reducing end tag or type in the ADDED mass of the reducing end tag (ie. 133.0644 for Girard Reagent P (GirP) tag or 219.1735 for Procainamide (ProA) tag), or type in the chemical formula of the reducing end tag (ie. C7H7N3 for GirP or C13H21N3 for ProA) or type in 'pep-' followed by a peptide sequence for analyzing a glycopeptide (ie. pep-NK for the dipeptide made out of an asparagine and a lysine residue).")
@@ -10839,6 +11065,16 @@ def save_results_window():
             groups_window.destroy()
             sr_window.grab_set()
         
+        def gw_scroll_off_bar(event):
+            """Handles mouse wheel scrolling based on OS."""
+            if event.delta:  # Windows & macOS
+                canvas_groups_window.yview_scroll(-1 * (event.delta // 120), "units")
+            else:  # Linux (event.num is used instead of event.delta)
+                if event.num == 4:  # Scroll up
+                    canvas_groups_window.yview_scroll(-1, "units")
+                elif event.num == 5:  # Scroll down
+                    canvas_groups_window.yview_scroll(1, "units")
+        
         groups_window = tk.Toplevel()
         groups_window.withdraw()
         groups_window.title("Sample Groups")
@@ -10863,6 +11099,12 @@ def save_results_window():
         
         canvas_groups_window.create_window((0, 0), window=scrollable_frame, anchor="nw")
         scrollable_frame.bind("<Configure>", lambda e: canvas_groups_window.configure(scrollregion=canvas_groups_window.bbox("all")))
+        
+        if platform.system() == 'Windows':
+            scrollable_frame.bind("<MouseWheel>", gw_scroll_off_bar)
+        else:
+            scrollable_frame.bind("<Button-4>", gw_scroll_off_bar)    # Linux Scroll Up
+            scrollable_frame.bind("<Button-5>", gw_scroll_off_bar)
         
         file = gg_file.get_results_table()
         df1 = file[0]
@@ -10893,6 +11135,15 @@ def save_results_window():
             entry.grid(row=i, column=1, padx=(20, 0), pady=5)
             entry.insert(tk.END, entries[i-1])  # Pre-fill entry if needed
             entry_widgets.append(entry)
+        
+            if platform.system() == 'Windows':
+                label.bind("<MouseWheel>", gw_scroll_off_bar)
+                entry.bind("<MouseWheel>", gw_scroll_off_bar)
+            else:
+                label.bind("<Button-4>", gw_scroll_off_bar)    # Linux Scroll Up
+                label.bind("<Button-5>", gw_scroll_off_bar)
+                entry.bind("<Button-4>", gw_scroll_off_bar)    # Linux Scroll Up
+                entry.bind("<Button-5>", gw_scroll_off_bar)
         
         # Add a new frame for the OK button and pack it at the bottom
         button_frame = ttk.Frame(groups_window)

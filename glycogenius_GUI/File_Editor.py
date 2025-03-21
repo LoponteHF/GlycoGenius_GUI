@@ -572,7 +572,7 @@ def create_mzml(spectra_file, mode, samples_list, calibration_parameters = [], t
                 else:
                     continue
             spectra_count += 1
-            spectrum['id'] = f"scan={int(spectrum['id'].split("=")[-1]) - first_spectrum_num}"
+            spectrum['id'] = f"scan={int(spectrum['id'].split('=')[-1]) - first_spectrum_num}"
             spectrum['scanList']['scan'][0]['scan start time'] = f"{(float(spectrum['scanList']['scan'][0]['scan start time']) - trimming_range[0]) if time_unit == 'minute' else (float(spectrum['scanList']['scan'][0]['scan start time']) - trimming_range[0]*60)}"
 
         # Create a spectrum element
@@ -1631,7 +1631,7 @@ def trimming_done(file_name, from_GG):
     calibration_done_window = tk.Toplevel()
     # calibration_done_window.attributes("-topmost", True)
     calibration_done_window.withdraw()
-    calibration_done_window.title("Calibration Done!")
+    calibration_done_window.title("Trimming Done!")
     icon = ImageTk.PhotoImage(ico_image)
     calibration_done_window.iconphoto(False, icon)
     calibration_done_window.resizable(False, False)
