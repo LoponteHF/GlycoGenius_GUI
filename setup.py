@@ -21,7 +21,7 @@ from distutils.command.install import INSTALL_SCHEMES
 import sys
 import os
 
-current_version='1.0.11'
+current_version='1.0.12'
 
 for scheme in INSTALL_SCHEMES.values():
     scheme['data'] = scheme['purelib']
@@ -98,7 +98,7 @@ setup(
     python_requires='>=3.10',
     install_requires=requirements,
     entry_points={
-        'gui_scripts': [
+        'console_scripts': [
             'glycogenius_GUI = glycogenius_GUI:glycogenius_GUI',
         ]
     }

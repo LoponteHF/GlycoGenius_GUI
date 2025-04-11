@@ -41,7 +41,9 @@ If you want to suggest a new feature or be aware of what's intended down the roa
 
 ## Citation
 
-bioRxiv Preprint: [GlycoGenius: the ultimate high-throughput glycan composition identification tool](https://doi.org/10.1101/2025.03.10.642485)
+> GlycoGenius: the ultimate high-throughput glycan composition identification tool
+> Hector F. Loponte, Jing Zheng, Yajie Ding, Isadora A. Oliveira, Kristoffer Basse, Adriane R. Todeschini, Peter L. Horvatovich, Guinevere S.M. Lageveen-Kammeijer
+> bioRxiv 2025.03.10.642485; doi: https://doi.org/10.1101/2025.03.10.642485 
 
 ## Credits
 

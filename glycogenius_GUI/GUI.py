@@ -17,8 +17,8 @@
 # by typing 'glycogenius'. If not, see <https://www.gnu.org/licenses/>.
 
 global gg_version, GUI_version
-gg_version = '1.2.12'
-GUI_version = '1.0.11'
+gg_version = '1.2.13'
+GUI_version = '1.0.12'
 
 from PIL import Image, ImageTk
 import tkinter as tk
@@ -203,11 +203,11 @@ max_ppm = [-10, 10]
 iso_fit_score = 0.9
 curve_fit_score = 0.9
 s_to_n = 3
-fill_gaps = (False, 50, 0.2)
+fill_gaps = (False, 50, 0.2, False)
 custom_noise = [False, []]
 samples_path = ''
 save_path = ''
-plot_metaboanalyst = [False, []]
+plot_metaboanalyst = [False, '']
 compositions = True
 iso_fittings = False
 reanalysis = False
@@ -274,8 +274,8 @@ suppressed_prints = ["remaining parameters.", "set 'only_gen_lib' to False and i
 
 bpc = {}
 
-global metab_groups
-metab_groups = {}
+global sample_groups
+sample_groups = {}
 
 global last_xlims_chrom, last_ylims_chrom
 last_xlims_chrom = None
@@ -312,6 +312,9 @@ global key_states, selected_chromatograms, last_plotted
 last_plotted = None
 key_states = {}
 selected_chromatograms = []
+
+global original_lines
+original_lines = {}
 
 colors = [
     "#FF0000",  # Red
@@ -488,6 +491,37 @@ class gg_archive:
             f.close()
 
         return _chromatogram
+            
+    def get_fragments_library_ms2_scores(self):
+        ''''''
+        self._files_in_temp = os.listdir(self.temp_path)
+        
+        if 'fragments_library' not in self._files_in_temp:
+            try:
+                self.extract_file('fragments_library')
+                self.extract_file('spectra_score')
+            except:
+                pass
+                
+        self._files_in_temp = os.listdir(self.temp_path)
+            
+        if 'fragments_library' in self._files_in_temp:
+            try:
+                with open(os.path.join(self.temp_path, 'fragments_library'), 'rb') as f:
+                    _fragments_library = dill.load(f)
+                    f.close()
+                    
+                with open(os.path.join(self.temp_path, 'spectra_score'), 'rb') as f:
+                    _spectra_score = dill.load(f)
+                    f.close()
+            except:
+                _fragments_library = {}
+                _spectra_score = {}
+        else:
+            _fragments_library = {}
+            _spectra_score = {}
+
+        return _fragments_library, _spectra_score
         
     def get_results_table(self):
         '''Extracts the results table file from the .gg file and returns it.'''
@@ -792,6 +826,52 @@ class CustomToolbar(NavigationToolbar2Tk):
 
         self.canvas.draw()
 
+class TreeviewTooltip:
+    def __init__(self, tree, delay=500):
+        self.tree = tree
+        self.delay = delay  # delay in milliseconds
+        self.tipwindow = None
+        self.after_id = None
+        self.last_item = ""
+
+        self.tree.bind("<Motion>", self.on_motion)
+        self.tree.bind("<Leave>", self.on_leave)
+
+    def on_motion(self, event):
+        item = self.tree.identify_row(event.y)
+        if item != self.last_item:
+            self.last_item = item
+            self.cancel_scheduled_tooltip()
+            self.schedule_tooltip(item, event.x_root + 10, event.y_root + 10)
+
+    def on_leave(self, event=None):
+        self.cancel_scheduled_tooltip()
+        self.hide_tooltip()
+
+    def schedule_tooltip(self, item, x, y):
+        if item:
+            self.after_id = self.tree.after(self.delay, lambda: self.show_tooltip(item, x, y))
+
+    def cancel_scheduled_tooltip(self):
+        if self.after_id:
+            self.tree.after_cancel(self.after_id)
+            self.after_id = None
+        self.hide_tooltip()
+
+    def show_tooltip(self, item, x, y):
+        self.hide_tooltip()
+        text = self.tree.item(item, "text")
+        self.tipwindow = tw = tk.Toplevel(self.tree)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+        label = tk.Label(tw, text=text, background="white", justify=tk.LEFT, relief="solid", borderwidth=1, wraplength=200)
+        label.pack()
+
+    def hide_tooltip(self):
+        if self.tipwindow:
+            self.tipwindow.destroy()
+            self.tipwindow = None
+
 class ToolTip:
     '''This allows to create the mouse hover tooltips'''
     def __init__(self, widget, text, delay=750):
@@ -802,6 +882,9 @@ class ToolTip:
         self.entered = False
         self.widget.bind("<Enter>", self.on_enter)
         self.widget.bind("<Leave>", self.on_leave)
+        
+        # Store tooltip in widget dictionary
+        self.widget.tooltip = self  # Assign tooltip to widget
 
     def on_enter(self, event):
         self.entered = True
@@ -1309,10 +1392,14 @@ def pre_process(samples_list):
 def pre_process_one_sample(sample, sample_name):
     '''This is the effective part of pre_process function.'''
     
-    def get_nested(dictionary, keys):
+    def get_nested(dictionary, keys, fallback_keys = []):
         '''Helper function to retrieve nested keys safely.'''
+        original_dict = copy.deepcopy(dictionary)
         for key in keys:
-            dictionary = dictionary[key]
+            if (type(key) == str and key in dictionary) or type(key) == int:
+                dictionary = dictionary[key]
+            else:
+                return get_nested(original_dict, fallback_keys)
         return dictionary
     
     data = {}
@@ -1328,7 +1415,9 @@ def pre_process_one_sample(sample, sample_name):
         rt_subkey = 'scan start time'
         ms_key = 'ms level'
         intensity_key = 'base peak intensity'
-        precursor_key = ['precursorList', 'precursor', 0, 'selectedIonList', 'selectedIon']
+        precursor_key = ['precursorList', 'precursor', 0, 'isolationWindow', 'isolation window target m/z']
+        # Some MzML have isolation window, some don't, so fallback takes that into account
+        fallback_precursor_key = ['precursorList', 'precursor', 0, 'selectedIonList', 'selectedIon', 0, 'selected ion m/z']
     elif file_type == 'mzxml':
         access = mzxml.MzXML(sample)
         rt_key = 'retentionTime'
@@ -1354,7 +1443,7 @@ def pre_process_one_sample(sample, sample_name):
             current_rt = float(i[rt_key]['scan'][0][rt_subkey]) if file_type == 'mzml' else float(i[rt_key])
 
             if ms_level == 2:
-                data['ms2'][last_ms1][current_rt] = [k['selected ion m/z'] if file_type == 'mzml' else k['precursorMz'] for k in get_nested(i, precursor_key)]
+                data['ms2'][last_ms1][current_rt] = [get_nested(i, precursor_key, fallback_precursor_key)] if file_type == 'mzml' else [k['precursorMz'] for k in get_nested(i, precursor_key)]
 
             elif ms_level == 1:
                 ms1_array.append(i_i)
@@ -1450,7 +1539,7 @@ def calculate_current_ambiguities():
     
 def load_reanalysis(reanalysis_path):
     '''This function loads the .gg file.'''
-    global glycans_per_sample, samples_dropdown_options, df1, df2, gg_file, parameters_gg, isotopic_fittings, curve_fittings, gg_analysis_tolerance
+    global glycans_per_sample, ms2_spectra_glycans, samples_dropdown_options, df1, df2, gg_file, parameters_gg, isotopic_fittings, curve_fittings, fragments_library_ms2_scores, gg_analysis_tolerance
     
     # Loads back data that had already been loaded before in this run or load from anew
     gg_file = gg_archive(reanalysis_path)
@@ -1479,17 +1568,34 @@ def load_reanalysis(reanalysis_path):
     glycans_per_sample = {}
     calculate_ambiguities(df1)
     
+    # Create a dictionary to keep track of what glycans annotated a given MS2 spectrum
+    ms2_spectra_glycans = {}
+    
     # Goes through the data to store on the dictionary
-    for i_i, i in enumerate(df1): #sample
+    for i_i, i in enumerate(df1):
+        # Add the sample to the glycans_per_sample dictionary
         glycans_per_sample[samples_dropdown_options[i_i]] = {} #glycans_per_sample = {'sample_0' : {}}
+        
+        # Add the sample to the ms2 spectra glycans dictionary
+        ms2_spectra_glycans[samples_dropdown_options[i_i]] = {}
+        
+        # Start a variable to keep track of the last glycan analyzed
         last_glycan = ''
+        
+        # Go through the glycans in that particular sample
         for k_k, k in enumerate(i['Glycan']): #glycan
+            # If the glycans is different from the last glycan, create it's spot in the dictionary
             if k != last_glycan:
                 last_glycan = k
                 glycans_per_sample[samples_dropdown_options[i_i]][k] = {} #glycans_per_sample = {'sample_0' : {'glycan_0': {}}}
+                
+            # Add the per-adduct data to the glycan, if it hasn't been done before for it
             if i['Adduct'][k_k] not in glycans_per_sample[samples_dropdown_options[i_i]][k]:
+                # If there's no data, ignore it
                 if len(i["S/N"][k_k]) == 1 and i["S/N"][k_k][0] == 0.0:
                     continue
+                    
+                # Add mz, retention times, aucs, PPM errors, iso scores, curve scores, sns and ambiguities of the adduct
                 glycans_per_sample[samples_dropdown_options[i_i]][k][i['Adduct'][k_k]] = {'mz' : i['mz'][k_k]} #glycans_per_sample = {'sample_0' : {'glycan_0': {'adduct_0' : {'mz' : 9999.99, 'peaks' : [peak_1, peak_2]}}}}
                 glycans_per_sample[samples_dropdown_options[i_i]][k][i['Adduct'][k_k]]['peaks'] = i['RT'][k_k]
                 glycans_per_sample[samples_dropdown_options[i_i]][k][i['Adduct'][k_k]]['auc'] = i['AUC'][k_k]
@@ -1497,26 +1603,50 @@ def load_reanalysis(reanalysis_path):
                 glycans_per_sample[samples_dropdown_options[i_i]][k][i['Adduct'][k_k]]['iso'] = i['Iso_Fitting_Score'][k_k]
                 glycans_per_sample[samples_dropdown_options[i_i]][k][i['Adduct'][k_k]]['curve'] = i['Curve_Fitting_Score'][k_k]
                 glycans_per_sample[samples_dropdown_options[i_i]][k][i['Adduct'][k_k]]['sn'] = i["S/N"][k_k]
-                glycans_per_sample[samples_dropdown_options[i_i]][k][i['Adduct'][k_k]]['ambiguity'] = i["Ambiguity"][k_k]                
+                glycans_per_sample[samples_dropdown_options[i_i]][k][i['Adduct'][k_k]]['ambiguity'] = i["Ambiguity"][k_k]
+
+                # If there's MS2 data, go through it
                 if len(results) == 4:
+                    # Create the dictionary entry
                     glycans_per_sample[samples_dropdown_options[i_i]][k][i['Adduct'][k_k]]['ms2'] = {}
+                    
+                    # Initialize the variable to keep track of the last retention time checked
                     last_rt = ''
+                    
+                    # Go through the fragment data, glycans list
                     for l_l, l in enumerate(fragments_df[i_i]['Glycan']):
+                        # If the current glycan+adduct matches the glycan+adduct that was being added to the glycans per sample dictionary, check it out
                         if l == k and fragments_df[i_i]['Adduct'][l_l] == i['Adduct'][k_k]:
+                            
+                            # If it's the first time this rt is being checked, create its entry and add the data
                             if fragments_df[i_i]['RT'][l_l] != last_rt:
+                                # Create the base structure ([[fragment_mz], [fragment_intensity], [fragment_name], % TIC explained)
                                 glycans_per_sample[samples_dropdown_options[i_i]][k][i['Adduct'][k_k]]['ms2'][fragments_df[i_i]['RT'][l_l]] = [[],[],[], fragments_df[i_i]['% TIC explained'][l_l]]
                                 glycans_per_sample[samples_dropdown_options[i_i]][k][i['Adduct'][k_k]]['ms2'][fragments_df[i_i]['RT'][l_l]][0].append(fragments_df[i_i]['Fragment_mz'][l_l])
                                 glycans_per_sample[samples_dropdown_options[i_i]][k][i['Adduct'][k_k]]['ms2'][fragments_df[i_i]['RT'][l_l]][1].append(fragments_df[i_i]['Fragment_Intensity'][l_l])
                                 glycans_per_sample[samples_dropdown_options[i_i]][k][i['Adduct'][k_k]]['ms2'][fragments_df[i_i]['RT'][l_l]][2].append(fragments_df[i_i]['Fragment'][l_l])
                                 last_rt = fragments_df[i_i]['RT'][l_l]
+                                
+                            # Otherwise just add the data
                             else:
                                 glycans_per_sample[samples_dropdown_options[i_i]][k][i['Adduct'][k_k]]['ms2'][fragments_df[i_i]['RT'][l_l]][0].append(fragments_df[i_i]['Fragment_mz'][l_l])
                                 glycans_per_sample[samples_dropdown_options[i_i]][k][i['Adduct'][k_k]]['ms2'][fragments_df[i_i]['RT'][l_l]][1].append(fragments_df[i_i]['Fragment_Intensity'][l_l])
                                 glycans_per_sample[samples_dropdown_options[i_i]][k][i['Adduct'][k_k]]['ms2'][fragments_df[i_i]['RT'][l_l]][2].append(fragments_df[i_i]['Fragment'][l_l])
+        
+        # If MS2 is present, catalog the retention times and what glycans were annotated to it
+        if len(results) == 4:
+            for index, glycan in enumerate(fragments_df[i_i]['Glycan']):
+                if fragments_df[i_i]['RT'][index] not in ms2_spectra_glycans[samples_dropdown_options[i_i]].keys():
+                    ms2_spectra_glycans[samples_dropdown_options[i_i]][fragments_df[i_i]['RT'][index]] = {}
+                if glycan not in ms2_spectra_glycans[samples_dropdown_options[i_i]][fragments_df[i_i]['RT'][index]].keys():
+                    ms2_spectra_glycans[samples_dropdown_options[i_i]][fragments_df[i_i]['RT'][index]][glycan] = []
+                if fragments_df[i_i]['Adduct'][index] not in ms2_spectra_glycans[samples_dropdown_options[i_i]][fragments_df[i_i]['RT'][index]][glycan]:
+                    ms2_spectra_glycans[samples_dropdown_options[i_i]][fragments_df[i_i]['RT'][index]][glycan].append(fragments_df[i_i]['Adduct'][index])
     
     # Get isotopic fittings and curve fittings from file
     isotopic_fittings = gg_file.get_isotopic_fittings()
     curve_fittings = gg_file.get_curve_fittings()
+    fragments_library_ms2_scores = gg_file.get_fragments_library_ms2_scores()
     gg_analysis_tolerance = parameters_gg[1][4]
 
 def error_window(text):
@@ -1578,6 +1708,147 @@ def clean_temp_folder():
             shutil.rmtree(temp_folder)
         except:
             pass
+            
+def annotate_ms2_spectrum(file, spectrum, fragments_dict, tolerance, target_glycan_comp):
+    ''''''
+    # Superscripts for pretty fragment name
+    superscripts = {'0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹', '+': '⁺', '-': '⁻', '=': '⁼', '(': '⁽', ')': '⁾', 'n': 'ⁿ', 'i': 'ⁱ'}
+        
+    # Get spectrum time and precursor mz
+    try:
+        spectrum_time = file[spectrum]['retentionTime']
+        precursor_mz = file[spectrum]['precursorMz'][0]['precursorMz']
+    except:
+        spectrum_time = file[spectrum]['scanList']['scan'][0]['scan start time']
+        precursor_mz = file[spectrum]['precursorList']['precursor'][0]['isolationWindow']['isolation window target m/z']
+    
+    # Annotated fragments list
+    annotated_fragments = []
+    
+    # If empty array, return empty annotations
+    if len(file[spectrum]['intensity array']) == 0:
+        return annotated_fragments
+    
+    # Create indexed fragments dictionary
+    indexed_fragments = {}
+    for fragment, frag_data in fragments_dict.items():
+        for adduct, mz in frag_data['Adducts_mz'].items():
+            indexed_fragments[mz] = indexed_fragments.get(mz, []) + [f"{fragment}_{adduct}"]
+    indexed_fragments = dict(sorted(indexed_fragments.items()))
+    indexed_fragments_list = list(indexed_fragments.keys())
+    
+    # The array summed intensities information to calculate % TIC assigned
+    total_array_intensity = sum(file[spectrum]['intensity array'])
+    
+    # The last peak information
+    former_peak_mz = 0
+    former_peak_intensity = 0
+    former_peak_identified_mz = 0
+    
+    # The maximum intensity of the array and intensity cutoff base for array trimming
+    max_int = max(file[spectrum]['intensity array'])
+    intensity_cutoff = 0
+    
+    # Trim extremely large arrays
+    max_size = 10000
+    if len(file[spectrum]['intensity array']) > max_size:
+        
+        while np.sum(file[spectrum]['intensity array'] > intensity_cutoff) > max_size:
+            intensity_cutoff += max_int*0.01
+            
+        mask = file[spectrum]['intensity array'] > intensity_cutoff
+        mz_array = file[spectrum]['m/z array'][mask]
+        int_array = file[spectrum]['intensity array'][mask]
+        
+    else:
+        mz_array = file[spectrum]['m/z array']
+        int_array = file[spectrum]['intensity array']
+        
+    # Check the spectrum peak by peak
+    for mz_peak_index, mz_peak in enumerate(mz_array):
+        
+        # Moving intensity threshold to ignore minuscule peaks that are between isotopologues
+        if int_array[mz_peak_index] < former_peak_intensity*0.05:
+            continue
+            
+        # Check whether this mz peak is part of the isotopic envelope of the last checked peak. Checks for possibly singly, doubly or triply charged
+        if (
+            abs(mz_peak-(former_peak_mz+General_Functions.h_mass)) < General_Functions.tolerance_calc(tolerance[0], tolerance[1], mz_peak) 
+            or abs(mz_peak-(former_peak_mz+(General_Functions.h_mass/2))) < General_Functions.tolerance_calc(tolerance[0], tolerance[1], mz_peak) 
+            or abs(mz_peak-(former_peak_mz+(General_Functions.h_mass/3))) < General_Functions.tolerance_calc(tolerance[0], tolerance[1], mz_peak)
+            ): 
+            # And here it checks if it is part of the isotopic envelope of the last IDENTIFIED peak. If it is, it reduces its intensity from the total array intensity so to better represent the % TIC annotated
+            if (
+                abs(mz_peak-(former_peak_identified_mz+General_Functions.h_mass)) < General_Functions.tolerance_calc(tolerance[0], tolerance[1], mz_peak) 
+                or abs(mz_peak-(former_peak_identified_mz+(General_Functions.h_mass/2))) < General_Functions.tolerance_calc(tolerance[0], tolerance[1], mz_peak) 
+                or abs(mz_peak-(former_peak_identified_mz+(General_Functions.h_mass/3))) < General_Functions.tolerance_calc(tolerance[0], tolerance[1], mz_peak)
+                ):
+                former_peak_identified_mz = mz_peak
+                total_array_intensity -= int_array[mz_peak_index]
+                
+            former_peak_mz = mz_peak
+            continue
+            
+        former_peak_mz = mz_peak
+        former_peak_intensity = int_array[mz_peak_index]
+        
+        # Checks whether this peak matches the mz of a fragment
+        fragment_id = General_Functions.binary_search_with_tolerance(indexed_fragments_list, mz_peak, 0, len(indexed_fragments_list)-1, General_Functions.tolerance_calc(tolerance[0], tolerance[1], mz_peak))
+        
+        # If no matching fragment is found, continue to the next mz peak
+        if fragment_id == -1:
+            continue
+            
+        # Identify the fragment mz
+        identified_fragment_mz = indexed_fragments_list[fragment_id]
+        
+        # Otherwise, fetch the list of fragments that match the mz and, if the user wants to limit the output to the composition of precursor, filter it
+        possible_fragments = indexed_fragments[identified_fragment_mz]
+        
+        if target_glycan_comp:
+            to_remove = []
+            for index, fragment in enumerate(possible_fragments):
+                for mono, amount in fragments_dict[fragment.split("_")[0]]['Monos_composition'].items():
+                    if mono != 'T' and amount > target_glycan_comp.get(mono, 0):
+                        to_remove.append(index)
+                        break
+            
+            for index in sorted(to_remove, reverse=True):
+                del possible_fragments[index]
+        
+        # If after filtering, no possible fragments are found, move on to the next peak
+        if len(possible_fragments) == 0:
+            continue
+            
+        # Mark this as a successful identification and save the mz as the last identified
+        former_peak_identified_mz = mz_peak 
+        
+        # Format the fragments name to look prettier
+        fragment_name_list = []
+        for fragment in possible_fragments:
+            fragment_name, fragment_adduct = fragment.split("_")
+            
+            adduct_comp_frag, adduct_charge_frag = General_Functions.fix_adduct_determine_charge(fragment_adduct)
+            
+            adduct_str = ""
+            for o in adduct_comp_frag:
+                polarity = '+' if adduct_comp_frag[o] > 0 else ''
+                adduct_str += f"{polarity}{adduct_comp_frag[o]}{o}"
+                
+            superscript_polarity = superscripts['+'] if adduct_charge_frag > 0 else superscripts['-']
+            
+            fragment_name_list.append(f"{fragment_name}[M{adduct_str}]{superscript_polarity}{superscripts[str(abs(adduct_charge_frag))]}")
+            
+        fragment_name = "/".join(fragment_name_list)
+            
+        annotated_fragments.append(['Unknown Glycan', 'Unknown Adduct', fragment_name, mz_peak, int_array[mz_peak_index], spectrum_time, precursor_mz, total_array_intensity])
+        
+    # Update the total intensities after it's done with the array
+    for fragment in annotated_fragments:
+        if fragment[5] == spectrum_time:
+            fragment[7] = total_array_intensity
+            
+    return annotated_fragments
                 
 def on_closing():
     '''This function is used to remove the function from the Close Window button (x button).'''
@@ -1585,13 +1856,18 @@ def on_closing():
         
 def handle_selection(event):
     '''This function handles the selection of the samples dropdown menu.'''
-    global current_data, ax, canvas, ax_spec, canvas_spec, samples_dropdown, chromatograms_list, selected_item, compare_samples_button, loading_files, filter_list, samples_list, spectra_plot_frame, no_spectra_loaded_label, ms1_bound, ms1_binds, ms2_bound, ms2_binds, chromatogram_bound, chromatogram_binds, rt_label, precursor_label, gg_draw_on, former_selected_sample, last_plotted, selected_chromatograms
+    global current_data, ax, canvas, ax_spec, canvas_spec, samples_dropdown, chromatograms_list, selected_item, compare_samples_button, loading_files, filter_list, samples_list, spectra_plot_frame, no_spectra_loaded_label, ms1_bound, ms1_binds, ms2_bound, ms2_binds, chromatogram_bound, chromatogram_binds, rt_label, precursor_label, gg_draw_on, former_selected_sample, last_plotted, selected_chromatograms, previous_spectrum_button, next_spectrum_button, annotate_spectrum_button
     
     selected_item = samples_dropdown.get()
     if selected_item == former_selected_sample:
         return
         
     former_selected_sample = selected_item
+    
+    # Deactivate the buttons to cycle through MS2 spectra
+    previous_spectrum_button.config(state=tk.DISABLED)
+    next_spectrum_button.config(state=tk.DISABLED)
+    annotate_spectrum_button.config(state=tk.DISABLED)
     
     # Clear glycans selected
     last_plotted = None
@@ -1702,6 +1978,7 @@ def populate_treeview():
     chromatograms_list.delete(*chromatograms_list.get_children())
     add_bpc_treeview()
     if len(reanalysis_path) > 0: #populate treeview with glycans
+        sample_index = list(glycans_per_sample.keys()).index(selected_item)
         search_input = []
         has_glycan = False
         if filter_list.get() != "Filter the list of glycans...":
@@ -1725,7 +2002,7 @@ def populate_treeview():
                                 found = False
                                 if 'ms2' in glycans_per_sample[selected_item][i][k]:
                                     for m in list(glycans_per_sample[selected_item][i][k]['ms2'].keys()):
-                                        if abs(float(m)-float(l)) < 1:
+                                        if float(curve_fittings[sample_index][f"{i}+{k}_{l}_RTs"][0]) <= float(m) <= float(curve_fittings[sample_index][f"{i}+{k}_{l}_RTs"][-1]):
                                             chromatograms_list.insert(first_child, "end", text=l, value=("MS2"))
                                             found = True
                                             break
@@ -1953,7 +2230,22 @@ def on_right_click_plot(event, ax_here, canvas_here, clean_plot):
         # Open a context menu
         context_menu = tk.Menu(main_window, tearoff=0)
         context_menu.add_command(label="Save Image", command=lambda: save_image(event, canvas_here, ax_here, clean_plot))
+        if len([line.get_label() for line in ax_here.get_lines() if "MS2" in line.get_label()]) > 0:
+            if len([[line.get_label(), line.get_ydata()[0]] for line in ax_spec_ms2.lines if isinstance(line, matplotlib.lines.Line2D) and line.get_marker() == '*']) > 0:
+                context_menu.add_command(label="Copy Annotations to Clipboard", command=save_annotations)
         context_menu.post(screen_x, screen_y)
+        
+def save_annotations():
+    ''''''
+    labels_intensity = [[line.get_label(), line.get_ydata()[0]] for line in ax_spec_ms2.lines if isinstance(line, matplotlib.lines.Line2D) and line.get_marker() == '*']
+    
+    main_window.clipboard_clear()
+    main_window.clipboard_append(f"Fragment\tmz\tIntensity\n")
+    for data in labels_intensity:
+        label, intensity = data
+        label, mz = label.split("\n")
+        main_window.clipboard_append(f"{label}\t{mz}\t{intensity}\n")
+        
         
 def save_image(event, canvas_here, ax_here, clean_plot):
     '''This is the working function of the on_right_click_plot function. It saves an image of the right clicked plot.'''
@@ -2282,6 +2574,372 @@ def on_key_press(event):
 def on_key_release(event):
     """ Mark a key as released """
     key_states[event.keysym] = False
+        
+def sample_grouping_window(samples_names, parent):
+    
+    def on_drag_start(event):
+        global dragged_widget
+        
+        dragged_widget = event.widget
+        x = sgw.winfo_pointerx()-sgw.winfo_rootx()
+        y = sgw.winfo_pointery()-sgw.winfo_rooty()
+        
+        widget_text = dragged_widget.tooltip.text
+        dragged_widget.destroy()
+            
+        if len(widget_text) > 30:
+            dragged_widget = ttk.Label(sgw, text=widget_text[:30]+"...")
+        else:
+            dragged_widget = ttk.Label(sgw, text=widget_text)
+        ToolTip(dragged_widget, widget_text)
+        dragged_widget.place(x=x, y=y)
+    
+    def on_drag(event):
+        global dragged_widget
+        
+        if not dragged_widget:
+            return
+            
+        x = sgw.winfo_pointerx()-sgw.winfo_rootx()
+        y = sgw.winfo_pointery()-sgw.winfo_rooty()
+        dragged_widget.place(x=x, y=y)
+    
+    def on_drop(event):
+        global dragged_widget
+        
+        if not dragged_widget:
+            return
+        
+        x, y = sgw.winfo_pointerx(), sgw.winfo_pointery()
+        
+        samples_bbox = (samples_frame.winfo_rootx(), samples_frame.winfo_rooty(), samples_frame.winfo_rootx()+samples_frame.winfo_width(), samples_frame.winfo_rooty()+samples_frame.winfo_height())
+        
+        # Check if it's dragged to any group
+        found = False
+        for group_frame in [child for child in sgw_groups_scrollable_frame.winfo_children() if isinstance(child, ttk.Frame)]:
+            group_widgets = group_frame.winfo_children()
+            for widget in group_widgets:
+                if isinstance(widget, tk.Canvas):
+                    group_samples_list_canvas = widget
+                    group_samples_list = widget.winfo_children()[0]
+            
+            group_bbox = (group_frame.winfo_rootx(), group_frame.winfo_rooty(), group_frame.winfo_rootx()+group_frame.winfo_width(), group_frame.winfo_rooty()+group_frame.winfo_height())
+            
+            if is_inside_group(x, y, group_bbox):
+                found = True
+                widget_text = dragged_widget.tooltip.text
+                dragged_widget.destroy()
+                if len(widget_text) > 30:
+                    label = ttk.Label(group_samples_list, text=widget_text[:30]+"...")
+                else:
+                    label = ttk.Label(group_samples_list, text=widget_text)
+                ToolTip(label, widget_text)
+                
+                counter = 0
+                while True:
+                    free = True
+                    for widget in group_samples_list.winfo_children():
+                        grid_info = widget.grid_info()
+                        row = grid_info.get('row', None)
+                        if row == counter:
+                            free = False
+                            break
+                    if free:
+                        break
+                    counter+=1
+                    
+                label.grid(row=counter, column=0, sticky='w')
+                label.bind("<ButtonPress-1>", on_drag_start)
+        
+                if platform.system() == 'Windows':
+                    label.bind("<MouseWheel>", lambda event: scroll_canvas(event, group_samples_list_canvas))
+                else:
+                    label.bind("<Button-4>", lambda event: scroll_canvas(event, group_samples_list_canvas))    # Linux Scroll Up
+                    label.bind("<Button-5>", lambda event: scroll_canvas(event, group_samples_list_canvas))
+                
+                break
+                
+        if not found:
+            widget_text = dragged_widget.tooltip.text
+            dragged_widget.destroy()
+        
+            label = ttk.Label(sgw_samples_scrollable_frame, text=widget_text)
+            ToolTip(label, widget_text)
+            
+            counter = 0
+            while True:
+                free = True
+                for widget in sgw_samples_scrollable_frame.winfo_children():
+                    grid_info = widget.grid_info()
+                    row = grid_info.get('row', None)
+                    if row == counter:
+                        free = False
+                        break
+                if free:
+                    break
+                counter+=1
+                
+            label.grid(row=counter, column=0, columnspan=3, sticky='w')
+            label.bind("<ButtonPress-1>", on_drag_start)
+        
+            if platform.system() == 'Windows':
+                label.bind("<MouseWheel>", lambda event: scroll_canvas(event, sgw_samples_canvas))
+            else:
+                label.bind("<Button-4>", lambda event: scroll_canvas(event, sgw_samples_canvas))    # Linux Scroll Up
+                label.bind("<Button-5>", lambda event: scroll_canvas(event, sgw_samples_canvas))
+            
+        dragged_widget = None
+
+    def is_inside_group(x, y, group_bbox):
+        """Check if the coordinates are inside the group's bounding box."""
+        return group_bbox[0] <= x <= group_bbox[2] and group_bbox[1] <= y <= group_bbox[3]
+    
+    def add_group(parent, group_name=''):  
+        def destroy_frame():
+            for widget in group_scrollable_frame.winfo_children():
+                counter = 0
+                while True:
+                    free = True
+                    for widgetb in sgw_samples_scrollable_frame.winfo_children():
+                        grid_info = widgetb.grid_info()
+                        row = grid_info.get('row', None)
+                        if row == counter:
+                            free = False
+                            break
+                    if free:
+                        break
+                    counter+=1
+                add_draggable(sgw_samples_scrollable_frame, widget.tooltip.text, counter, sgw_samples_canvas)
+            group_frame.destroy()
+            
+        group_frame = ttk.Frame(parent, relief='solid')
+        group_frame.pack(side=tk.LEFT, fill="y", expand=True)
+    
+        group_frame.grid_columnconfigure(1, weight=1)
+        
+        group_label = ttk.Label(group_frame, text="Group: ", font=("Segoe UI", list_font_size))
+        group_label.grid(row=0, column=0, sticky='nsew', padx=5, pady=5)
+        
+        group_entry = ttk.Entry(group_frame, font=("Segoe UI", list_font_size))
+        group_entry.grid(row=0, column=1, sticky='nsew', padx=(0, 5), pady=5)
+        group_entry.insert(0, group_name)
+        
+        remove_button = tk.Button(group_frame, text=" X ", relief="flat", font=("Segoe UI", list_font_size), command=destroy_frame)
+        remove_button.grid(row=0, column=2, sticky='nwse', padx=(0, 5), pady=5)
+        
+        group_canvas = tk.Canvas(group_frame, borderwidth=0, width=0, height=200)
+        group_scrollbar = tk.Scrollbar(group_frame, orient="vertical", command=group_canvas.yview)
+        group_scrollable_frame = tk.Frame(group_canvas)
+        group_canvas.create_window((0, 0), window=group_scrollable_frame, anchor="nw")
+        group_canvas.configure(yscrollcommand=group_scrollbar.set)
+        group_scrollable_frame.bind("<Configure>", lambda event: group_canvas.configure(scrollregion=group_canvas.bbox("all")))
+        group_canvas.grid(row=1, column=0, columnspan=3, sticky='nwse', padx=(5, 15), pady=5)
+        group_scrollbar.grid(row=1, column=0, columnspan=3, sticky='nse', padx=(0, 5), pady=5)
+        
+        if platform.system() == 'Windows':
+            group_canvas.bind("<MouseWheel>", lambda event: scroll_canvas(event, group_canvas))
+        else:
+            group_canvas.bind("<Button-4>", lambda event: scroll_canvas(event, group_canvas))    # Linux Scroll Up
+            group_canvas.bind("<Button-5>", lambda event: scroll_canvas(event, group_canvas))
+            
+        return group_canvas, group_scrollable_frame
+        
+    def add_draggable(parent, text, row, canvas, trim = False):
+        label_text = text[:30]+"..." if (trim and len(text) > 30) else text
+        label = ttk.Label(parent, text=label_text)
+        label.grid(row=row, column=0, sticky="w")
+        ToolTip(label, text)
+        
+        # Bind drag events to the label
+        label.bind("<ButtonPress-1>", on_drag_start)
+        
+        if platform.system() == 'Windows':
+            label.bind("<MouseWheel>", lambda event: scroll_canvas(event, canvas))
+        else:
+            label.bind("<Button-4>", lambda event: scroll_canvas(event, canvas))    # Linux Scroll Up
+            label.bind("<Button-5>", lambda event: scroll_canvas(event, canvas))
+    
+    def scroll_canvas(event, event_widget):
+        """Handles mouse wheel scrolling based on OS."""
+        if event.delta:  # Windows & macOS
+            event_widget.yview_scroll(-1 * (event.delta // 120), "units")
+        else:  # Linux (event.num is used instead of event.delta)
+            if event.num == 4:  # Scroll up
+                event_widget.yview_scroll(-1, "units")
+            elif event.num == 5:  # Scroll down
+                event_widget.yview_scroll(1, "units")
+                
+    def groupings_to_ds(data_type = 'dict'):
+        temp_grouping = {}
+        
+        # Add grouped samples
+        for group_frame in [child for child in sgw_groups_scrollable_frame.winfo_children() if isinstance(child, ttk.Frame)]:
+            group_widgets = group_frame.winfo_children()
+            for widget in group_widgets:
+                if isinstance(widget, ttk.Entry):
+                    if len(widget.get()) == 0:
+                        error_window("Fill in the groups names before pressing confirming.")
+                        return
+                    temp_grouping[widget.get()] = []
+                    for group_widget in group_widgets:
+                        if isinstance(group_widget, tk.Canvas):
+                            group_samples_list = group_widget.winfo_children()[0].winfo_children()
+                            for sample in group_samples_list:
+                                temp_grouping[widget.get()].append(sample.tooltip.text)
+            
+        if data_type == 'dict':
+            return temp_grouping
+            
+        else:
+            group_list = []
+            sample_list = []
+            for group, samples in temp_grouping.items():
+                for sample in samples:
+                    group_list.append(group)
+                    sample_list.append(sample)
+                    
+            return group_list, sample_list
+            
+    def close_sgw():
+        sgw.destroy()
+        parent.lift()
+        parent.grab_set()
+                
+    def sgw_ok():
+        global sample_groups
+        
+        temp_sample_groups = groupings_to_ds()
+        
+        if temp_sample_groups:
+            sample_groups = temp_sample_groups
+            close_sgw()
+            
+        
+    def save_to_file():
+        file_path = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV files", "*.csv"), ("All files", "*.*")])
+        
+        if len(file_path) != 0:
+            try:
+                with open(file_path, 'w') as file:
+                    file.write(f"sample,group\n")
+                    data = groupings_to_ds(data_type = 'other')
+                    
+                    for group, sample in zip(*data):
+                        file.write(f"{sample},{group}\n")
+                confirmation_window("File saved succesfully!")
+            except Exception as e:
+                error_window("The file you're trying to replace is already in use or you have no permission to write on that folder.")
+            
+    def load_from_file():
+        global sample_groups
+        file_path = filedialog.askopenfilename(filetypes=[("CSV Files", "*.csv"), ("All files", "*.*")])
+        
+        if len(file_path) != 0:
+            temp_grouping = {}
+            try:
+                with open(file_path, "r") as file:
+                    for index, line in enumerate(file):
+                        if index == 0:
+                            continue
+                        sample, group = line.strip().split(",")
+                        if group in temp_grouping.keys():
+                            temp_grouping[group].append(sample)
+                        else:
+                            temp_grouping[group] = [sample]
+            except Exception as e:
+                error_window("Something went wrong when loading the groups from file. Make sure it is in the correct format.")
+                return
+                        
+            sample_groups = temp_grouping
+            
+            for group_frame in [child for child in sgw_groups_scrollable_frame.winfo_children() if isinstance(child, ttk.Frame)]:
+                group_frame.destroy()
+                
+            for widget in sgw_samples_scrollable_frame.winfo_children():
+                widget.destroy()
+                        
+            load_existing_grouping()
+                        
+    def load_existing_grouping():
+        added_samples = []
+        for group in sample_groups.keys():
+            group_canvas, group_samples_list = add_group(sgw_groups_scrollable_frame, group)
+            index = 0
+            for sample in sample_groups[group]:
+                if sample in samples_names:
+                    added_samples.append(sample)
+                    add_draggable(group_samples_list, sample, index, group_canvas, True)
+                    index+=1
+                
+        index = 0
+        for name in samples_names:
+            if name not in added_samples:
+                add_draggable(sgw_samples_scrollable_frame, name, index, sgw_samples_canvas)
+                index += 1
+        
+    sgw = tk.Toplevel()
+    sgw.geometry("510x560")
+    icon = ImageTk.PhotoImage(ico_image)
+    sgw.iconphoto(False, icon)
+    sgw.protocol("WM_DELETE_WINDOW", close_sgw)
+    sgw.grab_set()
+    
+    global dragged_widget
+    dragged_widget = None
+    
+    sgw.bind("<B1-Motion>", on_drag)
+    sgw.bind("<ButtonRelease-1>", on_drop)
+    
+    sgw.grid_rowconfigure(0, weight=0)
+    sgw.grid_rowconfigure(1, weight=1)
+    sgw.grid_columnconfigure(0, weight=1)
+    
+    groups_frame = ttk.Labelframe(sgw, text="Groups")
+    groups_frame.grid(row=0, column=0, padx=10, pady=(10,0), sticky="nsew")
+    
+    group_add_button = ttk.Button(groups_frame, text="Add group", style="small_button_sfw_style1.TButton", command=lambda: add_group(sgw_groups_scrollable_frame))
+    group_add_button.pack(anchor='w')
+    ToolTip(group_add_button, "Adds a new group where you can drag your samples to. Make sure to name it.")
+    
+    # Make the scrollable groups window
+    sgw_groups_canvas = tk.Canvas(groups_frame, borderwidth=0)
+    sgw_groups_scrollbar = tk.Scrollbar(groups_frame, orient="horizontal", command=sgw_groups_canvas.xview)
+    sgw_groups_scrollable_frame = tk.Frame(sgw_groups_canvas)
+    sgw_groups_canvas.create_window((0, 0), window=sgw_groups_scrollable_frame, anchor="nw", height=260)
+    sgw_groups_canvas.configure(xscrollcommand=sgw_groups_scrollbar.set)
+    sgw_groups_scrollable_frame.bind("<Configure>", lambda event: sgw_groups_canvas.configure(scrollregion=sgw_groups_canvas.bbox("all")))
+    sgw_groups_canvas.pack(fill=tk.BOTH, expand=True)
+    sgw_groups_scrollbar.pack(side="bottom", fill="x")
+    
+    samples_frame = ttk.Labelframe(sgw, text="Samples")
+    samples_frame.grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
+    
+    # Make the scrollable samples window
+    sgw_samples_canvas = tk.Canvas(samples_frame, borderwidth=0)
+    sgw_samples_scrollbar = tk.Scrollbar(samples_frame, orient="vertical", command=sgw_samples_canvas.yview)
+    sgw_samples_scrollable_frame = tk.Frame(sgw_samples_canvas)
+    sgw_samples_canvas.create_window((0, 0), window=sgw_samples_scrollable_frame, anchor="nw")
+    sgw_samples_canvas.configure(yscrollcommand=sgw_samples_scrollbar.set)
+    sgw_samples_scrollable_frame.bind("<Configure>", lambda event: sgw_samples_canvas.configure(scrollregion=sgw_samples_canvas.bbox("all")))
+    sgw_samples_scrollbar.pack(side="right", fill="y")
+    sgw_samples_canvas.pack(fill=tk.BOTH, expand=True)
+    
+    sgw_ok_button = ttk.Button(sgw, text="Ok", style="small_button_sfw_style1.TButton", command=sgw_ok)
+    sgw_ok_button.grid(row=2, column=0, padx=(0, 100), pady=10, sticky="se")
+    
+    sgw_cancel_button = ttk.Button(sgw, text="Cancel", style="small_button_sfw_style1.TButton", command=close_sgw)
+    sgw_cancel_button.grid(row=2, column=0, padx=10, pady=10, sticky="se")
+    
+    sgw_save_button = ttk.Button(sgw, text="Save to File", style="small_button_sfw_style1.TButton", command=save_to_file)
+    sgw_save_button.grid(row=2, column=0, padx=10, pady=10, sticky="sw")
+    ToolTip(sgw_save_button, "Saves the grouping scheme to a CSV file. It includes a header (sample,group) and each sample (file name without extension) is disposed in a line below, with its group beside it. Example for samples (sample1, sample2, sample3, sample4) in groups (group1, group2):\n    sample,group\n    sample1,group1\n    sample2,group1\n    sample3,group2\n    sample4,group2")
+    
+    sgw_load_button = ttk.Button(sgw, text="Load from File", style="small_button_sfw_style1.TButton", command=load_from_file)
+    sgw_load_button.grid(row=2, column=0, padx=(100, 0), pady=10, sticky="sw")
+    ToolTip(sgw_load_button, "Loads the grouping scheme from a CSV file. It must include a header (sample,group) and each sample (file name without extension) disposed in a line below, with its group beside it. Example for samples (sample1, sample2, sample3, sample4) in groups (group1, group2):\n    sample,group\n    sample1,group1\n    sample2,group1\n    sample3,group2\n    sample4,group2")
+    
+    # If no grouping was set before, just create samples in the samples frame
+    load_existing_grouping()
 
 def run_main_window():
     '''This function runs the main window loop.'''
@@ -2403,9 +3061,185 @@ def run_main_window():
             imp_exp_library = [False, False]
             import_library_button_frame.config(bg=background_color)
         
+        generate_library_button_frame.config(bg=background_color)
         file_dialog.destroy()
         
     def get_lib_info():
+        def export_extra_files(full_library, library_metadata):
+            global save_path
+            
+            extra_files_lactonized_ethyl_esterified = library_metadata[13]
+            if len(library_metadata) > 24:
+                extra_files_custom_monos = library_metadata[24]
+            else:
+                extra_files_custom_monos = []
+                
+            extra_files_exp_lib_name = library_path.split("/")[-1].split(".")[0]
+            
+            if len(save_path) == 0:
+                extra_files_save_path = "/".join(library_path.split("/")[:-1])
+            else:
+                extra_files_save_path = save_path
+            
+            Execution_Functions.output_extra_library_files(full_library, extra_files_lactonized_ethyl_esterified, extra_files_custom_monos, [False, False], library_path, extra_files_exp_lib_name, extra_files_save_path)
+            
+            confirmation_window("Extra files saved succesfully!")
+            
+        def library_browser(full_library, library_metadata):
+            def autofit_columns(tree):
+                for col in tree["columns"]:
+                    max_width = max(len(tree.heading(col)["text"]), *[len(tree.set(item, col)) for item in tree.get_children()])
+                    tree.column(col, width=max_width * 10)  # Approximate character width
+                    
+            def search_and_highlight(event):
+                global highlighted_items, current_index
+                query = event.widget.get().lower()
+                
+                for item in highlighted_items:
+                    glycans_treeview.item(item, tags=())
+                    
+                highlighted_items = []
+                
+                if query:
+                    for item in glycans_treeview.get_children():
+                        values = glycans_treeview.item(item, "values")
+                        if any(query in str(value).lower() for value in values):
+                            highlighted_items.append(item)
+                            glycans_treeview.item(item, tags=('highlight',))
+                            
+                current_index = 0 if highlighted_items else -1
+                glycans_treeview.tag_configure('highlight', background='#f1f5b5')
+                
+                if highlighted_items:
+                    glycans_treeview.selection_set(highlighted_items[current_index])
+                    glycans_treeview.see(highlighted_items[current_index])
+                    
+            def navigate(direction):
+                global current_index
+                if not highlighted_items:
+                    return
+                
+                current_index = (current_index + direction) % len(highlighted_items)
+                glycans_treeview.selection_set(highlighted_items[current_index])
+                glycans_treeview.see(highlighted_items[current_index])
+        
+            def glycans_treeview_sort(tv, col, reverse):
+                # Get the data in the specified column
+                data = [(tv.set(k, col), k) for k in tv.get_children('')]
+                
+                # Try to convert data to float if possible for numerical sorting
+                try:
+                    data = [(float(item[0]), item[1]) for item in data]
+                except ValueError:
+                    pass
+                
+                # Sort data
+                data.sort(reverse=reverse)
+                
+                # Rearrange items in sorted positions
+                for index, (val, k) in enumerate(data):
+                    tv.move(k, '', index)
+                
+                # Reverse sort next time
+                tv.heading(col, command=lambda: glycans_treeview_sort(tv, col, not reverse))
+                
+            def close_lib_browser():
+                lib_browser.destroy()
+                lib_info_window.grab_set()
+                    
+            global highlighted_items        
+            highlighted_items = []
+            
+            lib_browser = tk.Toplevel()
+            # lib_browser.withdraw()
+            lib_browser.title("Library Browser")
+            icon = ImageTk.PhotoImage(ico_image)
+            lib_browser.iconphoto(False, icon)
+            lib_browser.minsize(400, 700)
+            lib_browser.protocol("WM_DELETE_WINDOW", close_lib_browser)
+            lib_browser.grab_set()
+            
+            lib_browser_lactonized_ethyl_esterified = library_metadata[13]
+            if len(library_metadata) > 24:
+                lib_browser_custom_monos = library_metadata[24]
+            else:
+                lib_browser_custom_monos = []
+            
+            glycans_treeview_columns = ['Glycan', 'Hex', 'HexN', 'HexNAc', 'Xylose', 'dHex']
+            if lib_browser_lactonized_ethyl_esterified:
+                glycans_treeview_columns = glycans_treeview_columns+['a2,3-Neu5Ac', 'a2,6-Neu5Ac', 'a2,3-Neu5Gc', 'a2,6-Neu5Gc', 'UroA']
+            else:
+                glycans_treeview_columns = glycans_treeview_columns+['Neu5Ac', 'Neu5Gc', 'UroA']
+                
+            if len(lib_browser_custom_monos) > 0:
+                for cm in lib_browser_custom_monos:
+                    name = cm['cm_name']
+
+                    if name in glycans_treeview_columns:
+                        name+= '-custom'
+                    
+                    glycans_treeview_columns.append(name)
+                    
+            glycans_treeview_columns = glycans_treeview_columns+['Isotopic Distribution', 'Neutral Mass + Tag']
+            for adduct in full_library[list(full_library.keys())[0]]['Adducts_mz']:
+                glycans_treeview_columns.append(adduct)
+            
+            lib_browser.grid_columnconfigure(1, weight=1)
+            lib_browser.grid_rowconfigure(1, weight=1)
+    
+            symbol_button_style1 = ttk.Style().configure("symbol_button_style1.TButton", font=("Segoe UI", list_font_size), relief="raised", padding = (0, 0), justify="center", width=5)
+            
+            search_field_label = ttk.Label(lib_browser, text="Search:", font=("Segoe UI", list_font_size))
+            search_field_label.grid(row=0, column=0, padx=10, pady=10, sticky="w")
+            
+            search_field_entry = ttk.Entry(lib_browser)
+            search_field_entry.grid(row=0, column=1, padx=(0, 10), pady=10, sticky="we")
+            search_field_entry.bind("<KeyRelease>", search_and_highlight)
+            
+            search_back = ttk.Button(lib_browser, text="◄", style="symbol_button_style1.TButton", command=lambda: navigate(-1))
+            search_back.grid(row=0, column=2, padx=(0, 10), pady=10, sticky="we")
+            
+            search_next = ttk.Button(lib_browser, text="►", style="symbol_button_style1.TButton", command=lambda: navigate(1))
+            search_next.grid(row=0, column=3, padx=(0, 10), pady=10, sticky="we")
+            
+            glycans_treeview_scrollbar = tk.Scrollbar(lib_browser, orient=tk.VERTICAL)
+            glycans_treeview = ttk.Treeview(lib_browser, columns = glycans_treeview_columns, yscrollcommand=glycans_treeview_scrollbar.set, show='headings')
+        
+            for col in glycans_treeview_columns:
+                glycans_treeview.heading(col, text=col, command=lambda _col=col: glycans_treeview_sort(glycans_treeview, _col, False))
+                
+            glycans_treeview_scrollbar.config(command=glycans_treeview.yview, width=10)
+            
+            for glycan in full_library:
+                row_values = [glycan, full_library[glycan]['Monos_Composition']['H'], full_library[glycan]['Monos_Composition']['HN'], full_library[glycan]['Monos_Composition']['N'], full_library[glycan]['Monos_Composition']['X'], full_library[glycan]['Monos_Composition']['F']]
+                if lib_browser_lactonized_ethyl_esterified:
+                    row_values = row_values+[full_library[glycan]['Monos_Composition']['Am'], full_library[glycan]['Monos_Composition']['E'], full_library[glycan]['Monos_Composition']['AmG'], full_library[glycan]['Monos_Composition']['EG'], full_library[glycan]['Monos_Composition']['UA']]
+                else:
+                    row_values = row_values+[full_library[glycan]['Monos_Composition']['S'], full_library[glycan]['Monos_Composition']['G'], full_library[glycan]['Monos_Composition']['UA']]
+                if len(lib_browser_custom_monos) > 0:
+                    for cm in lib_browser_custom_monos:
+                        row_values.append(full_library[glycan]['Monos_Composition'][cm['cm_short_code']])
+                temp_isotopic = []
+                for j in full_library[glycan]['Isotopic_Distribution']:
+                    temp_isotopic.append(float("%.3f" % round(j, 3)))
+                row_values.append(str(temp_isotopic)[1:-1])
+                row_values.append(float("%.4f" % round(full_library[glycan]['Neutral_Mass+Tag'], 4)))
+                for adduct in full_library[glycan]['Adducts_mz']:
+                    row_values.append(float("%.4f" % round(full_library[glycan]['Adducts_mz'][adduct], 4)))
+                    
+                glycans_treeview.insert("", "end", values=row_values)
+                
+            glycans_treeview.grid(row=1, column=0, columnspan=4, padx=(10, 20), pady=(0, 10), sticky="nsew")
+            glycans_treeview_scrollbar.grid(row=1, column=0, columnspan=4, padx=10, pady=10, sticky="nse")
+            
+            autofit_columns(glycans_treeview)
+        
+            library_length_label = ttk.Label(lib_browser, text=f"Library Length: {len(full_library)} glycans", font=("Segoe UI", list_font_size))
+            library_length_label.grid(row=2, column=0, columnspan=4, padx=10, pady=10, sticky="w")
+        
+            close_lib_browser_button = ttk.Button(lib_browser, text="Close", style="small_button_sfw_style1.TButton", command=close_lib_browser)
+            close_lib_browser_button.grid(row=2, column=0, columnspan=4, padx=10, pady=10, sticky="e")
+            
         try:
             with open(library_path, 'rb') as f:
                 library_data = dill.load(f)
@@ -2418,7 +3252,7 @@ def run_main_window():
         library_metadata = library_data[1]
         
         lib_info_window = tk.Toplevel()
-        lib_info_window.attributes("-topmost", True)
+        # lib_info_window.attributes("-topmost", True)
         lib_info_window.withdraw()
         lib_info_window.title("Library Information")
         icon = ImageTk.PhotoImage(ico_image)
@@ -2440,7 +3274,13 @@ def run_main_window():
             information_text.insert(tk.END, f"Force composition: {library_metadata[7]}\n")
             information_text.insert(tk.END, f"Maximum adducts: {library_metadata[8]}\n")
             information_text.insert(tk.END, f"Maximum charges: {library_metadata[9]}\n")
-            information_text.insert(tk.END, f"Reducing end tag mass/composition: {library_metadata[10]}\n")
+            
+            if library_metadata[10] in reducing_end_tags.values():
+                reducing_end_tag_text = f" ({list(reducing_end_tags.keys())[list(reducing_end_tags.values()).index(library_metadata[10])]})"
+            else:
+                reducing_end_tag_text = ''
+                
+            information_text.insert(tk.END, f"Reducing end tag mass/composition: {library_metadata[10]}{reducing_end_tag_text}\n")
             information_text.insert(tk.END, f"Internal Standard mass: {library_metadata[11]}\n")
             information_text.insert(tk.END, f"Permethylated: {library_metadata[12]}\n")
             information_text.insert(tk.END, f"Amidated/Ethyl-Esterified: {library_metadata[13]}\n")
@@ -2471,7 +3311,13 @@ def run_main_window():
                 information_text.insert(tk.END, f"Lyase digested: {library_metadata[23]}\n")
             information_text.insert(tk.END, f"Maximum adducts: {library_metadata[8]}\n")
             information_text.insert(tk.END, f"Maximum charges: {library_metadata[9]}\n")
-            information_text.insert(tk.END, f"Reducing end tag mass/composition: {library_metadata[10]}\n")
+            
+            if library_metadata[10] in reducing_end_tags.values():
+                reducing_end_tag_text = f" ({list(reducing_end_tags.keys())[list(reducing_end_tags.values()).index(library_metadata[10])]})"
+            else:
+                reducing_end_tag_text = ''
+                
+            information_text.insert(tk.END, f"Reducing end tag mass/composition: {library_metadata[10]}{reducing_end_tag_text}\n")
             information_text.insert(tk.END, f"Internal Standard mass: {library_metadata[11]}\n")
             information_text.insert(tk.END, f"Permethylated: {library_metadata[12]}\n")
             information_text.insert(tk.END, f"Amidated/Ethyl-Esterified: {library_metadata[13]}\n")
@@ -2480,9 +3326,19 @@ def run_main_window():
             information_text.insert(tk.END, f"Min/Max number of Phosphorylations: {library_metadata[22][0]}/{library_metadata[22][1]}\n")
             information_text.insert(tk.END, f"Fast isotopic distribution calculation: {library_metadata[15]}\n")
             information_text.insert(tk.END, f"High resolution isotopic distribution: {library_metadata[16]}")
+            
+        information_text.see("end")
+        
+        browse_lib_button = ttk.Button(lib_info_window, text="Browse Library", style="small_button_sfw_style1.TButton", command=lambda: library_browser(full_library, library_metadata))
+        browse_lib_button.grid(row=1, column=0, padx=10, pady=10, sticky="w")
+        ToolTip(browse_lib_button, "Allows you to check the glycans within the library and search for specific ones.")
+        
+        export_extra_files_button = ttk.Button(lib_info_window, text="Export Extra Files", style="small_button_sfw_style1.TButton", command=lambda: export_extra_files(full_library, library_metadata))
+        export_extra_files_button.grid(row=1, column=0, padx=(105, 10), pady=10, sticky="w")
+        ToolTip(export_extra_files_button, "This button will output a human-readable excel spreadsheet containing all the glycans within the library. Additionally, it will output a Skyline-compatible transitions list.")
         
         close_lib_info_button = ttk.Button(lib_info_window, text="Close", style="small_button_sfw_style1.TButton", command=lib_info_window.destroy)
-        close_lib_info_button.grid(row=1, column=0, padx=10, pady=10)
+        close_lib_info_button.grid(row=1, column=0, padx=10, pady=10, sticky="e")
         
         lib_info_window.update_idletasks()
         lib_info_window.deiconify()
@@ -2505,11 +3361,11 @@ def run_main_window():
             
         def ok_progress_gen_lib_window():
             global library_path, imp_exp_library
-            library_path = save_path+library_name+".ggl"
+            library_path = os.path.join(save_path, library_name+".ggl")
             imp_exp_library = [False, False]
             generate_library_button_frame.config(bg="lightgreen")
             import_library_button_frame.config(bg=background_color)
-            import_library_info.config(state=tk.DISABLED)
+            import_library_info.config(state=tk.NORMAL)
             close_progress_gen_lib_window()
     
         progress_gen_lib = tk.Toplevel(main_window)
@@ -2549,7 +3405,7 @@ def run_main_window():
         
         output_filtered_data_args = [curve_fit_score, iso_fit_score, s_to_n, max_ppm, percentage_auc, reanalysis, reanalysis_path, save_path, analyze_ms2[0], analyze_ms2[2], reporter_ions, plot_metaboanalyst, compositions, align_chromatograms, forced, ret_time_interval[2], rt_tolerance_frag, iso_fittings, output_plot_data, multithreaded_analysis, number_cores, 0.0, min_samples, None, fill_gaps]
         
-        imp_exp_gen_library_args = [custom_glycans_list, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_sia, min_max_fuc, min_max_ac, min_max_gc, min_max_hn, min_max_ua, forced, max_adducts, adducts_exclusion, max_charges, reducing_end_tag, fast_iso, high_res, [False, False], library_path, exp_lib_name, True, save_path, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, min_max_sulfation, min_max_phosphorylation, lyase_digested, None, custom_monosaccharides]
+        imp_exp_gen_library_args = [custom_glycans_list, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_sia, min_max_fuc, min_max_ac, min_max_gc, min_max_hn, min_max_ua, forced, max_adducts, adducts_exclusion, max_charges, reducing_end_tag, fast_iso, high_res, [False, False], library_path, exp_lib_name, True, save_path, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, min_max_sulfation, min_max_phosphorylation, lyase_digested, None, custom_monosaccharides, True]
 
         list_of_data_args = [samples_list]
 
@@ -2718,13 +3574,20 @@ def run_main_window():
                 lyase_digested = library_metadata[23]
             if len(library_metadata) > 24:
                 custom_monosaccharides = library_metadata[24]
+            else:
+                custom_monosaccharides = []
             
             if custom_glycans[0]:
                 library_type = f" - Custom glycans: {str(custom_glycans[1])[1:-1]}"
             else:
                 library_type = f" - Monosaccharides: {str(min_max_monos)[1:-1]}\n - Hexoses: {str(min_max_hex)[1:-1]}\n - Hexosamines: {str(min_max_hn)[1:-1]}\n - HexNAcs: {str(min_max_hexnac)[1:-1]}\n - Xyloses: {str(min_max_xyl)[1:-1]}\n - Sialic Acids: {str(min_max_sia)[1:-1]}\n - Uronic Acids: {str(min_max_ua)[1:-1]}\n - dHex: {str(min_max_fuc)[1:-1]}\n - Neu5Acs: {str(min_max_ac)[1:-1]}\n - Neu5Gcs: {str(min_max_gc)[1:-1]}"
-
-            additional_info = f" - Force Glycan Class: {forced}\n - Maximum adducts: {max_adducts}\n - Maximum charges: {max_charges}\n - Reducing end tag: {reducing_end_tag}\n - Permethylated: {permethylated}\n - Reduced end: {reduced}\n - Amidated/Ethyl-Esterified: {lactonized_ethyl_esterified}\n - Min/Max number of Sulfations: {str(min_max_sulfation)[1:-1]}\n - Min/Max number of Phosphorylations: {str(min_max_phosphorylation)[1:-1]}\n - Fast isotopic calculations: {fast_iso}\n - High resolution isotopic calculations: {high_res}"
+            
+            if reducing_end_tag in reducing_end_tags.values():
+                reducing_end_tag_text = f" ({list(reducing_end_tags.keys())[list(reducing_end_tags.values()).index(reducing_end_tag)]})"
+            else:
+                reducing_end_tag_text = ''
+            
+            additional_info = f" - Force Glycan Class: {forced}\n - Maximum adducts: {max_adducts}\n - Maximum charges: {max_charges}\n - Reducing end tag: {reducing_end_tag}{reducing_end_tag_text}\n - Permethylated: {permethylated}\n - Reduced end: {reduced}\n - Amidated/Ethyl-Esterified: {lactonized_ethyl_esterified}\n - Min/Max number of Sulfations: {str(min_max_sulfation)[1:-1]}\n - Min/Max number of Phosphorylations: {str(min_max_phosphorylation)[1:-1]}\n - Fast isotopic calculations: {fast_iso}\n - High resolution isotopic calculations: {high_res}"
                 
             information_text.insert(tk.END, f"{library_type}\n")
             information_text.insert(tk.END, "\n")
@@ -2752,6 +3615,8 @@ def run_main_window():
             information_text.insert(tk.END, f" - Limit peaks picked per chromatogram/electropherogram: {close_peaks[0]}\n")
             if close_peaks[0]:
                 information_text.insert(tk.END, f" -- Number of peaks: {close_peaks[1]}\n")
+            
+            information_text.see("end")
         
             close_analysis_info_button = ttk.Button(analysis_info_window, text="Close", style="small_button_sfw_style1.TButton", command=close_analysis_param)
             close_analysis_info_button.grid(row=1, column=0, padx=10, pady=10)
@@ -2858,7 +3723,7 @@ def run_main_window():
                 
         output_filtered_data_args = [curve_fit_score, iso_fit_score, s_to_n, max_ppm, percentage_auc, reanalysis, reanalysis_path, save_path, analyze_ms2[0], analyze_ms2[2], reporter_ions, plot_metaboanalyst, compositions, align_chromatograms, forced, ret_time_interval[2], rt_tolerance_frag, iso_fittings, output_plot_data, multithreaded_analysis, number_cores, 0.0, min_samples, None, fill_gaps]
                     
-        imp_exp_gen_library_args = [custom_glycans_list, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_sia, min_max_fuc, min_max_ac, min_max_gc, min_max_hn, min_max_ua, forced, max_adducts, adducts_exclusion, max_charges, reducing_end_tag, fast_iso, high_res, [True, True], library_path, '', False, save_path, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, min_max_sulfation, min_max_phosphorylation, lyase_digested, None, custom_monosaccharides]
+        imp_exp_gen_library_args = [custom_glycans_list, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_sia, min_max_fuc, min_max_ac, min_max_gc, min_max_hn, min_max_ua, forced, max_adducts, adducts_exclusion, max_charges, reducing_end_tag, fast_iso, high_res, [True, True], library_path, '', False, save_path, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, min_max_sulfation, min_max_phosphorylation, lyase_digested, None, custom_monosaccharides, True]
 
         list_of_data_args = [samples_list]
 
@@ -2870,7 +3735,7 @@ def run_main_window():
 
         analyze_ms2_args = [None, None, None, ret_time_interval, tolerance, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl,  min_max_sia, min_max_fuc, min_max_ac, min_max_gc, min_max_hn, min_max_ua, max_charges, reducing_end_tag, forced, permethylated, reduced, lactonized_ethyl_esterified, analyze_ms2[1], analyze_ms2[2], ret_time_interval[2], multithreaded_analysis, number_cores, None, None, True, custom_monosaccharides]
 
-        arrange_raw_data_args = [None, samples_names, analyze_ms2[0], save_path, [[custom_glycans_list, min_max_monos, min_max_hex, min_max_hexnac, min_max_sia, min_max_fuc, min_max_ac, min_max_gc, forced, max_adducts, adducts_exclusion, max_charges, reducing_end_tag, permethylated, reduced, lactonized_ethyl_esterified, fast_iso, high_res, internal_standard, imp_exp_library, exp_lib_name, library_path, only_gen_lib, min_max_xyl, min_max_hn, min_max_ua, min_max_sulfation, min_max_phosphorylation, custom_monosaccharides], [multithreaded_analysis, number_cores, analyze_ms2, reporter_ions, tolerance, ret_time_interval, rt_tolerance_frag, min_isotopologue_peaks, min_ppp, close_peaks, align_chromatograms, percentage_auc, max_ppm, iso_fit_score, curve_fit_score, s_to_n, custom_noise, samples_path, save_path, plot_metaboanalyst, compositions, iso_fittings, reanalysis, reanalysis_path, output_plot_data]], None, None, gg_file_name, True]
+        arrange_raw_data_args = [None, samples_names, analyze_ms2[0], save_path, [[custom_glycans_list, min_max_monos, min_max_hex, min_max_hexnac, min_max_sia, min_max_fuc, min_max_ac, min_max_gc, forced, max_adducts, adducts_exclusion, max_charges, reducing_end_tag, permethylated, reduced, lactonized_ethyl_esterified, fast_iso, high_res, internal_standard, imp_exp_library, exp_lib_name, library_path, only_gen_lib, min_max_xyl, min_max_hn, min_max_ua, min_max_sulfation, min_max_phosphorylation, custom_monosaccharides], [multithreaded_analysis, number_cores, analyze_ms2, reporter_ions, tolerance, ret_time_interval, rt_tolerance_frag, min_isotopologue_peaks, min_ppp, close_peaks, align_chromatograms, percentage_auc, max_ppm, iso_fit_score, curve_fit_score, s_to_n, custom_noise, samples_path, save_path, plot_metaboanalyst, compositions, iso_fittings, reanalysis, reanalysis_path, output_plot_data]], None, None, gg_file_name, True, True, []]
         
         t = threading.Thread(target=run_glycogenius, args=([(output_filtered_data_args, imp_exp_gen_library_args, list_of_data_args, index_spectra_from_file_ms1_args, index_spectra_from_file_ms2_args, analyze_files_args, analyze_ms2_args, arrange_raw_data_args, samples_names, reanalysis, analyze_ms2[0], True)]))
         t.start()
@@ -2947,6 +3812,9 @@ def run_main_window():
                 if chromatogram[0] != "Base Peak Chromatogram/Electropherogram" or chromatogram[1] != 3:
                         
                     show_graph(chromatogram[0], clear, chromatogram[1])
+                    
+                elif chromatogram[0] == "Base Peak Chromatogram/Electropherogram":
+                    show_graph(item_text, clear)
                         
                 color_number+= 1
                 if color_number == len(colors):
@@ -2988,6 +3856,7 @@ def run_main_window():
             else:
                 clear_plot(ax, canvas)
                 # clear_plot(ax_spec, canvas_spec)
+                last_plotted = [f"{item_text}", 1]
                 show_graph(item_text, clear)
         
         else:
@@ -3064,18 +3933,8 @@ def run_main_window():
                     label_show_graph = f"{grand_parent_text} - {parent_text_split_zero}"
             else:
                 return
-        
-        if type(item_text) == list:
-            color = item_text[2]
-            if not clear:
-                ax.fill_between(x_values, y_values, color=color, alpha=0.25)
-        else:
-            color = 'red'
-        if not clear and type(item_text) != list:
-            color = colors[color_number]
-            ax.fill_between(x_values, y_values, color=color, alpha=0.25)
            
-        ax.plot(x_values, y_values, linewidth=1, color=color, label = label_show_graph)
+        ax.plot(x_values, y_values, linewidth=1, color=item_text[2] if type(item_text) == list else 'red', label = label_show_graph)
         
         ax.set_xlabel('Retention/Migration Time (min)')
         ax.set_ylabel('Intensity (AU)')
@@ -3169,7 +4028,7 @@ def run_main_window():
             zoom_selection_button_release = canvas.mpl_connect('button_release_event', lambda event: zoom_selection(event, ax, canvas, type_coordinate) if event.button == 1 else None)
             on_scroll_event = canvas.mpl_connect('scroll_event', lambda event: on_scroll(event, ax, canvas, type_coordinate))
             on_double_click_event = canvas.mpl_connect('button_press_event', lambda event: on_double_click(event, ax, canvas, og_x_range, og_y_range, type_coordinate) if event.button == 1 else None)
-            on_plot_hover_motion = canvas.mpl_connect('motion_notify_event', lambda event: on_plot_hover(event, ax, canvas, x_values, y_values, coordinate_label, type_coordinate, vertical_line))
+            on_plot_hover_motion = canvas.mpl_connect('motion_notify_event', lambda event: on_plot_hover(event, ax, canvas, coordinate_label, type_coordinate, vertical_line))
             on_click_press = canvas.mpl_connect('button_press_event', lambda event: on_click(event, ax, x_values, y_values, vlines_coord) if event.button == 1 else None)
             on_click_release = canvas.mpl_connect('button_release_event', lambda event: on_click(event, ax, x_values, y_values, vlines_coord) if event.button == 1 else None)
             right_move_spectra = canvas.mpl_connect('key_press_event', lambda event: on_right_arrow(event, x_values, y_values, vlines_coord) if event.key == 'right' else None)
@@ -3183,6 +4042,8 @@ def run_main_window():
                 
             chromatogram_bound = True
             chromatogram_binds = [zoom_selection_key_press, zoom_selection_key_release, zoom_selection_motion_notify, zoom_selection_button_press, zoom_selection_button_release, on_scroll_event, on_double_click_event, on_plot_hover_motion, on_click_press, on_click_release, right_move_spectra, left_move_spectra, on_pan_press, on_pan_release, on_pan_motion, on_pan_right_click_press, on_pan_right_click_release, on_pan_right_click_motion]
+            
+        toggle_hide_bad_peaks()
                 
     def show_graph_spectra(rt, peak_range, custom_lim = None):
         global coordinate_label_spec, ax_spec, canvas_spec, ms2_info, rt_label, ms1_bound, ms1_binds, ms2_bound, ms2_binds, precursor_label, og_x_range_spec, og_y_range_spec
@@ -3202,9 +4063,9 @@ def run_main_window():
         
         #for use with data sensitive to the formatting, such as isotopic peaks highlighting
         if current_data['time_unit'] == 'seconds':
-            rt_minutes = float("%.4f" % round(rt/60, 4))
+            rt_minutes = round(rt/60, 4)
         else:
-            rt_minutes = float("%.4f" % round(rt, 4))
+            rt_minutes = round(rt, 4)
         
         x_values_spec = current_data['access'].time[rt]['m/z array']
         y_values_spec = current_data['access'].time[rt]['intensity array']
@@ -3219,7 +4080,7 @@ def run_main_window():
             new_y_data.append(y_values_spec[index])
             new_y_data.append(0)
         
-        ax_spec.plot(new_x_data, new_y_data, marker='None', linewidth=1, color='black')
+        ax_spec.plot(new_x_data, new_y_data, marker='None', linewidth=1, color='black', label = 'MS1 Spectrum')
         
         scaling = scaling_dropdown.get()
         if scaling == 'Linear':
@@ -3271,6 +4132,7 @@ def run_main_window():
                 grand_parent_item = chromatograms_list.parent(parent_item)
                 grand_parent_text = chromatograms_list.item(grand_parent_item, "text") #glycan
                 parent_text_split_zero = parent_text.split(" ")[0]
+                adduct_comp, adduct_charge = General_Functions.fix_adduct_determine_charge(parent_text_split_zero)
                 mz_parent_base = parent_text.split(" ")[-1]
                 if rt_minutes in isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text_split_zero}"]:
                     peaks = isotopic_fittings[sample_index][f"{grand_parent_text}_{parent_text_split_zero}"][rt_minutes][0]
@@ -3286,7 +4148,7 @@ def run_main_window():
                         if highest != 0:
                             ax_spec.set_ylim(0, highest*1.1)
                             for index, i in enumerate(peaks):
-                                mz_chosen = float(mz_parent_base)+(General_Functions.h_mass/abs(General_Functions.form_to_charge(parent_text_split_zero)))*index
+                                mz_chosen = float(mz_parent_base)+(General_Functions.h_mass/abs(adduct_charge))*index
                                 calculated_width = (0.1 if gg_analysis_tolerance == None else General_Functions.tolerance_calc(gg_analysis_tolerance[0], gg_analysis_tolerance[1], mz_chosen))
                                 ax_spec.add_patch(Rectangle((mz_chosen-calculated_width, ax_spec.get_ylim()[0]), (mz_chosen+calculated_width) - (mz_chosen-calculated_width), 1000000000000, color='#FEB7A1', alpha=0.3))
                                 ax_spec.add_patch(Rectangle((i-0.001, ax_spec.get_ylim()[0]), (i+0.001) - (i-0.001), 1000000000000, color='#345eeb', alpha=0.3))
@@ -3313,7 +4175,7 @@ def run_main_window():
             zoom_selection_button_release_spec = canvas_spec.mpl_connect('button_release_event', lambda event: zoom_selection_spec(event, ax_spec, canvas_spec, type_coordinate_spec) if event.button == 1 else None)
             on_scroll_event_spec = canvas_spec.mpl_connect('scroll_event', lambda event: on_scroll(event, ax_spec, canvas_spec, type_coordinate_spec))
             on_double_click_event_spec = canvas_spec.mpl_connect('button_press_event', lambda event: on_double_click(event, ax_spec, canvas_spec, og_x_range_spec, og_y_range_spec, type_coordinate_spec) if event.button == 1 else None)
-            on_plot_hover_motion_spec = canvas_spec.mpl_connect('motion_notify_event', lambda event: on_plot_hover(event, ax_spec, canvas_spec, x_values_spec, y_values_spec, coordinate_label_spec, type_coordinate_spec))
+            on_plot_hover_motion_spec = canvas_spec.mpl_connect('motion_notify_event', lambda event: on_plot_hover(event, ax_spec, canvas_spec, coordinate_label_spec, type_coordinate_spec))
             pick_event_spec = canvas_spec.mpl_connect('pick_event', lambda event: on_pick_spec(event, ms2_info))
             hand_hover_spec = canvas_spec.mpl_connect('motion_notify_event', on_hover_spec)
             on_pan_press_spec = canvas_spec.mpl_connect('button_press_event', lambda event: on_pan(event, ax_spec, canvas_spec, type_coordinate_spec) if event.button == 1 else None)
@@ -3345,6 +4207,7 @@ def run_main_window():
         
         x_values_spec_ms2 = current_data['access'].time[spectra_info[1]]['m/z array']
         y_values_spec_ms2 = current_data['access'].time[spectra_info[1]]['intensity array']
+        spectrum_id = current_data['access'].time[spectra_info[1]]['index'] if current_data['file_type'] == 'mzml' else int(current_data['access'].time[spectra_info[1]]['num'])-1
         
         new_x_data_spec_ms2 = []
         new_y_data_spec_ms2 = []
@@ -3368,7 +4231,7 @@ def run_main_window():
         ax_spec_ms2.set_xlim(og_x_range_spec_ms2[0], og_x_range_spec_ms2[1])
         ax_spec_ms2.set_ylim(og_y_range_spec_ms2[0], og_y_range_spec_ms2[1])
         
-        ax_spec_ms2.plot(new_x_data_spec_ms2, new_y_data_spec_ms2, marker='', linewidth=1, color='#30034d')
+        ax_spec_ms2.plot(new_x_data_spec_ms2, new_y_data_spec_ms2, marker='', linewidth=1, color='#30034d', label = f'MS2 Spectrum - {spectrum_id}')
         
         scaling = scaling_dropdown.get()
         if scaling == 'Linear':
@@ -3389,43 +4252,78 @@ def run_main_window():
             ax_spec_ms2.plot(spectra_info[0], y_values_spec_ms2[np.abs(x_values_spec_ms2-spectra_info[0]).argmin()], marker='D', color = 'red')
         
         if processed_data[selected_item]['time_unit'] == 'seconds':
-            spectra_time_minutes = float("%.4f" % round(spectra_info[1]/60, 4))
+            spectra_time_minutes = round(spectra_info[1]/60, 4)
         else:
-            spectra_time_minutes = float("%.4f" % round(spectra_info[1], 4))
+            spectra_time_minutes = round(spectra_info[1], 4)
         
         precursor_mz_formatted = "%.4f" % spectra_info[0]
-        precursor_label.config(text = f"Retention/Migration Time: {round(spectra_time_minutes, 2)} Precursor m/z: {precursor_mz_formatted}")
+        precursor_label.config(text = f"RT/MT: {round(spectra_time_minutes, 2)} Precursor m/z: {precursor_mz_formatted}")
+        
+        if len(reanalysis_path) > 0:
+            if len(fragments_library_ms2_scores[1]) > 0:
+                annotate_spectrum_button.config(state=tk.NORMAL)
+                files = samples_dropdown.cget('values')
+                file_index = files.index(samples_dropdown.get())
+                if spectrum_id in fragments_library_ms2_scores[1][file_index].keys():
+                    spectrum_score = fragments_library_ms2_scores[1][file_index][spectrum_id]
+                    spectrum_score_label.config(text=f"Glycan probability: {spectrum_score}/10")
+                    ToolTip(spectrum_score_label, "Glycan probability is based on whether the top 10 most annotated fragments during the analysis were found within this spectrum.")
+                else:                    
+                    if spectra_time_minutes > parameters_gg[1][5][0] and spectra_time_minutes < parameters_gg[1][5][1]:
+                        spectrum_score_label.config(text="This spectrum has been annotated.")
+                        ToolTip(spectrum_score_label, "This spectrum has been annotated during the analysis, as the precursor matched a glycan in the library.")
+                    else:
+                        spectrum_score_label.config(text="Spectrum outside analyzed RT/MT range.")
+                        ToolTip(spectrum_score_label, "This spectrum was not within the analyzed RT/MT range and thus no probability of it being the fragment spectrum of a glycan has  been calculated.")
+            else:
+                annotate_spectrum_button.config(state=tk.DISABLED)
+                spectrum_score_label.config(text="Manual spectrum annotation unavailable.")
+                ToolTip(spectrum_score_label, "This analysis was performed before the implementation of this feature or the MS2 was not analyzed.")
             
         custom_font_annotation = {'family': 'sans-serif', 'color': 'black', 'size': 9}
         
-        if len(reanalysis_path) > 0 and chromatograms_list.item(chromatograms_list.selection(), "text") != "Base Peak Chromatogram/Electropherogram":
-            if level == 2:
-                parent_text = chromatograms_list.item(chromatograms_list.selection(), "text").split(" ") #adduct
-                grand_parent_item = chromatograms_list.parent(chromatograms_list.selection())
-                grand_parent_text = chromatograms_list.item(grand_parent_item, "text")
-            if level == 3:
-                parent_item = chromatograms_list.parent(chromatograms_list.selection())
-                parent_text = chromatograms_list.item(parent_item, "text").split(" ") #adduct
-                grand_parent_item = chromatograms_list.parent(parent_item)
-                grand_parent_text = chromatograms_list.item(grand_parent_item, "text")
-            if level == 2 or level == 3:
-                if abs(float("%.4f" % round(spectra_info[0], 4)) - float(parent_text[-1])) < 1:
-                    precursor_label_mz = "%.4f" % spectra_info[0]
-                    precursor_label.config(text=f"Retention/Migration Time: {round(spectra_time_minutes, 2)} Precursor m/z: {precursor_label_mz} Composition: {grand_parent_text}")
-                if grand_parent_text in glycans_per_sample[selected_item]:
-                    if parent_text[0] in glycans_per_sample[selected_item][grand_parent_text]:
-                        if 'ms2' in glycans_per_sample[selected_item][grand_parent_text][parent_text[0]]:
-                            if spectra_time_minutes in glycans_per_sample[selected_item][grand_parent_text][parent_text[0]]['ms2']:
-                                number_annotations = len(glycans_per_sample[selected_item][grand_parent_text][parent_text[0]]['ms2'][spectra_time_minutes][2])+1
-                                interval_annotations = ((ax_spec_ms2.get_xlim()[1]-ax_spec_ms2.get_xlim()[0])/number_annotations)
-                                for i_i, i in enumerate(glycans_per_sample[selected_item][grand_parent_text][parent_text[0]]['ms2'][spectra_time_minutes][2]):
-                                    frag_label = i
-                                    # label_split = i.split("/")
-                                    # for k_k, k in enumerate(label_split):
-                                        # if k_k != 0:
-                                            # frag_label += "/"
-                                        # frag_label+=f"{k.split("_")[0]}[{k.split("_")[1][0]}]{"+" if k.split("_")[1][1] == "1" else k.split("_")[1][1]+"+"}"
-                                    ms2_marker = ax_spec_ms2.plot(glycans_per_sample[selected_item][grand_parent_text][parent_text[0]]['ms2'][spectra_time_minutes][0][i_i], glycans_per_sample[selected_item][grand_parent_text][parent_text[0]]['ms2'][spectra_time_minutes][1][i_i], marker='*', markersize=4.5, label = f"{frag_label}\n{glycans_per_sample[selected_item][grand_parent_text][parent_text[0]]['ms2'][spectra_time_minutes][0][i_i]}", color="red")
+        if len(reanalysis_path) > 0:
+            data_list = ms2_spectra_glycans[selected_item].get(spectra_time_minutes, None)
+            
+            if data_list and len(data_list) > 0:
+                plotted_glycans = [line.get_label() for line in ax.get_lines() if line.get_label()[0] != "_"]
+                
+                for glycan in plotted_glycans:
+                    glycan_splitted = glycan.split(" - ")
+                    if len(glycan_splitted) == 1:
+                        glycan_splitted = glycan.split("+")
+                        if len(glycan_splitted) != 1:
+                            glycan, adduct = glycan_splitted
+                        else:
+                            adduct = None
+                    else:
+                        glycan, adduct = glycan_splitted
+                        
+                    if glycan in data_list:
+                        break
+                    else:
+                        glycan = None
+                        adduct = None
+                        
+                if not glycan:
+                    glycan = random.choice(list(data_list.keys()))
+                    
+                if not adduct or adduct not in data_list[glycan]:
+                    adduct = random.choice(data_list[glycan])
+                            
+                for index, fragment_name in enumerate(glycans_per_sample[selected_item][glycan][adduct]['ms2'][spectra_time_minutes][2]):
+                        frag_label = f"{fragment_name}\n{glycans_per_sample[selected_item][glycan][adduct]['ms2'][spectra_time_minutes][0][index]}"
+                        ms2_marker = ax_spec_ms2.plot(
+                                                      glycans_per_sample[selected_item][glycan][adduct]['ms2'][spectra_time_minutes][0][index], 
+                                                      glycans_per_sample[selected_item][glycan][adduct]['ms2'][spectra_time_minutes][1][index], 
+                                                      marker='*', 
+                                                      markersize=4.5, 
+                                                      label = frag_label, 
+                                                      color="red"
+                                                      )
+            
+                new_precursor_label = precursor_label.cget('text')+f" Composition: {glycan}"
+                precursor_label.config(text = new_precursor_label)
                 
         if zoom_lock_spectrum['on']:
             ax_spec_ms2.set_xlim(zoom_lock_spectrum['x_axis'][0] if zoom_lock_spectrum['x_axis'][0] != 0 else og_x_range_spec_ms2[0], zoom_lock_spectrum['x_axis'][1] if zoom_lock_spectrum['x_axis'][1] != 0 else og_x_range_spec_ms2[1])
@@ -3443,7 +4341,7 @@ def run_main_window():
             zoom_selection_button_release_spec_ms2 = canvas_spec_ms2.mpl_connect('button_release_event', lambda event: zoom_selection_spec_ms2(event, ax_spec_ms2, canvas_spec_ms2, type_coordinate_spec) if event.button == 1 else None)
             on_scroll_event_spec_ms2 = canvas_spec_ms2.mpl_connect('scroll_event', lambda event: on_scroll(event, ax_spec_ms2, canvas_spec_ms2, type_coordinate_spec))
             on_double_click_event_spec_ms2 = canvas_spec_ms2.mpl_connect('button_press_event', lambda event: on_double_click(event, ax_spec_ms2, canvas_spec_ms2, og_x_range_spec_ms2, og_y_range_spec_ms2, type_coordinate_spec) if event.button == 1 else None)
-            on_plot_hover_motion_spec_ms2 = canvas_spec_ms2.mpl_connect('motion_notify_event', lambda event: on_plot_hover(event, ax_spec_ms2, canvas_spec_ms2, x_values_spec_ms2, y_values_spec_ms2, coordinate_label_spec, type_coordinate_spec))
+            on_plot_hover_motion_spec_ms2 = canvas_spec_ms2.mpl_connect('motion_notify_event', lambda event: on_plot_hover(event, ax_spec_ms2, canvas_spec_ms2, coordinate_label_spec, type_coordinate_spec))
             pick_event_spec_ms2 = canvas_spec_ms2.mpl_connect('pick_event', lambda event: on_pick_spec_ms2(event, ms2_info))
             on_pan_press_spec_ms2 = canvas_spec_ms2.mpl_connect('button_press_event', lambda event: on_pan(event, ax_spec_ms2, canvas_spec_ms2, type_coordinate_spec) if event.button == 1 else None)
             on_pan_release_spec_ms2 = canvas_spec_ms2.mpl_connect('button_release_event', lambda event: on_pan(event, ax_spec_ms2, canvas_spec_ms2, type_coordinate_spec) if event.button == 1 else None)
@@ -3461,9 +4359,11 @@ def run_main_window():
     def get_ms2(rt_here, ax_spec, canvas_spec, x_values_spec, y_values_spec):
         global ms2_info
         ms2_info = {}
+        
         def find_closest_value(x, y, value):
             idx = np.abs(x - value).argmin()
             return x[idx], y[idx], idx
+            
         ms2_precursors = []
         peaks_indexes = []
         for i in current_data['ms2'][rt_here]:
@@ -3976,8 +4876,18 @@ def run_main_window():
                             gg_draw_options(index)
                             break
     
-    def on_plot_hover(event, ax_here, canvas_here, x_values_here, y_values_here, coordinate_label, type_coordinate, vertical_line = None, multiple_signal = False):
+    def on_plot_hover(event, ax_here, canvas_here, coordinate_label, type_coordinate, vertical_line = None, multiple_signal = False):
         global chromatograms_list
+        
+        graph_lines = [line for line in ax_here.get_lines() if line.get_label()[0] != "_"]
+        if len(graph_lines) == 0:
+            return
+        x_values_here = graph_lines[0].get_xdata()
+        y_values_here = graph_lines[0].get_ydata()
+        if type_coordinate == 'spectra':
+            mask = y_values_here != 0
+            x_values_here = x_values_here[mask]
+            y_values_here = y_values_here[mask]
         
         over_x = event.y > ax_here.bbox.y1 or event.y < ax_here.bbox.y0
         over_y = event.x > ax_here.bbox.x1 or event.x < ax_here.bbox.x0
@@ -4361,8 +5271,6 @@ def run_main_window():
 
     def click_treeview(event):
         global chromatograms_list, selected_item, samples_list, selected_chromatograms, last_plotted
-        
-        chromatograms_list.focus_set()
         
         if gg_draw_on:
             check_gg_drawings_available(chromatograms_list, False)
@@ -4873,6 +5781,10 @@ def run_main_window():
                 else:
                     widget._uncheck_descendant(item)
                     widget._uncheck_ancestor(item)
+                    
+            draw_checked_samples()
+                    
+        def draw_checked_samples():
             
             last_xlims_chrom = ax_comp.get_xlim()
             last_ylims_chrom = ax_comp.get_ylim()
@@ -4975,7 +5887,7 @@ def run_main_window():
         def align_chromatograms_checkbox_state_check():
             state = align_chromatograms_checkbox_state.get()
             
-            if align_chromatograms_checkbox_state.get():
+            if state:
                 aligning_samples_window()
             else:
                 last_xlims_chrom = ax_comp.get_xlim()
@@ -5047,6 +5959,28 @@ def run_main_window():
                 ax_comp.set_ylabel('Intensity (AU)')
                 
                 canvas_comp.draw_idle()
+        
+        def check_all_checkbox_state_check():
+            state = check_all_checkbox_state.get()
+            
+            if state:
+                for i_i, i in enumerate(samples_dropdown_options):
+                    chromatograms_checkboxes.change_state(i_i, "checked")
+            else:
+                for i_i, i in enumerate(samples_dropdown_options):
+                    chromatograms_checkboxes.change_state(i_i, "unchecked")
+                    
+            draw_checked_samples()
+        
+        def disable_legend_checkbox_state_check():
+            state = disable_legend_checkbox_state.get()
+            
+            if state:
+                ax_comp.legend(fontsize=9)
+            else:
+                ax_comp.get_legend().remove()
+                
+            canvas_comp.draw_idle()
             
         def exit_compare_samples():
             global compare_samples_opened
@@ -5089,20 +6023,44 @@ def run_main_window():
         compare_samples.grab_set()
         compare_samples.protocol("WM_DELETE_WINDOW", exit_compare_samples)
         
+        # Check/Uncheck all checkboxes checkbox
+        check_all_checkbox_state = tk.BooleanVar(value=False)
+        check_all_checkbox = ttk.Checkbutton(compare_samples, text="Check/Uncheck all samples", variable=check_all_checkbox_state, command=check_all_checkbox_state_check)
+        check_all_checkbox.grid(row=0, column=0, padx=10, pady=(10, 0), sticky="nw")
+        ToolTip(check_all_checkbox, "Checks or unchecks all the samples checkboxes.")
+        
+        # Align chromatograms checkbox, deprecated function
         align_chromatograms_checkbox_state = tk.BooleanVar(value=False)
         align_chromatograms_checkbox = ttk.Checkbutton(compare_samples, text="Align Chromatograms/Electropherograms", variable=align_chromatograms_checkbox_state, command=align_chromatograms_checkbox_state_check)
-        align_chromatograms_checkbox.grid(row=0, column=1, padx=10, pady=10, sticky="ne")
-        ToolTip(align_chromatograms_checkbox, "Aligns the chromatograms/electropherograms. It's very dependent on the quality of the peaks, so adjusting quality thresholds may affect the alignment quality. The first time you check this box for a given set of QC thresholds it will take a while to calculate the alignments.")
+        align_chromatograms_checkbox.grid(row=0, column=1, padx=10, pady=(10, 20), sticky="ne")
+        ToolTip(align_chromatograms_checkbox, "Aligns the chromatograms/electropherograms. It's very dependent on the quality of the peaks, so adjusting quality thresholds may affect the alignment quality. The first time you check this box for a given set of QC thresholds it will take a while to calculate the alignments. DEPRECATED")
         
-        chromatograms_checkboxes = CheckboxTreeview(compare_samples)
+        # Enable legend
+        disable_legend_checkbox_state = tk.BooleanVar(value=True)
+        disable_legend_checkbox = ttk.Checkbutton(compare_samples, text="Enable/Disable Legend", variable=disable_legend_checkbox_state, command=disable_legend_checkbox_state_check)
+        disable_legend_checkbox.grid(row=0, column=1, padx=10, pady=(0,0), sticky="se")
+        ToolTip(disable_legend_checkbox, "Enables or disables the legend in the graph.")
+        
+        # Create the panned windows
+        paned_window_cs = tk.PanedWindow(compare_samples, sashwidth=5, orient=tk.HORIZONTAL)
+        paned_window_cs.grid(row=1, column=0, columnspan=2, padx = 10, pady = 10, sticky='nwse')
+        
+        # The treeview for the chromatograms
+        chromatograms_checkboxes = CheckboxTreeview(paned_window_cs)
         chromatograms_checkboxes["show"] = "tree" #removes the header
         chromatograms_checkboxes.grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
         
         for i_i, i in enumerate(samples_dropdown_options):
             chromatograms_checkboxes.insert("", "end", i_i, text=i)
-            chromatograms_checkboxes.change_state(i_i, "checked")
+            if i == samples_dropdown.get():
+                chromatograms_checkboxes.change_state(i_i, "checked")
+            else:
+                chromatograms_checkboxes.change_state(i_i, "unchecked")
+                
+        TreeviewTooltip(chromatograms_checkboxes)
         
-        chromatogram_plots_compare_frame = ttk.Labelframe(compare_samples, text="Chromatogram/Electropherogram Viewer", style="chromatogram.TLabelframe")
+        # The frame for the plotting area
+        chromatogram_plots_compare_frame = ttk.Labelframe(paned_window_cs, text="Chromatogram/Electropherogram Viewer", style="chromatogram.TLabelframe")
         chromatogram_plots_compare_frame.grid(row=1, column=1, padx=10, pady=10, sticky="nsew")
 
         global canvas_comp, ax_comp, coordinate_label_comp, type_coordinate_comp
@@ -5112,9 +6070,19 @@ def run_main_window():
         canvas_comp.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         ax_comp.set_xlabel('Retention/Migration Time (min)')
         ax_comp.set_ylabel('Intensity (AU)')
+    
+        # Add the left side widgets frame to the paned window
+        paned_window_cs.add(chromatograms_checkboxes)
+        paned_window_cs.paneconfigure(chromatograms_checkboxes, minsize=140)
+        
+        # Add the right side widgets frame to the paned window
+        paned_window_cs.add(chromatogram_plots_compare_frame)
+        paned_window_cs.paneconfigure(chromatogram_plots_compare_frame, minsize=400)
             
+        # The vertical dashed line that serves as the indicator of the RT/MT hovered on
         vertical_line = ax_comp.axvline(x=-10000, color='black', linestyle='--', linewidth=1)
-            
+        
+        # This collects the marked checkboxes to plot the samples
         loops = 0
         if level == 1:
             for i_i, i in enumerate(chromatograms_checkboxes.get_checked()):
@@ -5196,7 +6164,7 @@ def run_main_window():
         zoom_selection_button_release_comp = canvas_comp.mpl_connect('button_release_event', lambda event: zoom_selection_compare(event, ax_comp, canvas_comp, type_coordinate_comp) if event.button == 1 else None)
         on_scroll_event_comp = canvas_comp.mpl_connect('scroll_event', lambda event: on_scroll(event, ax_comp, canvas_comp, type_coordinate_comp))
         on_double_click_event_comp = canvas_comp.mpl_connect('button_press_event', lambda event: on_double_click(event, ax_comp, canvas_comp, og_x_range_comp, og_y_range_comp, type_coordinate_comp) if event.button == 1 else None)
-        on_plot_hover_motion_comp = canvas_comp.mpl_connect('motion_notify_event', lambda event: on_plot_hover(event, ax_comp, canvas_comp, x_values_comp, y_values_comp, coordinate_label_comp, type_coordinate_comp, vertical_line, True))
+        on_plot_hover_motion_comp = canvas_comp.mpl_connect('motion_notify_event', lambda event: on_plot_hover(event, ax_comp, canvas_comp, coordinate_label_comp, type_coordinate_comp, vertical_line, True))
         on_pan_press_comp = canvas_comp.mpl_connect('button_press_event', lambda event: on_pan(event, ax_comp, canvas_comp, type_coordinate_comp) if event.button == 1 else None)
         on_pan_release_comp = canvas_comp.mpl_connect('button_release_event', lambda event: on_pan(event, ax_comp, canvas_comp, type_coordinate_comp) if event.button == 1 else None)
         on_pan_motion_comp = canvas_comp.mpl_connect('motion_notify_event', lambda event: on_pan(event, ax_comp, canvas_comp, type_coordinate_comp))
@@ -5399,6 +6367,7 @@ def run_main_window():
                 rt_list = []
                 for i in glycans_per_sample[sample_for_qc_dist]:
                     for j in glycans_per_sample[sample_for_qc_dist][i]:
+                        adduct_comp, adduct_charge = General_Functions.fix_adduct_determine_charge(j)
                         for k_k, k in enumerate(glycans_per_sample[sample_for_qc_dist][i][j]['peaks']):
                             glycans_list.append(f"{i}_{j}_{k}")
                             
@@ -5420,13 +6389,12 @@ def run_main_window():
                                 
                             q = 1
                             composition = General_Functions.form_to_comp(i)
-                            charge = General_Functions.form_to_charge(j)
                             if 'S' in composition.keys():
                                 q -= (composition['S']*(1/(1+10**(2.6-float(ph_entry.get())))))
                             if 'G' in composition.keys():
                                 q -= (composition['G']*(1/(1+10**(2.92-float(ph_entry.get())))))
                             q_list.append(q)
-                            mass_list.append(float(glycans_per_sample[sample_for_qc_dist][i][j]['mz'])*charge)
+                            mass_list.append(float(glycans_per_sample[sample_for_qc_dist][i][j]['mz'])*adduct_charge)
                             me_list.append(q_list[-1]/(mass_list[-1]**1/2))
                             rt_list.append(k)
                 reference_rt_id = mass_list.index(max(mass_list))
@@ -5906,6 +6874,7 @@ def run_main_window():
         except:
             pass
         color_treeview()
+        toggle_hide_bad_peaks()
         
     def on_key_release_filter(event, entry):
         # Get the current content of the entry widget
@@ -6251,7 +7220,7 @@ def run_main_window():
                     x_data_mis.extend([x - 0.000001, x, x + 0.000001])
                     y_data_mis.extend([0, maximum_spectrum[x], 0])
                     
-                ax_mis.plot(x_data_mis, y_data_mis, marker='None', linewidth=1, color='black')
+                ax_mis.plot(x_data_mis, y_data_mis, marker='None', linewidth=1, color='black', label = 'MIS')
                 
                 annotate_top_y_values(ax_mis, canvas_mis)
                 
@@ -6263,7 +7232,7 @@ def run_main_window():
                 
                 canvas_mis.draw()
                 
-                on_plot_hover_motion_mis = canvas_mis.mpl_connect('motion_notify_event', lambda event: on_plot_hover(event, ax_mis, canvas_mis, list(maximum_spectrum.keys()), list(maximum_spectrum.values()), coordinate_label_mis, type_coordinate_mis))
+                on_plot_hover_motion_mis = canvas_mis.mpl_connect('motion_notify_event', lambda event: on_plot_hover(event, ax_mis, canvas_mis, coordinate_label_mis, type_coordinate_mis))
                 
                 processing_max_spectrum.destroy()
                 max_spectrum_window.deiconify()
@@ -6386,8 +7355,9 @@ def run_main_window():
             ax_mis.set_xlim(mz_list[0]-2, mz_list[-1]+2)
             ax_mis.set_ylim(0, max_int*1.1)
             
+            adduct_comp, adduct_charge = General_Functions.fix_adduct_determine_charge(selected_glycan_list_content[1])
             for index, i in enumerate(mz_list):
-                current_peak_found_mz = selected_glycan_list_content[2]+(General_Functions.h_mass/abs(General_Functions.form_to_charge(selected_glycan_list_content[1])))*index
+                current_peak_found_mz = selected_glycan_list_content[2]+(General_Functions.h_mass/abs(adduct_charge))*index
                 calculated_width = General_Functions.tolerance_calc(tolerance[0], tolerance[1], current_peak_found_mz)
                 rectangles.append(ax_mis.add_patch(Rectangle((current_peak_found_mz-calculated_width, ax_mis.get_ylim()[0]), (current_peak_found_mz+calculated_width) - (current_peak_found_mz-calculated_width), 1000000000000, color='#FEB7A1', alpha=0.3)))
                 rectangles.append(ax_mis.add_patch(Rectangle((i-0.001, ax_mis.get_ylim()[0]), (i+0.001) - (i-0.001), 1000000000000, color='#345eeb', alpha=0.3)))
@@ -6540,7 +7510,8 @@ def run_main_window():
                 
                 for i in full_library:
                     for j in full_library[i]['Adducts_mz']:
-                        result = analyze_glycan(mz_array, int_array, full_library[i], full_library[i]['Adducts_mz'][j], tolerance, max_charges, General_Functions.form_to_charge(j))
+                        adduct_comp, adduct_charge = General_Functions.fix_adduct_determine_charge(j)
+                        result = analyze_glycan(mz_array, int_array, full_library[i], full_library[i]['Adducts_mz'][j], tolerance, max_charges, adduct_charge)
                         if result != 'bad':
                             glycans_list_temp.append([(i, j, float("%.4f" % round(full_library[i]['Adducts_mz'][j], 4)), float("%.2f" % round(result[1], 2)), float("%.1f" % round(result[2], 1))), result[0], result[3]])
                             
@@ -6842,6 +7813,96 @@ def run_main_window():
                 random_color = random.choice(colors)
                 quick_trace_list.tag_configure(random_color, foreground=random_color)
                 quick_trace_list.insert("", "end", values=("███████████████", f"{mz_entry.get()}", f"{tol_entry.get()}", "❌"), tags=(random_color,))
+                
+        def save_qtraces_csv():
+            # Create the save file dialog
+            csv_path = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV files", "*.csv"), ("All files", "*.*")])
+            
+            # If no file is selected, cancel the saving
+            if len(csv_path) == 0:
+                return
+                
+            # Initialize list of lines
+            lines = []
+            
+            # Create header
+            header = ['color_hex', 'mz', 'tolerance']
+            
+            # Add header to lines
+            lines.append(",".join(header)+"\n")
+            
+            # Gather the rows from the list and add to lines
+            for row in quick_trace_list.get_children():
+                # Get the values from the row
+                row_values = quick_trace_list.item(row, "values")
+                mz_qtr_save = row_values[1]
+                tol_qtr_save = row_values[2]
+                
+                # Get the color from the row
+                row_color = quick_trace_list.item(row, "tags")[0]
+                
+                # Create a new line
+                new_line = [row_color, mz_qtr_save, tol_qtr_save]
+            
+                # Add new_line to lines
+                lines.append(",".join(new_line)+"\n")
+                
+            with open(csv_path, "w") as csv_file:
+                for line in lines:
+                    csv_file.write(line)
+                
+        def load_qtraces_csv():
+            # Open the open file dialog
+            csv_path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv"), ("All files", "*.*")])
+            
+            # If no file is selected, return None
+            if len(csv_path) == 0:
+                return
+                
+            # Initialize the new quick traces list
+            new_qtraces = []
+            
+            try:
+                # Open the csv file
+                with open(csv_path, "r") as csv_file:
+                    for index, line in enumerate(csv_file):
+                        # Ignore the header
+                        if index == 0:
+                            continue
+                            
+                        # Get the data from the row
+                        color_load_qtr, mz_load_qtr, tol_load_qtr = line.split(",")
+                        
+                        # Check if there's a color specified, if not, pick random color
+                        if len(color_load_qtr) == 0:
+                            color_load_qtr = random.choice(colors)
+                            
+                        # Test the mz and tol_entry
+                        float(mz_load_qtr)
+                        float(tol_load_qtr)
+                            
+                        # Add the line to the new_qtraces
+                        new_qtraces.append((["███████████████", mz_load_qtr, tol_load_qtr, "❌"], color_load_qtr))
+            except:
+                error_window("Couldn't load the quick traces from the file. Make sure it is formatted correctly.")
+                quick_trace_window.deiconify()
+                quick_trace_window.lift()
+                quick_trace_window.focus_set()
+                return
+                
+            for row_id in quick_trace_list.get_children():
+                quick_trace_list.delete(row_id)
+                
+            for row_values, color_load_qtr in new_qtraces:
+                # Create the tag for color
+                quick_trace_list.tag_configure(color_load_qtr, foreground=color_load_qtr)
+                
+                # Insert the new row
+                quick_trace_list.insert("", "end", values=row_values, tags=(color_load_qtr,))
+                
+            quick_trace_window.deiconify()
+            quick_trace_window.lift()
+            quick_trace_window.focus_set()
         
         if quick_trace_opened:
             quick_trace_window.deiconify()
@@ -6873,6 +7934,7 @@ def run_main_window():
         mz_entry = ttk.Entry(quick_trace_window, width=20)
         mz_entry.grid(row=0, column=0, padx=(40, 10), pady=(10, 0), sticky='wns')
         ToolTip(mz_entry, "Type in the m/z value you want to trace or 'MIS' to import the Quick Analysis results from the MIS window..")
+        mz_entry.bind("<KeyRelease-Return>", lambda event: (add_qtl(), mz_entry.focus_set(), mz_entry.selection_range(0, tk.END)))
     
         tol_label = ttk.Label(quick_trace_window, text='Tolerance (m/z):', font=("Segoe UI", list_font_size_smaller))
         tol_label.grid(row=0, column=0, padx=(170, 135), pady=(10, 0), sticky="ens")
@@ -6881,6 +7943,7 @@ def run_main_window():
         tol_entry = ttk.Entry(quick_trace_window, width=5)
         tol_entry.grid(row=0, column=0, padx=(10, 100), pady=(10, 0), sticky='ens')
         ToolTip(tol_entry, "Type in the tolerance value for the traced m/z value.")
+        tol_entry.bind("<KeyRelease-Return>", lambda event: (add_qtl(), mz_entry.focus_set(), mz_entry.selection_range(0, tk.END)))
         
         add_button = ttk.Button(quick_trace_window, text="Add Trace", style="small_button_qtw_style1.TButton", command=add_qtl)
         add_button.grid(row=0, column=0, padx=(10, 10), pady=(10,0), sticky="ens")
@@ -6904,6 +7967,14 @@ def run_main_window():
             for i_i, i in enumerate(quick_traces_list_save[0]):
                 quick_trace_list.tag_configure(quick_traces_list_save[1][i_i][0], foreground=quick_traces_list_save[1][i_i][0])
                 quick_trace_list.insert("", "end", values=i, tags=quick_traces_list_save[1][i_i])
+        
+        save_qtraces_button = ttk.Button(quick_trace_window, text="Save Traces", style="small_button_qtw_style1.TButton", command=save_qtraces_csv)
+        save_qtraces_button.grid(row=2, column=0, padx=(10, 10), pady=(0,10), sticky="sw")
+        ToolTip(save_qtraces_button, "Saves this list to a .csv file.")
+        
+        load_qtraces_button = ttk.Button(quick_trace_window, text="Load Traces", style="small_button_qtw_style1.TButton", command=load_qtraces_csv)
+        load_qtraces_button.grid(row=2, column=0, padx=(10, 10), pady=(0,10), sticky="se")
+        ToolTip(load_qtraces_button, "Loads traces from a .csv file. It must contain a header (color,mz,tol), and each following line will contain the color hexadecimal code (if none is provided, a random color is picked), mz value and tolerance (in mz value), like this:\n        color,mz,tolerance\n        #FFA500,785.2,0.5\n        #808000,800.5,0.5")
         
         quick_trace_list.bind("<ButtonRelease-1>", click_quick_trace_list)
         quick_trace_list.bind("<KeyRelease-Up>", click_quick_trace_list)
@@ -7142,7 +8213,11 @@ def run_main_window():
             
         for glycan in gg_draw_list:
             drawing = glycan[1]
-            drawing.remove()
+            try:
+                drawing.remove()
+            except:
+                pass
+                
         gg_draw_list = []
         
         to_plot = []
@@ -7720,6 +8795,328 @@ def run_main_window():
         # reset button
         reset_lock_button = ttk.Button(zoom_lock_window_frame, text="Reset", command=lambda:reset_axis(plot_type))
         reset_lock_button.grid(row=2, column=0, columnspan=4, pady=(0, 5))
+        
+    def toggle_hide_bad_peaks():
+        global original_lines
+        state = hide_bad_peaks_checkbox_state.get()
+        
+        graph_lines = [line for line in ax.get_lines() if line.get_label()[0] != "_"]
+        
+        if len(graph_lines) > 1:
+            fill_patches = [obj for obj in ax.collections]
+            for patch in fill_patches:
+                patch.remove()
+        
+        if state:
+            # Access the plotted lines
+            for element in graph_lines:
+                label = element.get_label()
+                
+                if label[0] == "_" or label == 'Base Peak Chromatogram/Electropherogram' or '±' in label:
+                    continue
+                
+                if len(label.split("+")) > 1:
+                    label_split = label.split("+")
+                    glycan = label_split[0]
+                    
+                    for index, part in enumerate(label_split):
+                        if "(s)" in part:
+                            glycan+= "+"+label_split[index]
+                        if "(p)" in part:
+                            glycan+= "+"+label_split[index]
+                            
+                    if len(label.split(" - ")) > 1:
+                        adduct = glycan.split(" - ")[-1]
+                        glycan = glycan.split(" - ")[0]
+                        level = 3
+                    elif label_split[-1] in glycan:
+                        adduct = None
+                        level = 1
+                    else:
+                        adduct = label_split[-1]
+                        level = 2
+                elif len(label.split(" - ")) > 1:
+                    glycan = label.split(" - ")[0]
+                    adduct = label.split(" - ")[-1]
+                    level = 3
+                else:
+                    glycan = label
+                    adduct = None
+                    level = 1
+                
+                bad_peaks = []
+                
+                if level == 1:
+                    good_rts = []
+                    for adduct in glycans_per_sample[samples_dropdown.get()][glycan]:
+                        for index, peak in enumerate(glycans_per_sample[samples_dropdown.get()][glycan][adduct]['peaks']):
+                            # To filter by quality
+                            current_ppm = glycans_per_sample[samples_dropdown.get()][glycan][adduct]['ppm'][index]
+                            current_iso = glycans_per_sample[samples_dropdown.get()][glycan][adduct]['iso'][index]
+                            current_curve = glycans_per_sample[samples_dropdown.get()][glycan][adduct]['curve'][index]
+                            snratio = glycans_per_sample[samples_dropdown.get()][glycan][adduct]['sn'][index]
+                            
+                            if current_ppm > max_ppm[1] or current_ppm < max_ppm[0] or current_iso < iso_fit_score or current_curve < curve_fit_score or snratio < s_to_n:
+                                found = False
+                                for peak_good in good_rts:
+                                    peak_rt = float(peak_good.split("_")[-1])
+                                    if abs(peak_rt - peak) < 0.2:
+                                        found = True
+                                        break
+                                if not found:    
+                                    bad_peaks.append(f"{glycan}_{adduct}_{peak}")
+                            else:
+                                for index_bad, peak_bad in enumerate(bad_peaks):
+                                    peak_rt = float(peak_bad.split("_")[-1])
+                                    if abs(peak_rt - peak) < 0.2:
+                                        del bad_peaks[index_bad]
+                                        break
+                                good_rts.append(f"{glycan}_{adduct}_{peak}")
+                                
+                elif level == 2:
+                    for index, peak in enumerate(glycans_per_sample[samples_dropdown.get()][glycan][adduct]['peaks']):
+                        # To filter by quality
+                        current_ppm = glycans_per_sample[samples_dropdown.get()][glycan][adduct]['ppm'][index]
+                        current_iso = glycans_per_sample[samples_dropdown.get()][glycan][adduct]['iso'][index]
+                        current_curve = glycans_per_sample[samples_dropdown.get()][glycan][adduct]['curve'][index]
+                        snratio = glycans_per_sample[samples_dropdown.get()][glycan][adduct]['sn'][index]
+                
+                        # count = 0
+                        if current_ppm > max_ppm[1] or current_ppm < max_ppm[0] or current_iso < iso_fit_score or current_curve < curve_fit_score or snratio < s_to_n:
+                            bad_peaks.append(f"{glycan}_{adduct}_{peak}")
+            
+                # Find the boundaries of the bad peaks
+                sample_index = list(glycans_per_sample.keys()).index(samples_dropdown.get())
+                
+                zeroing_intervals = []
+                for peak in bad_peaks:
+                    glycan, adduct, rt = peak.split("_")
+                    if f"{glycan}+{adduct}_{rt}_RTs" in curve_fittings[sample_index]:
+                        peak_limits = [curve_fittings[sample_index][f"{glycan}+{adduct}_{rt}_RTs"][0], curve_fittings[sample_index][f"{glycan}+{adduct}_{rt}_RTs"][-1]]
+                        zeroing_intervals.append(peak_limits)
+                        
+                x_data = element.get_xdata()
+                if f"{samples_dropdown.get()}_{label}" in original_lines.keys():
+                    y_data = copy.deepcopy(original_lines[f"{samples_dropdown.get()}_{label}"])
+                else:
+                    y_data = element.get_ydata()
+                    original_lines[f"{samples_dropdown.get()}_{label}"] = copy.deepcopy(y_data)
+                
+                for start, end in zeroing_intervals:
+                    mask = (x_data >= start) & (x_data <= end)
+                    y_data[mask] = 0  # Set values to zero
+                    
+                element.set_ydata(y_data)
+        else:
+            for element in graph_lines:
+                label = element.get_label()
+                
+                if label[0] == "_" or "±" in label:
+                    continue
+                    
+                if f"{samples_dropdown.get()}_{label}" in original_lines:
+                    element.set_ydata(original_lines[f"{samples_dropdown.get()}_{label}"])
+        
+        for index, line in enumerate(graph_lines):
+            if "±" in line.get_label():
+                continue
+            x_data = line.get_xdata()
+            y_data = line.get_ydata()
+            while index > len(colors)-1:
+                index -= len(colors)
+            color = colors[index]
+            line.set_color(color)
+            if len(graph_lines) > 1:
+                ax.fill_between(x_data, y_data, color=color, alpha=0.25)
+                
+        canvas.draw_idle()
+        
+    def on_tab_selected(event):
+        notebook = event.widget  # the Notebook widget
+        tab_id = notebook.select()  # ID of the selected tab
+        tab_name = notebook.tab(tab_id, "text")
+        if tab_name == 'MS2':
+            previous_spectrum_button.place(relx=1, x=-70, y=0, anchor='ne')
+            next_spectrum_button.place(relx=1, x=-35, y=0, anchor='ne')
+            
+            if len([line.get_label() for line in ax_spec_ms2.get_lines() if line.get_label()[0] != "_"]) == 0:
+                previous_spectrum_button.config(state=tk.DISABLED)
+                next_spectrum_button.config(state=tk.DISABLED)
+                annotate_spectrum_button.config(state=tk.DISABLED)
+            else:
+                previous_spectrum_button.config(state=tk.NORMAL)
+                next_spectrum_button.config(state=tk.NORMAL)
+            
+            if len(reanalysis_path) > 0 and len(fragments_library_ms2_scores) > 0:
+                annotate_spectrum_button.place(relx=1, x=-105, y=0, anchor='ne')
+                spectrum_score_label.place(relx=1, x=-190, y=0, anchor='ne')
+        else:
+            try:
+                previous_spectrum_button.place_forget()
+                next_spectrum_button.place_forget()
+                annotate_spectrum_button.place_forget()
+                spectrum_score_label.place_forget()
+            except:
+                pass
+                
+    def annotating_spectrum(target_glycan = None):
+        def close_anw():
+            annotating_spectrum_window.destroy()
+            
+        def wait_thread():
+            
+            if target_glycan:
+                target_glycan_comp = General_Functions.form_to_comp(target_glycan)
+            else:
+                target_glycan_comp = None
+                
+            annotated_fragments = annotate_ms2_spectrum(current_data['access'], int([line.get_label() for line in ax_spec_ms2.get_lines() if line.get_label()[0] != "_"][0].split(" - ")[-1]), fragments_library_ms2_scores[0], tolerance, target_glycan_comp)
+            
+            markers_list = [line for line in ax_spec_ms2.lines if isinstance(line, matplotlib.lines.Line2D) and line.get_marker() == '*']
+            for marker in markers_list:
+                marker.remove()
+            
+            for index, fragment in enumerate(annotated_fragments):
+                frag_label = fragment[2]
+                ms2_marker = ax_spec_ms2.plot(
+                                              fragment[3], 
+                                              fragment[4], 
+                                              marker='*', 
+                                              markersize=4.5, 
+                                              label = f"{frag_label}\n{fragment[3]:.4f}", 
+                                              color="red"
+                                              )
+            
+            if len(annotated_fragments) > 0:
+                percent_tic_annotated = (sum([fragment[4] for fragment in annotated_fragments])/annotated_fragments[0][7])*100
+            else:
+                percent_tic_annotated = 0
+            
+            new_precursor_label = precursor_label.cget('text').split(" TIC Annotated:")[0].split(" Composition:")[0]
+            new_precursor_label += f" TIC Annotated: {percent_tic_annotated:.1f}%"
+            if target_glycan:
+                new_precursor_label += f" Composition: {target_glycan}"
+            precursor_label.config(text = new_precursor_label)
+            
+            annotate_top_y_values(ax_spec_ms2, canvas_spec_ms2)
+            canvas_spec_ms2.draw_idle()
+            
+            close_anw()
+            
+        annotating_spectrum_window = tk.Toplevel()
+        # calibrating_spectra_window.attributes("-topmost", True)
+        annotating_spectrum_window.withdraw()
+        annotating_spectrum_window.title("Annotating Spectrum...")
+        icon = ImageTk.PhotoImage(ico_image)
+        annotating_spectrum_window.iconphoto(False, icon)
+        annotating_spectrum_window.resizable(False, False)
+        annotating_spectrum_window.grab_set()
+        annotating_spectrum_window.protocol("WM_DELETE_WINDOW", on_closing)
+        
+        annotating_spectrum_window_label = ttk.Label(annotating_spectrum_window, text="Annotating the peaks of this spectrum. Please wait.", font=("Segoe UI", list_font_size))
+        annotating_spectrum_window_label.pack(pady=35, padx=70)
+        
+        annotating_spectrum_window.update_idletasks()
+        annotating_spectrum_window.deiconify()
+        window_width = annotating_spectrum_window.winfo_width()
+        window_height = annotating_spectrum_window.winfo_height()
+        screen_width = annotating_spectrum_window.winfo_screenwidth()
+        screen_height = annotating_spectrum_window.winfo_screenheight()
+        x_position = (screen_width - window_width) // 2
+        y_position = (screen_height - window_height) // 2
+        annotating_spectrum_window.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
+        
+        t = threading.Thread(target=wait_thread)
+        t.start()
+        
+    def move_ms2_spectrum(direction):
+        current_spectrum_number = int([line.get_label() for line in ax_spec_ms2.get_lines() if line.get_label()[0] != "_"][0].split(" - ")[-1])
+        
+        if direction == 'back':
+            direction = -1
+        else:
+            direction = 1
+            
+        current_spectrum_number += direction
+        if current_spectrum_number < 0:
+            current_spectrum_number = len(current_data['access'])-1
+        elif current_spectrum_number > len(current_data['access'])-1:
+            current_spectrum_number = 0
+            
+        while True:
+            current_spectrum = current_data['access'][current_spectrum_number]
+            
+            try:
+                ms_level = current_spectrum['msLevel']
+            except:
+                ms_level = current_spectrum['ms level']
+                
+            if ms_level != 2:
+                current_spectrum_number += direction
+                if current_spectrum_number < 0:
+                    current_spectrum_number = len(current_data['access'])-1
+                elif current_spectrum_number > len(current_data['access'])-1:
+                    current_spectrum_number = 0
+            else:
+                try:
+                    spectrum_time = current_spectrum['retentionTime']
+                    precursor_mz = current_spectrum['precursorMz'][0]['precursorMz']
+                except:
+                    try:
+                        spectrum_time = current_spectrum['scanList']['scan'][0]['scan start time']
+                        precursor_mz = current_spectrum['precursorList']['precursor'][0]['isolationWindow']['isolation window target m/z']
+                    except:
+                        spectrum_time = current_spectrum['scanList']['scan'][0]['scan start time']
+                        precursor_mz = current_spectrum['precursorList']['precursor'][0]['selectedIonList']['selectedIon'][0]['selected ion m/z']
+                break
+                
+        show_ms2_graph([precursor_mz, spectrum_time])
+        
+    def open_target_glycan_window():
+        ''''''
+        def tg_ok():
+            entry_text = target_glycan_entry.get()
+            if entry_text != 'All':
+                glycan = target_glycan_entry.get()
+                annotating_spectrum(glycan)
+            else:
+                annotating_spectrum()
+            target_glycan_window.destroy()
+        
+        def tg_cancel():
+            target_glycan_window.destroy()
+        
+        target_glycan_window = tk.Toplevel()
+        target_glycan_window.withdraw()
+        target_glycan_window.title("Target Glycan")
+        icon = ImageTk.PhotoImage(ico_image)
+        target_glycan_window.iconphoto(False, icon)
+        target_glycan_window.resizable(False, False)
+        target_glycan_window.grab_set()
+        target_glycan_window.protocol("WM_DELETE_WINDOW", tg_cancel)
+        
+        target_glycan_label = ttk.Label(target_glycan_window, text="If you'd like to force the fragments \ninto a specific glycan composition, \nenter the target glycan name:", font=("Segoe UI", list_font_size))
+        target_glycan_label.grid(row=0, column=0, padx=10, pady=10, sticky="w")
+        
+        target_glycan_entry = ttk.Entry(target_glycan_window)
+        target_glycan_entry.insert(0, 'All')
+        target_glycan_entry.grid(row=1, column=0, padx=10, pady=(0, 10), sticky='we')
+        
+        target_glycan_ok_button = ttk.Button(target_glycan_window, text="Ok", style="small_button_spw_style1.TButton", command=tg_ok)
+        target_glycan_ok_button.grid(row=2, column=0, padx=(10, 95), pady=(0,10), sticky="e")
+        
+        target_glycan_cancel_button = ttk.Button(target_glycan_window, text="Cancel", style="small_button_spw_style1.TButton", command=tg_cancel)
+        target_glycan_cancel_button.grid(row=2, column=0, padx=(10, 10), pady=(0,10), sticky="e")
+                
+        target_glycan_window.update_idletasks()
+        target_glycan_window.deiconify()
+        window_width = target_glycan_window.winfo_width()
+        window_height = target_glycan_window.winfo_height()
+        screen_width = target_glycan_window.winfo_screenwidth()
+        screen_height = target_glycan_window.winfo_screenheight()
+        x_position = (screen_width - window_width) // 2
+        y_position = (screen_height - window_height) // 2
+        target_glycan_window.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
             
     # Create the main window
     global main_window
@@ -7774,6 +9171,12 @@ def run_main_window():
     image_zoom_lock = Image.open(os.path.join(current_dir, "Assets/zoom_lock.png"))
     photo_zoom_lock = ImageTk.PhotoImage(image_zoom_lock)
     
+    image_previous_arrow = Image.open(os.path.join(current_dir, "Assets/back_arrow.png"))
+    photo_previous_arrow = ImageTk.PhotoImage(image_previous_arrow)
+    
+    image_next_arrow = Image.open(os.path.join(current_dir, "Assets/next_arrow.png"))
+    photo_next_arrow = ImageTk.PhotoImage(image_next_arrow)
+    
     image_spectra_edit = Image.open(os.path.join(current_dir, "Assets/spectra_edit.png"))
     photo_spectra_edit = ImageTk.PhotoImage(image_spectra_edit)
     
@@ -7811,6 +9214,8 @@ def run_main_window():
     small_button_style4 = ttk.Style().configure("small_button_style4.TButton", font=("Segoe UI", button_font_size), relief="raised", justify="center")
 
     about_button_style = ttk.Style().configure("about_button_style.TButton", font=("Segoe UI", button_font_size), relief="raised", padding = (0, int(big_button_size[1]*1.45)), justify="center")
+    
+    annotate_spectrum_button_style = ttk.Style().configure("annotate_spectrum_button_style.TButton", font=("Segoe UI", button_font_size-4), relief="raised", justify="center")
     
     two_d_button_style = ttk.Style().configure("two_d_button_style.TButton", font=("Segoe UI", button_font_size), relief="raised", padding = (0, 0), justify="center")
     
@@ -8066,6 +9471,11 @@ def run_main_window():
     chromatogram_plot_frame = ttk.Labelframe(paned_window_plots, text="Chromatogram/Electropherogram Viewer", style="chromatogram.TLabelframe", height = 400)
     chromatogram_plot_frame.pack(fill=tk.BOTH, expand=True)
     
+    hide_bad_peaks_checkbox_state = tk.BooleanVar(value=True)
+    hide_bad_peaks_checkbox = ttk.Checkbutton(chromatogram_plot_frame, text="Hide peaks below QC thresholds", variable=hide_bad_peaks_checkbox_state, command=toggle_hide_bad_peaks)
+    hide_bad_peaks_checkbox.place(relx = 0, rely = 0)
+    ToolTip(hide_bad_peaks_checkbox, "Hides the peaks that don't fit the quality scores thresholds you've set.")
+    
     zoom_lock_button = ttk.Button(chromatogram_plot_frame, image=photo_zoom_lock, style="spectrum_ruler_button_style.TButton", command=lambda: create_zoomlock_window('chromatogram'), state=tk.NORMAL)
     zoom_lock_button.pack(side="top", anchor="ne")
     ToolTip(zoom_lock_button, "Locks the zoom of the chromatogram viewer to selected ranges.")
@@ -8092,6 +9502,7 @@ def run_main_window():
     # Create a notebook for the spectra
     spectra_notebook = ttk.Notebook(spectra_plot_frame)
     spectra_notebook.pack(fill=tk.BOTH, expand=True)
+    spectra_notebook.bind("<<NotebookTabChanged>>", on_tab_selected)
     
     # Add dropdown menu for spectra plot scale
     scaling_dropdown_options = ['Linear', 'Sqrt', 'Log']
@@ -8134,6 +9545,18 @@ def run_main_window():
     ax_spec = fig_spec.add_subplot(111)
     canvas_spec = FigureCanvasTkAgg(fig_spec, master=ms1_plot_frame)
     canvas_spec.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+    
+    spectrum_score_label = tk.Label(spectra_plot_frame, text="", anchor="e", font=("Segoe UI", 8))
+    
+    global annotate_spectrum_button, previous_spectrum_button, next_spectrum_button
+    annotate_spectrum_button = ttk.Button(spectra_plot_frame, text="Annotate Spectrum", style="annotate_spectrum_button_style.TButton", command=open_target_glycan_window)
+    ToolTip(annotate_spectrum_button, "Annotates the peaks in this spectrum with the fragments library generated during the analysis.")
+    
+    previous_spectrum_button = ttk.Button(spectra_plot_frame, image=photo_previous_arrow, style="spectrum_ruler_button_style.TButton", command=lambda:move_ms2_spectrum('back'))
+    ToolTip(previous_spectrum_button, "Go back one MS2 spectrum.")
+    
+    next_spectrum_button = ttk.Button(spectra_plot_frame, image=photo_next_arrow, style="spectrum_ruler_button_style.TButton", command=lambda:move_ms2_spectrum('forward'))
+    ToolTip(next_spectrum_button, "Advance one MS2 spectrum.")
     
     zoom_lock_spec_button = ttk.Button(spectra_plot_frame, image=photo_zoom_lock, style="spectrum_ruler_button_style.TButton", command=lambda: create_zoomlock_window('spectrum'), state=tk.NORMAL)
     zoom_lock_spec_button.place(relx=1, y=0, anchor='ne')
@@ -8522,7 +9945,7 @@ def run_select_files_window(samples_dropdown):
         additional_info = ''
         if parameters_gg[0][19][0]: #if imported
             library_type = 'Imported Library'
-            additional_info = f" - Library path: {parameters_gg[0][21]}\n\n"
+            additional_info = f" - Library file name: {parameters_gg[0][21].split('/')[-1]}\n\n"
 
             if parameters_gg[0][0][0]: #if custom and imported
                 additional_info+= f" - Glycans list/path: {str(parameters_gg[0][0][1])[1:-1]}"
@@ -8566,12 +9989,16 @@ def run_select_files_window(samples_dropdown):
             if len(parameters_gg[0][28]) > 0:
                 additional_info+= f"\n\n - Custom monosaccharides:\n"
                 for cm in parameters_gg[0][28]:
-                    additional_info+= f"    - {cm['cm_name']} ({cm['cm_short_code']}): {cm['cm_chem_comp']}"
+                    additional_info+= f"    - {cm['cm_name']} ({cm['cm_short_code']}): {cm['cm_chem_comp']} "
                     if not parameters_gg[0][0][0]:
                         additional_info+= f"Min/Max: {cm['cm_min']}/{cm['cm_max']}"
             
+        if parameters_gg[0][12] in reducing_end_tags.values():
+            reducing_end_tag_text = f" ({list(reducing_end_tags.keys())[list(reducing_end_tags.values()).index(parameters_gg[0][12])]})"
+        else:
+            reducing_end_tag_text = ''
                 
-        additional_info+= f"\n\n - Forced glycan class: {parameters_gg[0][8]}\n - Maximum adducts: {parameters_gg[0][9]}\n - Adducts excluded: {parameters_gg[0][10]}\n - Maximum charges: {parameters_gg[0][11]}\n - Reducing end tag: {parameters_gg[0][12] if parameters_gg[0][12] != 0.0 else False}\n - Permethylated: {parameters_gg[0][13]}\n - Reduced end: {parameters_gg[0][14]}\n - Amidated/Ethyl-Esterified: {parameters_gg[0][15]}"
+        additional_info+= f"\n\n - Forced glycan class: {parameters_gg[0][8]}\n - Maximum adducts: {parameters_gg[0][9]}\n - Adducts excluded: {parameters_gg[0][10]}\n - Maximum charges: {parameters_gg[0][11]}\n - Reducing end tag: {parameters_gg[0][12] if parameters_gg[0][12] != 0.0 else False}{reducing_end_tag_text}\n - Permethylated: {parameters_gg[0][13]}\n - Reduced end: {parameters_gg[0][14]}\n - Amidated/Ethyl-Esterified: {parameters_gg[0][15]}"
         
         if len(parameters_gg[0]) > 24:
             additional_info+= f"\n - Min/Max number of Sulfations: {str(parameters_gg[0][26])[1:-1]}"
@@ -8595,6 +10022,8 @@ def run_select_files_window(samples_dropdown):
         information_text.insert(tk.END, f" - Limit peaks picked per chromatogram/electropherogram: {parameters_gg[1][9][0]}\n")
         if parameters_gg[1][9][0]:
             information_text.insert(tk.END, f" -- Number of peaks: {parameters_gg[1][9][1]}\n")
+            
+        information_text.see("end")
         
         close_analysis_info_button = ttk.Button(analysis_info_window, text="Close", style="small_button_sfw_style1.TButton", command=analysis_info_window.destroy)
         close_analysis_info_button.grid(row=1, column=0, padx=10, pady=10)
@@ -8611,165 +10040,19 @@ def run_select_files_window(samples_dropdown):
         
         test_access.close_gg()
         
-    def sample_grouping_window():
-        
-        def adjust_text(widget, text):
-            line_length = 60
-            len_text = len(text)
-            for i in range(line_length, len_text, line_length):
-                text = text[:i]+"\n  "+text[i:]
-            text = "▶"+text
-        
-        def on_drag_start(event):
-            global dragged_widget
-            
-            dragged_widget = event.widget
-            x = event.widget.winfo_pointerx()-event.widget.master.winfo_rootx()
-            y = event.widget.winfo_pointery()-event.widget.master.winfo_rooty()
-            
-            widget_text = dragged_widget.cget("text")
-            dragged_widget.destroy()
-                
-            dragged_widget = ttk.Label(sgw, text=widget_text)
-            dragged_widget.place(x=x, y=y)
-        
-        def on_drag(event):
-            global dragged_widget
-            
-            if not dragged_widget:
+    def prepare_sample_groups_window():
+        if len(gg_file_label.cget("text")) == 0:
+            item_ids = files_list.get_children()
+            samples_list = [files_list.item(item_id, 'text') for item_id in item_ids]
+            samples_names = Execution_Functions.sample_names(samples_list)
+        else:
+            test_access = gg_archive(gg_file_label.cget("text"))
+            if str(test_access) == 'File is unloaded.':
+                error_window("This GG file is corrupted or incompatible with this version of GlycoGenius.")
                 return
-                
-            x = sgw.winfo_pointerx()-sgw.winfo_rootx()
-            y = sgw.winfo_pointery()-sgw.winfo_rooty()
-            dragged_widget.place(x=x, y=y)
-        
-        def on_drop(event):
-            global dragged_widget
+            samples_names = list(test_access.list_samples().values())
             
-            if not dragged_widget:
-                return
-            
-            x, y = sgw.winfo_pointerx(), sgw.winfo_pointery()
-            
-            samples_bbox = (samples_frame.winfo_rootx(), samples_frame.winfo_rooty(), samples_frame.winfo_rootx()+samples_frame.winfo_width(), samples_frame.winfo_rooty()+samples_frame.winfo_height())
-            
-            if is_inside_group(x, y, samples_bbox):
-                widget_text = dragged_widget.cget("text")
-                dragged_widget.destroy()
-            
-                label = ttk.Label(samples_frame, text=widget_text)
-                
-                counter = 0
-                while True:
-                    free = True
-                    for widget in group_widgets[0].winfo_children():
-                        grid_info = widget.grid_info()
-                        row = grid_info.get('row', None)
-                        if row == counter:
-                            free = False
-                            break
-                    if free:
-                        break
-                    counter+=1
-                    
-                label.grid(row=counter, column=0, columnspan=3, sticky='w')
-                label.bind("<ButtonPress-1>", on_drag_start)
-                
-                dragged_widget = None
-                
-                return
-            
-            for group_frame in [child for child in groups_frame.winfo_children() if isinstance(child, ttk.Frame)]:
-                group_widgets = group_frame.winfo_children()
-                
-                group_bbox = (group_frame.winfo_rootx(), group_frame.winfo_rooty(), group_frame.winfo_rootx()+group_frame.winfo_width(), group_frame.winfo_rooty()+group_frame.winfo_height())
-                
-                if is_inside_group(x, y, group_bbox):
-                    widget_text = dragged_widget.cget("text")
-                    dragged_widget.destroy()
-                
-                    label = ttk.Label(group_frame, text=widget_text)
-                    
-                    counter = 0
-                    while True:
-                        free = True
-                        for widget in group_frame.winfo_children():
-                            grid_info = widget.grid_info()
-                            row = grid_info.get('row', None)
-                            if row == counter:
-                                free = False
-                                break
-                        if free:
-                            break
-                        counter+=1
-                        
-                    label.grid(row=counter, column=0, columnspan=3, sticky='w')
-                    label.bind("<ButtonPress-1>", on_drag_start)
-                    
-                    break
-                
-            dragged_widget = None
-
-        def is_inside_group(x, y, group_bbox):
-            """Check if the coordinates are inside the group's bounding box."""
-            return group_bbox[0] <= x <= group_bbox[2] and group_bbox[1] <= y <= group_bbox[3]
-        
-        def add_group(parent):    
-            group_frame = ttk.Frame(parent, relief='solid')
-            group_frame.pack(side=tk.LEFT, expand=True, fill=tk.BOTH)
-        
-            group_frame.grid_columnconfigure(1, weight=1)
-            
-            group_label = ttk.Label(group_frame, text="Group: ", font=("Segoe UI", list_font_size))
-            group_label.grid(row=0, column=0, sticky='nsew', padx=5, pady=5)
-            
-            group_entry = ttk.Entry(group_frame, font=("Segoe UI", list_font_size))
-            group_entry.grid(row=0, column=1, sticky='nsew', padx=(0, 5), pady=5)
-            
-            remove_button = tk.Button(group_frame, text=" X ", relief="flat", font=("Segoe UI", list_font_size), command=lambda:group_frame.destroy())
-            remove_button.grid(row=0, column=2, sticky='nwse', padx=(0, 5), pady=5)
-            
-        def add_draggable(parent, text, row):
-            label = ttk.Label(parent, text=text)
-            label.grid(row=row, column=0, padx=10, pady=5, sticky="ew")
-            
-            # Bind drag events to the label
-            label.bind("<ButtonPress-1>", on_drag_start)
-            
-        item_ids = files_list.get_children()
-        samples_list = [files_list.item(item_id, 'text') for item_id in item_ids]
-        samples_names = Execution_Functions.sample_names(samples_list)
-            
-        sgw = tk.Toplevel()
-        sgw.geometry("480x560")
-        icon = ImageTk.PhotoImage(ico_image)
-        sgw.iconphoto(False, icon)
-        sgw.grab_set()
-        
-        global dragged_widget
-        dragged_widget = None
-        
-        sgw.bind("<B1-Motion>", on_drag)
-        sgw.bind("<ButtonRelease-1>", on_drop)
-        
-        sgw.grid_rowconfigure(0, weight=1)
-        sgw.grid_rowconfigure(1, weight=2)
-        sgw.grid_columnconfigure(0, weight=2)
-        
-        groups_frame = ttk.Labelframe(sgw, text="Groups")
-        groups_frame.grid(row=0, column=0, sticky="nsew")
-        
-        group_add_button = ttk.Button(groups_frame, text="Add group", style="small_button_sfw_style1.TButton", command=lambda: add_group(groups_frame))
-        group_add_button.pack(anchor='w')
-        
-        samples_frame = ttk.Labelframe(sgw, text="Samples")
-        samples_frame.grid(row=1, column=0, sticky="nsew")
-        
-        for i in range(2):
-            add_group(groups_frame)
-            
-        for index, name in enumerate(samples_names):
-            add_draggable(samples_frame, name, index)
+        sample_grouping_window(samples_names, select_files_window)
         
     # Create a new top-level window
     select_files_window = tk.Toplevel()
@@ -8824,9 +10107,9 @@ def run_select_files_window(samples_dropdown):
     remove_selected_button.grid(row=0, column=1, padx=(0,10), pady=(60,10), sticky="new")
     ToolTip(remove_selected_button, "Remove the currently selected file from the list of files to load.")
     
-    arrange_groups_button = ttk.Button(select_files_window, text="Arrange Groups", style="small_button_sfw_style1.TButton", command=sample_grouping_window)
+    arrange_groups_button = ttk.Button(select_files_window, text="Arrange Groups", style="small_button_sfw_style1.TButton", command=prepare_sample_groups_window)
     arrange_groups_button.grid(row=0, column=1, padx=(0,10), pady=(90,10), sticky="new")
-    ToolTip(arrange_groups_button, "")
+    ToolTip(arrange_groups_button, "Allows you to separate the samples into groups through an easy-to-use interface. Samples left ungrouped will be excluded from the analysis, unless all samples are ungrouped. Relevant for results saving settings.")
     
     file_amount_label = ttk.Label(select_files_window, text="", font=("Segoe UI", list_font_size), wraplength=310)
     file_amount_label.grid(row=0, column=1, padx=(0,10), pady=(120,10), sticky="new")
@@ -9163,9 +10446,9 @@ def run_set_parameters_window():
             else:
                 cores_good=False
                 error_window("Invalid input on the field:\n\nNumber of Cores\n\nCorrect it and try again.")
-        if local_custom_glycans_list[0] and local_custom_glycans_list[1] == '':
-            error_window("No custom glycan file set. Uncheck 'Use Custom Library' or select a file.")
-            return
+        # if local_custom_glycans_list[0] and local_custom_glycans_list[1] == '':
+            # error_window("No custom glycan file set. Uncheck 'Use Custom Library' or select a file.")
+            # return
         if cores_good:
             try:
                 if int(hydrogen_max_entry.get()) < int(hydrogen_min_entry.get()):
@@ -9470,7 +10753,13 @@ def run_set_parameters_window():
             file_dialog.destroy()
             set_parameters_window.grab_set()
             return
-        parameters = Config_Handler.config_handler(True, file_path)
+        try:
+            parameters = Config_Handler.config_handler(True, file_path)
+        except:
+            file_dialog.destroy()
+            error_window("Unable to read the configurations from the file you selected. Try again with a different file.")
+            set_parameters_window.grab_set()
+            return
         
         # Sort out adducts and its exclusions
         max_h_excluded = 0
@@ -9544,12 +10833,12 @@ def run_set_parameters_window():
             
         # Insert score values in the entry boxes
         ppm_error_min_entry.delete(0, tk.END)
-        if type(parameters[1][12]) == int:
+        if type(parameters[1][12]) == float:
             ppm_error_min_entry.insert(0, 0-parameters[1][12])
         else:
             ppm_error_min_entry.insert(0, parameters[1][12][0])
         ppm_error_max_entry.delete(0, tk.END)
-        if type(parameters[1][12]) == int:
+        if type(parameters[1][12]) == float:
             ppm_error_max_entry.insert(0, parameters[1][12])
         else:
             ppm_error_max_entry.insert(0, parameters[1][12][1])
@@ -9646,8 +10935,11 @@ def run_set_parameters_window():
             
         # Custom monosaccharides
         local_custom_monos_list[:] = parameters[0][29]
-            
+        
+        # Working directory
         working_dir_label.config(text=parameters[1][18])
+        
+        # If custom glycans
         if parameters[0][0][0]:
             use_custom_library_checkbox_state.set(True)
             from_file_button_state = tk.NORMAL
@@ -9701,12 +10993,22 @@ def run_set_parameters_window():
             max_neu5ac_entry.config(state=tk.NORMAL)
             min_neu5gc_entry.config(state=tk.NORMAL)
             max_neu5gc_entry.config(state=tk.NORMAL)
+            
+        # MS2 analysis
         if parameters[1][2][0]:
             analyze_ms2_checkbox_state.set(True)
             force_ms2_comp_checkbox_active_state = tk.NORMAL
             force_ms2_comp_checkbox.config(state = force_ms2_comp_checkbox_active_state)
+            if parameters[1][2][1]:
+                force_ms2_comp_checkbox_state.set(True)
+            else:
+                force_ms2_comp_checkbox_state.set(False)
             unrestricted_frags_checkbox_active_state = tk.NORMAL
             unrestricted_frags_checkbox.config(state = force_ms2_comp_checkbox_active_state)
+            if parameters[1][2][2]:
+                unrestricted_frags_checkbox_state.set(True)
+            else:
+                unrestricted_frags_checkbox_state.set(False)
             local_analyze_ms2[0] = True
             local_analyze_ms2[1] = parameters[1][2][1]
             local_analyze_ms2[2] = parameters[1][2][2]
@@ -9717,12 +11019,16 @@ def run_set_parameters_window():
             unrestricted_frags_checkbox_active_state = tk.DISABLED
             unrestricted_frags_checkbox.config(state = force_ms2_comp_checkbox_active_state)
             local_analyze_ms2[0] = False
+            
+        # Reducing end tag
         if parameters[0][12] == 0.0 or parameters[0][12] == '0.0':
             reducing_end_tag_dropdown.set('Custom')
             reducing_end_tag_dropdown.state(['disabled'])
             reducing_end_tag_checkbox_state.set(False)
             reducing_end_tag_entry_state = tk.DISABLED
             reducing_end_tag_entry.config(state = reducing_end_tag_entry_state)
+            reduced_checkbox_activation_state = tk.NORMAL
+            reduced_checkbox.config(state = reduced_checkbox_activation_state)
         elif parameters[0][12] in reducing_end_tags.values():
             reducing_end_tag_checkbox_state.set(True)
             swapped_reducing_end_tags = {v: k for k, v in reducing_end_tags.items()}
@@ -9734,6 +11040,8 @@ def run_set_parameters_window():
             reducing_end_tag_entry.insert(0, parameters[0][12])
             reducing_end_tag_entry_state = tk.DISABLED
             reducing_end_tag_entry.config(state = reducing_end_tag_entry_state)
+            reduced_checkbox_activation_state = tk.DISABLED
+            reduced_checkbox.config(state = reduced_checkbox_activation_state)
         else:
             reducing_end_tag_checkbox_state.set(True)
             reducing_end_tag_dropdown.set('Custom')
@@ -9741,14 +11049,22 @@ def run_set_parameters_window():
             reducing_end_tag_entry.config(state = reducing_end_tag_entry_state)
             reducing_end_tag_entry.delete(0, tk.END)
             reducing_end_tag_entry.insert(0, parameters[0][12])
+            reduced_checkbox_activation_state = tk.DISABLED
+            reduced_checkbox.config(state = reduced_checkbox_activation_state)
+            
+        # Permethylated
         if parameters[0][13]:
             permethylated_checkbox_state.set(True)
         else:
             permethylated_checkbox_state.set(False)
+            
+        # Reduced end
         if parameters[0][14]:
             reduced_checkbox_state.set(True)
         else:
             reduced_checkbox_state.set(False)
+            
+        # Amidated and Ethyl-esterified
         if parameters[0][15]:
             lac_ee_checkbox_state.set(True)
         else:
@@ -10907,9 +12223,17 @@ def save_results_window():
         if state:
             fill_gaps_perc_samples_spinbox.config(state=tk.NORMAL)
             fill_gaps_rt_tol_spinbox.config(state=tk.NORMAL)
+            if metaboanalyst_checkbox_state.get():
+                fill_gaps_noise_checkbox.config(state=tk.NORMAL)
+            else:
+                fill_gaps_noise_checkbox.config(state=tk.DISABLED)
         else:
             fill_gaps_perc_samples_spinbox.config(state=tk.DISABLED)
             fill_gaps_rt_tol_spinbox.config(state=tk.DISABLED)
+            fill_gaps_noise_checkbox.config(state=tk.DISABLED)
+            
+    def fill_gaps_noise_checkbox_state_check():
+        state = fill_gaps_noise_checkbox_state.get()
         
     def plot_data_checkbox_state_check():
         state = plot_data_checkbox_state.get()
@@ -10918,14 +12242,19 @@ def save_results_window():
         state = metaboanalyst_checkbox_state.get()
         if int(state) == 1:
             select_groups_button.config(state=tk.NORMAL)
+            if fill_gaps_checkbox_state.get():
+                fill_gaps_noise_checkbox.config(state=tk.NORMAL)
+            else:
+                fill_gaps_noise_checkbox.config(state=tk.DISABLED)
         else:
             select_groups_button.config(state=tk.DISABLED)
+            fill_gaps_noise_checkbox.config(state=tk.DISABLED)
         
     def align_chromatograms_sr_checkbox_state_check():
         state = align_chromatograms_sr_checkbox_state.get()
             
     def ok_sr_window():
-        global metab_groups
+        global sample_groups
         def close_progress_save_result_window():
             progress_save_result.destroy()
             sys.stdout = original_stdout
@@ -10979,188 +12308,74 @@ def save_results_window():
             error_window("Invalid value used in the Minimum Samples field.")
             return
             
-        if metaboanalyst_checkbox_state.get() and len(metab_groups) == 0:
-            error_window("You must set the groups to output a Metaboanalyst compatible file.")
-        else:
-            progress_save_result = tk.Toplevel()
-            # progress_save_result.attributes("-topmost", True)
-            progress_save_result.withdraw()
-            progress_save_result.title("Saving Results")
-            icon = ImageTk.PhotoImage(ico_image)
-            progress_save_result.iconphoto(False, icon)
-            progress_save_result.resizable(False, False)
-            progress_save_result.grab_set()
-            progress_save_result.protocol("WM_DELETE_WINDOW", on_closing)
-
-            output_text = ScrolledText(progress_save_result, width=50, height=10, wrap=tk.WORD)
-            output_text.grid(row=0, column=0, columnspan=2, padx = 10, pady = 10, sticky="new")
-            
-            global ok_save_result_button
-            ok_save_result_button = ttk.Button(progress_save_result, text="Ok", style="small_button_sfw_style1.TButton", command=ok_progress_save_result_window, state=tk.DISABLED)
-            ok_save_result_button.grid(row=1, column=0, padx=10, pady=10, sticky="e")
-            
-            cancel_save_result_button = ttk.Button(progress_save_result, text="Cancel", style="small_button_sfw_style1.TButton", command=close_progress_save_result_window)
-            cancel_save_result_button.grid(row=1, column=1, padx=10, pady=10, sticky="w")
-            
-            progress_save_result.update_idletasks()
-            progress_save_result.deiconify()
-            window_width = progress_save_result.winfo_width()
-            window_height = progress_save_result.winfo_height()
-            screen_width = progress_save_result.winfo_screenwidth()
-            screen_height = progress_save_result.winfo_screenheight()
-            x_position = (screen_width - window_width) // 2
-            y_position = (screen_height - window_height) // 2
-            progress_save_result.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
-            
-            original_stdout = sys.stdout
-            sys.stdout = TextRedirector_save_result(output_text)
-            
-            global reporter_ions
-            reporter_ions = reporter_ions_entry.get().split(",")
-            for i_i, i in enumerate(reporter_ions):
-                reporter_ions[i_i] = i.strip()
-                if len(i) == 0:
-                    reporter_ions = reporter_ions[:i_i]+reporter_ions[i_i+1:]
-            
-            global min_max_monos, min_max_hex, min_max_hexnac, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, forced, max_adducts, max_charges, reducing_end_tag, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, fast_iso, high_res
-            
-            output_filtered_data_args = [float(curve_fit_sr_entry.get()), float(iso_fit_sr_entry.get()), float(s_n_sr_entry.get()), (float(ppm_error_min_sr_entry.get()), float(ppm_error_max_sr_entry.get())), float(auc_percentage_sr_entry.get())/100, True, reanalysis_path, save_path, analyze_ms2[0], analyze_ms2[2], reporter_ions, [metaboanalyst_checkbox_state.get(), []], save_composition_checkbox_state.get(), align_chromatograms_sr_checkbox_state.get(), 'n_glycans' if n_glycans_class_checkbox_state.get() else 'none', ret_time_interval[2], rt_tolerance_frag, iso_fits_checkbox_state.get(), plot_data_checkbox_state.get(), multithreaded_analysis, number_cores, 0.0, int(min_samples_sr_entry.get()), None, True, metab_groups, (fill_gaps_checkbox_state.get(), float(fill_gaps_perc_samples_spinbox.get()), float(fill_gaps_rt_tol_spinbox.get()))]
-
-            imp_exp_gen_library_args = [custom_glycans_list, min_max_monos, min_max_hex, min_max_hexnac, min_max_sia, min_max_fuc, min_max_ac, min_max_gc, forced, max_adducts, adducts_exclusion, max_charges, reducing_end_tag, fast_iso, high_res, imp_exp_library, library_path, exp_lib_name, False, save_path, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, min_max_sulfation, min_max_phosphorylation, None, custom_monosaccharides]
-
-            list_of_data_args = [samples_list]
-
-            index_spectra_from_file_ms1_args = [None, 1, multithreaded_analysis, number_cores]
-
-            index_spectra_from_file_ms2_args = [None, 2, multithreaded_analysis, number_cores]
-
-            analyze_files_args = [None, None, None, None, tolerance, ret_time_interval, min_isotopologue_peaks, min_ppp, max_charges, custom_noise, close_peaks, multithreaded_analysis, number_cores, None, None]
-
-            analyze_ms2_args = [None, None, None, ret_time_interval, tolerance, min_max_monos, min_max_hex, min_max_hexnac,  min_max_sia, min_max_fuc, min_max_ac, min_max_gc, max_charges, reducing_end_tag, forced, permethylated, reduced, lactonized_ethyl_esterified, analyze_ms2[1], analyze_ms2[2], ret_time_interval[2], multithreaded_analysis, number_cores, None, None, custom_monosaccharides]
-
-            arrange_raw_data_args = [None, samples_names, analyze_ms2[0], save_path, [], None, None]
-            
-            close_sr_window()
-            
-            t = threading.Thread(target=run_glycogenius, args=([(output_filtered_data_args, imp_exp_gen_library_args, list_of_data_args, index_spectra_from_file_ms1_args, index_spectra_from_file_ms2_args, analyze_files_args, analyze_ms2_args, arrange_raw_data_args, samples_names, True, analyze_ms2[0])]))
-            t.start()
-            
-    def set_groups_window():
-    
-        def format_text_to_length(text, max_length):
-            if len(text) > max_length:
-                return text[:max_length-3] + '...'  # Truncate and add ellipsis
-            else:
-                return text.rjust(max_length)  # Pad with spaces to reach max_length
-    
-        def ok_sg_window():
-            global metab_groups
-            entries = []
-            for i, entry in enumerate(entry_widgets):
-                entries.append(entry.get())
-            for i_i, i in enumerate(labels_full):
-                labels_full[i_i] = i.strip()
-            metab_groups = dict(zip(labels_full, entries))
-            select_groups_button_frame.config(bg='lightgreen')
-            groups_window.destroy()
-            sr_window.grab_set()
-        
-        def gw_scroll_off_bar(event):
-            """Handles mouse wheel scrolling based on OS."""
-            if event.delta:  # Windows & macOS
-                canvas_groups_window.yview_scroll(-1 * (event.delta // 120), "units")
-            else:  # Linux (event.num is used instead of event.delta)
-                if event.num == 4:  # Scroll up
-                    canvas_groups_window.yview_scroll(-1, "units")
-                elif event.num == 5:  # Scroll down
-                    canvas_groups_window.yview_scroll(1, "units")
-        
-        groups_window = tk.Toplevel()
-        groups_window.withdraw()
-        groups_window.title("Sample Groups")
+        progress_save_result = tk.Toplevel()
+        # progress_save_result.attributes("-topmost", True)
+        progress_save_result.withdraw()
+        progress_save_result.title("Saving Results")
         icon = ImageTk.PhotoImage(ico_image)
-        groups_window.iconphoto(False, icon)
-        groups_window.resizable(False, False)
-        groups_window.grab_set()
-        groups_window.geometry("480x400")
-        
-        # Create a main frame to contain everything
-        groups_main_frame = ttk.Frame(groups_window)
-        groups_main_frame.pack(fill="both", expand=True)
-        
-        # Canvas and scrollbar for the scrollable frame
-        canvas_groups_window = tk.Canvas(groups_main_frame, borderwidth=0, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(groups_main_frame, orient="vertical", command=canvas_groups_window.yview)
-        scrollable_frame = ttk.Frame(canvas_groups_window, borderwidth=0)
-        
-        canvas_groups_window.configure(yscrollcommand=scrollbar.set)
-        scrollbar.pack(side="right", fill="y")
-        canvas_groups_window.pack(side="left", fill="both", expand=True)
-        
-        canvas_groups_window.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        scrollable_frame.bind("<Configure>", lambda e: canvas_groups_window.configure(scrollregion=canvas_groups_window.bbox("all")))
-        
-        if platform.system() == 'Windows':
-            scrollable_frame.bind("<MouseWheel>", gw_scroll_off_bar)
-        else:
-            scrollable_frame.bind("<Button-4>", gw_scroll_off_bar)    # Linux Scroll Up
-            scrollable_frame.bind("<Button-5>", gw_scroll_off_bar)
-        
-        file = gg_file.get_results_table()
-        df1 = file[0]
-        df2 = file[1]
-        
-        # Sample data and entries
-        labels = df2['File_Name']
-        entries = [f"Group {i+1}" for i in range(len(labels))]
-        
-        # Title labels
-        column1_title_label = tk.Label(scrollable_frame, text="Samples", font=("Segoe UI", 10, "bold"))
-        column1_title_label.grid(row=0, column=0, sticky="e", padx=(0, 40))
-        column2_title_label = tk.Label(scrollable_frame, text="Group", font=("Segoe UI", 10, "bold"))
-        column2_title_label.grid(row=0, column=1, sticky="w", padx=(80, 0))
-        
-        # Create labels and entry widgets and pack them into the scrollable frame
-        labels_full = []
-        entry_widgets = []
-        for i, label_text in enumerate(labels, start=1):
-            truncated_text = format_text_to_length(label_text, 34)
-            label = tk.Label(scrollable_frame, text=truncated_text, font=("Segoe UI", 10))
-            label.grid(row=i, column=0, sticky="e")
-            labels_full.append(label_text)
-            ToolTip(label, label_text)
+        progress_save_result.iconphoto(False, icon)
+        progress_save_result.resizable(False, False)
+        progress_save_result.grab_set()
+        progress_save_result.protocol("WM_DELETE_WINDOW", on_closing)
 
-            # Create entry widgets only for the second column
-            entry = tk.Entry(scrollable_frame, width=30)
-            entry.grid(row=i, column=1, padx=(20, 0), pady=5)
-            entry.insert(tk.END, entries[i-1])  # Pre-fill entry if needed
-            entry_widgets.append(entry)
+        output_text = ScrolledText(progress_save_result, width=50, height=10, wrap=tk.WORD)
+        output_text.grid(row=0, column=0, columnspan=2, padx = 10, pady = 10, sticky="new")
         
-            if platform.system() == 'Windows':
-                label.bind("<MouseWheel>", gw_scroll_off_bar)
-                entry.bind("<MouseWheel>", gw_scroll_off_bar)
-            else:
-                label.bind("<Button-4>", gw_scroll_off_bar)    # Linux Scroll Up
-                label.bind("<Button-5>", gw_scroll_off_bar)
-                entry.bind("<Button-4>", gw_scroll_off_bar)    # Linux Scroll Up
-                entry.bind("<Button-5>", gw_scroll_off_bar)
+        global ok_save_result_button
+        ok_save_result_button = ttk.Button(progress_save_result, text="Ok", style="small_button_sfw_style1.TButton", command=ok_progress_save_result_window, state=tk.DISABLED)
+        ok_save_result_button.grid(row=1, column=0, padx=10, pady=10, sticky="e")
         
-        # Add a new frame for the OK button and pack it at the bottom
-        button_frame = ttk.Frame(groups_window)
-        button_frame.pack(side="bottom", fill="x")
+        cancel_save_result_button = ttk.Button(progress_save_result, text="Cancel", style="small_button_sfw_style1.TButton", command=close_progress_save_result_window)
+        cancel_save_result_button.grid(row=1, column=1, padx=10, pady=10, sticky="w")
         
-        ok_sg_window_button = ttk.Button(button_frame, text="Ok", style="small_button_spw_style1.TButton", command=ok_sg_window)
-        ok_sg_window_button.pack(side="right", anchor="se", padx=(10, 30), pady=(10, 15))
-        
-        groups_window.update_idletasks()
-        groups_window.deiconify()
-        window_width = groups_window.winfo_width()
-        window_height = groups_window.winfo_height()
-        screen_width = groups_window.winfo_screenwidth()
-        screen_height = groups_window.winfo_screenheight()
+        progress_save_result.update_idletasks()
+        progress_save_result.deiconify()
+        window_width = progress_save_result.winfo_width()
+        window_height = progress_save_result.winfo_height()
+        screen_width = progress_save_result.winfo_screenwidth()
+        screen_height = progress_save_result.winfo_screenheight()
         x_position = (screen_width - window_width) // 2
         y_position = (screen_height - window_height) // 2
-        groups_window.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
+        progress_save_result.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
+        
+        original_stdout = sys.stdout
+        sys.stdout = TextRedirector_save_result(output_text)
+        
+        global reporter_ions
+        reporter_ions = reporter_ions_entry.get().split(",")
+        for i_i, i in enumerate(reporter_ions):
+            reporter_ions[i_i] = i.strip()
+            if len(i) == 0:
+                reporter_ions = reporter_ions[:i_i]+reporter_ions[i_i+1:]
+        
+        global min_max_monos, min_max_hex, min_max_hexnac, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, forced, max_adducts, max_charges, reducing_end_tag, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, fast_iso, high_res
+        
+        output_filtered_data_args = [float(curve_fit_sr_entry.get()), float(iso_fit_sr_entry.get()), float(s_n_sr_entry.get()), (float(ppm_error_min_sr_entry.get()), float(ppm_error_max_sr_entry.get())), float(auc_percentage_sr_entry.get())/100, True, reanalysis_path, save_path, analyze_ms2[0], analyze_ms2[2], reporter_ions, [metaboanalyst_checkbox_state.get(), ''], save_composition_checkbox_state.get(), align_chromatograms_sr_checkbox_state.get(), 'n_glycans' if n_glycans_class_checkbox_state.get() else 'none', ret_time_interval[2], rt_tolerance_frag, False, plot_data_checkbox_state.get(), multithreaded_analysis, number_cores, 0.0, int(min_samples_sr_entry.get()), None, True, sample_groups, (fill_gaps_checkbox_state.get(), float(fill_gaps_perc_samples_spinbox.get()), float(fill_gaps_rt_tol_spinbox.get()), fill_gaps_noise_checkbox_state.get())]
+
+        imp_exp_gen_library_args = [custom_glycans_list, min_max_monos, min_max_hex, min_max_hexnac, min_max_sia, min_max_fuc, min_max_ac, min_max_gc, forced, max_adducts, adducts_exclusion, max_charges, reducing_end_tag, fast_iso, high_res, imp_exp_library, library_path, exp_lib_name, False, save_path, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, min_max_sulfation, min_max_phosphorylation, None, custom_monosaccharides]
+
+        list_of_data_args = [samples_list]
+
+        index_spectra_from_file_ms1_args = [None, 1, multithreaded_analysis, number_cores]
+
+        index_spectra_from_file_ms2_args = [None, 2, multithreaded_analysis, number_cores]
+
+        analyze_files_args = [None, None, None, None, tolerance, ret_time_interval, min_isotopologue_peaks, min_ppp, max_charges, custom_noise, close_peaks, multithreaded_analysis, number_cores, None, None]
+
+        analyze_ms2_args = [None, None, None, ret_time_interval, tolerance, min_max_monos, min_max_hex, min_max_hexnac,  min_max_sia, min_max_fuc, min_max_ac, min_max_gc, max_charges, reducing_end_tag, forced, permethylated, reduced, lactonized_ethyl_esterified, analyze_ms2[1], analyze_ms2[2], ret_time_interval[2], multithreaded_analysis, number_cores, None, None, custom_monosaccharides]
+
+        arrange_raw_data_args = [None, samples_names, analyze_ms2[0], save_path, [], None, None]
+        
+        close_sr_window()
+        
+        t = threading.Thread(target=run_glycogenius, args=([(output_filtered_data_args, imp_exp_gen_library_args, list_of_data_args, index_spectra_from_file_ms1_args, index_spectra_from_file_ms2_args, analyze_files_args, analyze_ms2_args, arrange_raw_data_args, samples_names, True, analyze_ms2[0])]))
+        t.start()
+            
+    def set_groups_window():
+        
+        samples = gg_file.list_samples().values()
+        
+        sample_grouping_window(samples, sr_window)
         
     sr_window = tk.Toplevel()
     #sr_window.attributes("-topmost", True)
@@ -11184,36 +12399,32 @@ def save_results_window():
     align_chromatograms_sr_checkbox_state = tk.BooleanVar(value=align_chromatograms)
     align_chromatograms_sr_checkbox = ttk.Checkbutton(sr_window, text="Align Results and Chromatograms/Electropherograms by Retention/\nMigration Time", variable=align_chromatograms_sr_checkbox_state, command=align_chromatograms_sr_checkbox_state_check)
     align_chromatograms_sr_checkbox.grid(row=2, column=0, columnspan=2, padx=(10, 10), pady=(5, 0), sticky="w")
-    ToolTip(align_chromatograms_sr_checkbox, "Aligns the results and the chromatograms/electropherograms based on peaks assignment.")
+    ToolTip(align_chromatograms_sr_checkbox, "Aligns the results and the chromatograms/electropherograms based on peaks assignment. DEPRECATED, will still work, but might take VERY LONG to finish.")
+    
+    select_groups_button = ttk.Button(sr_window, text="Separate Samples into Groups", style="small_button_spw_style1.TButton", command=set_groups_window)
+    select_groups_button.grid(row=3, column=0, columnspan=2, padx=(10, 10), pady=(5, 0), sticky="we")
+    ToolTip(select_groups_button, "Allows you to separate the samples into groups through an easy-to-use interface. Samples left ungrouped will be excluded from the analysis, unless all samples are ungrouped. This will change the way the % of samples is calculated on certain parameters.")
     
     additional_files_frame = ttk.Labelframe(sr_window, text="Additional Files:", style="library_building.TLabelframe")
-    additional_files_frame.grid(row=3, column=0, columnspan=2, padx=(10, 10), pady=(10, 0), sticky="nsew")
+    additional_files_frame.grid(row=4, column=0, columnspan=2, padx=(10, 10), pady=(10, 0), sticky="nsew")
     
     metaboanalyst_checkbox_state = tk.BooleanVar(value=plot_metaboanalyst[0])
-    metaboanalyst_checkbox = ttk.Checkbutton(additional_files_frame, text="Save .csv file compatible with Metaboanalyst", variable=metaboanalyst_checkbox_state, command=metaboanalyst_checkbox_state_check)
+    metaboanalyst_checkbox = ttk.Checkbutton(additional_files_frame, text="Save Glycan Abundance Table (.csv)", variable=metaboanalyst_checkbox_state, command=metaboanalyst_checkbox_state_check)
     metaboanalyst_checkbox.grid(row=0, column=0, columnspan=2, padx=(10, 10), pady=(5, 0), sticky="w")
-    ToolTip(metaboanalyst_checkbox, "Saves a .csv file that can be used in the Metaboanalyst website, allowing for automated statistical analysis of the dataset. You need to set at least 2 groups with 3 samples each or Metaboanalyst website won't accept the file.")
-    
-    select_groups_button_frame = tk.Frame(additional_files_frame, bd=2, relief='flat')
-    select_groups_button_frame.grid(row=0, column=0, columnspan=2, padx=(340,10), pady=(5,0), sticky="e")
-    select_groups_button_state = tk.DISABLED
-    if metaboanalyst_checkbox_state.get():
-        select_groups_button_state = tk.NORMAL
-    select_groups_button = ttk.Button(select_groups_button_frame, text="Set Groups", style="small_button_spw_style1.TButton", command=set_groups_window, state=select_groups_button_state)
-    select_groups_button.pack(padx=0, pady=0)
+    ToolTip(metaboanalyst_checkbox, "Saves a .csv file that contains abundance of the identified glycans in your dataset on all the samples (only those that meet the QC thresholds you set). It is compatible with Metaboanalyst, which allows for automated statistical analysis of the dataset. You need to set at least 2 groups with 3 samples each or Metaboanalyst website won't accept the file.")
     
     plot_data_checkbox_state = tk.BooleanVar(value=output_plot_data)
-    plot_data_checkbox = ttk.Checkbutton(additional_files_frame, text="Save .xlsx file plot data for all glycans in library", variable=plot_data_checkbox_state, command=plot_data_checkbox_state_check)
-    plot_data_checkbox.grid(row=1, column=0, columnspan=2, padx=(10, 10), pady=(8, 10), sticky="w")
-    ToolTip(plot_data_checkbox, "The EIC-plotting data of glycans found in the analysis are automatically saved as an .xlsx file, but if you want to have the EIC-plotting data of even the glycans not found in the analysis, enable this option.")
+    plot_data_checkbox = ttk.Checkbutton(additional_files_frame, text="Save Plot Data Table (.xlsx)", variable=plot_data_checkbox_state, command=plot_data_checkbox_state_check)
+    plot_data_checkbox.grid(row=1, column=0, columnspan=2, padx=(10, 10), pady=(10, 10), sticky="w")
+    ToolTip(plot_data_checkbox, "Saves a .xlsx file that contains the EIC/EIE-plotting data of all the glycans in the analysis, enable this option.")
     
-    iso_fits_checkbox_state = tk.BooleanVar(value=iso_fittings)
-    iso_fits_checkbox = ttk.Checkbutton(additional_files_frame, text="Save .xlsx file containing isotopic- and curve-fitting data", variable=iso_fits_checkbox_state, command=iso_fits_checkbox_state_check)
-    iso_fits_checkbox.grid(row=2, column=0, columnspan=2, padx=(10, 10), pady=(0, 10), sticky="w")
-    ToolTip(iso_fits_checkbox, "Creates files containing the data used for isotopic-fitting and curve-fitting information. Useful for diagnosing possible issues with the analysis. NOT RECOMMENDED: outputting this file will take a LONG time, depending on the size of your original data/dataset.")
+    # iso_fits_checkbox_state = tk.BooleanVar(value=iso_fittings)
+    # iso_fits_checkbox = ttk.Checkbutton(additional_files_frame, text="Save Isotopic- and Curve-Fitting Data Table (.xlsx)", variable=iso_fits_checkbox_state, command=iso_fits_checkbox_state_check)
+    # iso_fits_checkbox.grid(row=2, column=0, columnspan=2, padx=(10, 10), pady=(0, 10), sticky="w")
+    # ToolTip(iso_fits_checkbox, "Creates files containing the data used for isotopic-fitting and curve-fitting information. Useful for diagnosing possible issues with the analysis. NOT RECOMMENDED: outputting this file will take a LONG time, depending on the size of your original data/dataset.")
     
     qcp_sr_frame = ttk.Labelframe(sr_window, text="Thresholds for Saved Files:", style="library_building.TLabelframe")
-    qcp_sr_frame.grid(row=4, column=0, columnspan=2, padx=(10, 10), pady=(10, 10), sticky="nsew")
+    qcp_sr_frame.grid(row=5, column=0, columnspan=2, padx=(10, 10), pady=(10, 10), sticky="nsew")
     
     iso_fit_sr_label = ttk.Label(qcp_sr_frame, text='Minimum Isotopic Fitting Score:', font=("Segoe UI", list_font_size))
     iso_fit_sr_label.grid(row=0, column=0, padx=(10, 10), pady=(5, 0), sticky="w")
@@ -11269,53 +12480,59 @@ def save_results_window():
     auc_percentage_sr_entry.grid(row=4, column=1, padx=(130, 10), pady=(5, 0), sticky='e')
     ToolTip(auc_percentage_sr_entry, "Filters the peaks by a % of the Area-Under-Curve (AUC) of the highest intense peak of that composition. If highest intensity peak is 100 AUC and this setting is set to 5, then only peaks with an AUC of 5 or greater will be saved.")
     
-    min_samples_sr_label = ttk.Label(qcp_sr_frame, text='Glycan in minimum number of samples:', font=("Segoe UI", list_font_size))
-    min_samples_sr_label.grid(row=5, column=0, padx=(10, 10), pady=(5, 10), sticky="w")
-    ToolTip(min_samples_sr_label, "Filters the glycans by the number of samples they are found in (e.g.: if set to 2 and a glycan is only present in one sample, that glycan will be removed from the results).")
-    
-    min_samples_sr_entry = ttk.Spinbox(qcp_sr_frame, width=5, from_=0, to=999, increment=1)
-    min_samples_sr_entry.insert(0, min_samples)
-    min_samples_sr_entry.grid(row=5, column=1, padx=(130, 10), pady=(5, 10), sticky='e')
-    ToolTip(min_samples_sr_entry, "Filters the glycans by the number of samples they are found in (e.g.: if set to 2 and a glycan is only present in one sample, that glycan will be removed from the results).")
-    
     fill_gaps_checkbox_state = tk.BooleanVar(value=fill_gaps[0])
     fill_gaps_checkbox = ttk.Checkbutton(qcp_sr_frame, text="Fill missing values", variable=fill_gaps_checkbox_state, command=fill_gaps_checkbox_state_check)
-    fill_gaps_checkbox.grid(row=6, column=0, padx=(10, 10), pady=(0, 10), sticky='w')
-    ToolTip(iso_fits_checkbox, "Fills missing values with peaks that were detected, but didn't meet the quality thresholds set. Will only fill the gap if the peak matches RT/MT of samples where it is found to be good, and it must be good in at least half the samples. Beware: May produce data containing peaks with quality below the thresholds set.")
+    fill_gaps_checkbox.grid(row=5, column=0, padx=(10, 10), pady=(0, 5), sticky='w')
+    ToolTip(fill_gaps_checkbox, "Fills missing values with peaks that were detected, but didn't meet the quality thresholds set. Will only fill the gap if the peak matches RT/MT of samples where it is found to be good, and it must be good in at least half the samples. Beware: May produce data containing peaks with quality below the thresholds set.")
     
     fill_gaps_perc_samples_label = ttk.Label(qcp_sr_frame, text='% Samples:', font=("Segoe UI", list_font_size))
-    fill_gaps_perc_samples_label.grid(row=6, column=0, columnspan=2, padx=(0, 200), pady=(0, 10), sticky='e')
-    ToolTip(fill_gaps_perc_samples_label, "The minimum % of samples at which the glycan peak must be found in a good state to fill the gaps.")
+    fill_gaps_perc_samples_label.grid(row=5, column=0, columnspan=2, padx=(0, 200), pady=(0, 5), sticky='e')
+    ToolTip(fill_gaps_perc_samples_label, "The minimum % of samples at which the glycan peak must be found in a good state to fill the gaps. If samples are set into groups, takes the % of samples within each group instead.")
     
     fill_gaps_perc_samples_spinbox = ttk.Spinbox(qcp_sr_frame, width=5, from_=0, to=100, increment=1)
     fill_gaps_perc_samples_spinbox.insert(0, fill_gaps[1])
     fill_gaps_perc_samples_spinbox.config(state=tk.DISABLED)
-    fill_gaps_perc_samples_spinbox.grid(row=6, column=0, columnspan=2, padx=(0, 150), pady=(0, 10), sticky='e')
-    ToolTip(fill_gaps_perc_samples_spinbox, "The minimum % of samples at which the glycan peak must be found in a good state to fill the gaps.")
+    fill_gaps_perc_samples_spinbox.grid(row=5, column=0, columnspan=2, padx=(0, 150), pady=(5, 5), sticky='e')
+    ToolTip(fill_gaps_perc_samples_spinbox, "The minimum % of samples at which the glycan peak must be found in a good state to fill the gaps. If samples are set into groups, takes the % of samples within each group instead.")
     
     fill_gaps_rt_tol_label = ttk.Label(qcp_sr_frame, text='RT/MT Tol.:', font=("Segoe UI", list_font_size))
-    fill_gaps_rt_tol_label.grid(row=6, column=0, columnspan=2, padx=(0, 60), pady=(0, 10), sticky='e')
+    fill_gaps_rt_tol_label.grid(row=5, column=0, columnspan=2, padx=(0, 60), pady=(0, 5), sticky='e')
     ToolTip(fill_gaps_rt_tol_label, "The retention time tolerance for considering two the same elution time when filling gaps.")
     
     fill_gaps_rt_tol_spinbox = ttk.Spinbox(qcp_sr_frame, width=5, from_=0, to=999, increment=0.1)
     fill_gaps_rt_tol_spinbox.insert(0, fill_gaps[2])
     fill_gaps_rt_tol_spinbox.config(state=tk.DISABLED)
-    fill_gaps_rt_tol_spinbox.grid(row=6, column=0, columnspan=2, padx=(0, 10), pady=(0, 10), sticky='e')
+    fill_gaps_rt_tol_spinbox.grid(row=5, column=0, columnspan=2, padx=(0, 10), pady=(5, 5), sticky='e')
     ToolTip(fill_gaps_rt_tol_spinbox, "The retention time tolerance for considering two the same elution time when filling gaps.")
     
+    min_samples_sr_label = ttk.Label(qcp_sr_frame, text='Glycan in minimum % of samples:', font=("Segoe UI", list_font_size))
+    min_samples_sr_label.grid(row=6, column=0, padx=(10, 10), pady=(0, 5), sticky="w")
+    ToolTip(min_samples_sr_label, "Filters the glycans by the percentage of samples they are found in (e.g.: if set to 50 and a glycan is only present in 30% of the samples, that glycan will be removed from the results). If samples are set into groups, takes the % of samples within each group instead. This is applied after the gap filling option above and before filling the gaps with noise (below).")
+    
+    min_samples_sr_entry = ttk.Spinbox(qcp_sr_frame, width=5, from_=0, to=999, increment=1)
+    min_samples_sr_entry.insert(0, min_samples)
+    min_samples_sr_entry.grid(row=6, column=1, padx=(130, 10), pady=(0, 5), sticky='e')
+    ToolTip(min_samples_sr_entry, "Filters the glycans by the percentage of samples they are found in (e.g.: if set to 50 and a glycan is only present in 30% of the samples, that glycan will be removed from the results). If samples are set into groups, takes the % of samples within each group instead. This is applied after the gap filling option above and before filling the gaps with noise (below).")
+    
+    fill_gaps_noise_checkbox_state = tk.BooleanVar(value=fill_gaps[3])
+    fill_gaps_noise_checkbox = ttk.Checkbutton(qcp_sr_frame, text="Fill remaining gaps with local noise level in glycans abundance table", variable=fill_gaps_noise_checkbox_state, command=fill_gaps_noise_checkbox_state_check)
+    fill_gaps_noise_checkbox.config(state=tk.DISABLED)
+    fill_gaps_noise_checkbox.grid(row=7, column=0, columnspan=2, padx=(10, 10), pady=(0, 10), sticky='w')
+    ToolTip(fill_gaps_noise_checkbox, "Fills the remaining gaps with local noise level in Glycan Abundance Table only. Requires GlycoGenius version 1.1.13 or later (GUI version 1.0.12 or later), otherwise will not fill the gaps.")
+    
     reporter_ions_label = ttk.Label(qcp_sr_frame, text='Filter by reporter ions:', font=("Segoe UI", list_font_size))
-    reporter_ions_label.grid(row=7, column=0, columnspan=2, padx=(10, 10), pady=(0, 0), sticky="w")
+    reporter_ions_label.grid(row=8, column=0, columnspan=2, padx=(10, 10), pady=(0, 0), sticky="w")
     ToolTip(reporter_ions_label, "Fragments inputted here will be used to filter MS2 data on output. Only MS2 spectra containing these ions will be considered. You can input fragments using the glycans formula (ie. H1N1T1, where T refers to the reducing end) or the mz of the fragment. Can be reapplied on reanalysis.")
     
     reporter_ions_entry = ttk.Entry(qcp_sr_frame, width=52)
-    reporter_ions_entry.grid(row=8, column=0, columnspan=2, padx=(10, 10), pady=(0, 10), sticky='we')
+    reporter_ions_entry.grid(row=9, column=0, columnspan=2, padx=(10, 10), pady=(0, 10), sticky='we')
     ToolTip(reporter_ions_entry, "Fragments inputted here will be used to filter MS2 data on output. Only MS2 spectra containing these ions will be considered. You can input fragments using the glycans formula (ie. H1N1T1, where T refers to the reducing end) or the mz of the fragment. Can be reapplied on reanalysis.")
     
     ok_button = ttk.Button(sr_window, text="Ok", style="small_button_spw_style1.TButton", command=ok_sr_window)
-    ok_button.grid(row=5, column=1, padx=(10, 100), pady=(15,15), sticky="nse")
+    ok_button.grid(row=6, column=1, padx=(10, 100), pady=(15,15), sticky="nse")
     
     cancel_button = ttk.Button(sr_window, text="Cancel", style="small_button_spw_style1.TButton", command=close_sr_window)
-    cancel_button.grid(row=5, column=1, padx=(10,10), pady=(15,15), sticky="nse")
+    cancel_button.grid(row=6, column=1, padx=(10,10), pady=(15,15), sticky="nse")
     
     sr_window.update_idletasks()
     sr_window.deiconify()

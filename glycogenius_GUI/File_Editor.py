@@ -1819,6 +1819,8 @@ def switch_sample_button(direction, combobox, samples_list, mode, params = []):
             
     # Set combobox here
     combobox.set(file_name)
+            
+    mzml_window.title(f"Spectra File Editor - {file_name}")
     
     if mode == 'calibration':
         # load parameters from args
@@ -1988,6 +1990,8 @@ def mzml_window_start(from_GG=False, to_lift=False, change_sample=None):
         mzml_window = tk.Toplevel()
     mzml_window.withdraw()
     mzml_window.title("Spectra File Editor")
+    if from_GG != False:
+        mzml_window.title(f"Spectra File Editor - {from_GG[0].get()}")
     icon = ImageTk.PhotoImage(ico_image)
     mzml_window.resizable(False, False)
     mzml_window.iconphoto(False, icon)
