@@ -18,7 +18,7 @@
 
 global gg_version, GUI_version
 gg_version = '1.2.14'
-GUI_version = '1.0.13'
+GUI_version = '1.0.14'
 
 from PIL import Image, ImageTk
 from tkinter import messagebox
