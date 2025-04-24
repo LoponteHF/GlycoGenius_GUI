@@ -17,10 +17,11 @@
 # by typing 'glycogenius'. If not, see <https://www.gnu.org/licenses/>.
 
 global gg_version, GUI_version
-gg_version = '1.2.13'
-GUI_version = '1.0.12'
+gg_version = '1.2.14'
+GUI_version = '1.0.13'
 
 from PIL import Image, ImageTk
+from tkinter import messagebox
 import tkinter as tk
 import pathlib
 import psutil
@@ -44,10 +45,24 @@ def start_splash():
     this_process_id = os.getpid()
     this_process = psutil.Process(this_process_id)
     this_process_ppid = this_process.ppid()
-    if f"{this_process_ppid}.txt" not in os.listdir(exec_check_folder):
-        with open(os.path.join(exec_check_folder, f"{this_process_id}.txt"), 'w') as f:
+    if f"gg_{this_process_ppid}.txt" not in os.listdir(exec_check_folder):
+        with open(os.path.join(exec_check_folder, f"gg_{this_process_id}.txt"), 'w') as f:
             f.write("Glycogenius has run")
             f.close()
+    
+        # Check if GG folder is writeable
+        global gg_draw_glycans_path
+        try:
+            gg_draw_glycans_path = os.path.join(current_dir, "Assets/glycans")
+            os.makedirs(gg_draw_glycans_path, exist_ok=True)
+            with open(os.path.join(gg_draw_glycans_path, f"test.txt"), 'w') as f:
+                f.write("Glycogenius can access this folder")
+                f.close()
+            os.remove(os.path.join(gg_draw_glycans_path, f"test.txt"))
+        except Exception:
+            messagebox.showwarning("Warning", "No permission to access GlycoGenius folder to save glycans figures in. Using temporary folder instead. This may lead to the need of building the figures from scratch again in a future activation of GG Draw. GlycoGenius will still work as intended.")
+            gg_draw_glycans_path = os.path.join(tempfile.gettempdir(), "glycans_gg")
+            os.makedirs(gg_draw_glycans_path, exist_ok=True)
             
         splash_screen = tk.Tk()
         splash_screen.withdraw()
@@ -90,7 +105,7 @@ start_splash()
 
 from glycogenius.Modules.core import main as run_glycogenius
 from glycogenius.Modules import Execution_Functions, General_Functions, Config_Handler
-from tkinter import Menu, ttk, filedialog, messagebox, colorchooser
+from tkinter import Menu, ttk, filedialog, colorchooser
 from tkinter.scrolledtext import ScrolledText
 from ttkwidgets import CheckboxTreeview
 from pyteomics import mass, mzxml, mzml
@@ -141,16 +156,6 @@ from PIL import ImageDraw
 # Fix multiprocessing on linux and presumably mac
 if platform.system() != 'Windows':
     multiprocessing.set_start_method('spawn', force=True)
-    
-# Check if GG folder is writeable
-global gg_draw_glycans_path, using_temp_folder_flag
-try:
-    gg_draw_glycans_path = os.path.join(current_dir, "Assets/glycans")
-    os.makedirs(gg_draw_glycans_path, exist_ok=True)
-except Exception:
-    print("WARNING: No permission to access GlycoGenius folder to save glycan's figures in. Using temporary folder instead. This may lead to the need of building the figures from scratch again in a future activation of GG Draw. GlycoGenius will still work as intended.")
-    gg_draw_glycans_path = os.path.join(tempfile.gettempdir(), "glycans_gg")
-    os.makedirs(gg_draw_glycans_path, exist_ok=True)
 
 # All the settings necessary to make a Glycogenius run
 global min_max_monos, min_max_hex, min_max_hn, min_max_hexnac, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, min_max_ua, forced, max_adducts, max_charges, reducing_end_tag, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, fast_iso, high_res, number_cores, multithreaded_analysis, exp_lib_name, min_samples, lyase_digested, custom_monosaccharides
@@ -188,7 +193,7 @@ only_gen_lib = False
 
 multithreaded_analysis = True
 number_cores = 'all'
-analyze_ms2 = [False, False, False]
+analyze_ms2 = [False, True, False]
 reporter_ions = []
 tolerance = ['ppm', 20]
 ret_time_interval = [0.0, 999.0, 0.2]
@@ -316,6 +321,9 @@ selected_chromatograms = []
 global original_lines
 original_lines = {}
 
+global gg_draw_zoom_scale_value_float
+gg_draw_zoom_scale_value_float = 0.2
+
 colors = [
     "#FF0000",  # Red
     "#0000FF",  # Blue
@@ -438,14 +446,15 @@ class gg_archive:
         
     def list_chromatograms(self, file_number):
         '''Extracts the eics list from the .gg file and returns the chromatograms names.'''
-        self._files_in_temp = os.listdir(self.temp_path)
-        
-        if f'eics_list' not in self._files_in_temp:
+        try:
+            with open(os.path.join(self.temp_path, f'eics_list'), 'rb') as f:
+                self._chromatograms_list = dill.load(f)
+                f.close()
+        except:
             self.extract_file(f'eics_list')
-            
-        with open(os.path.join(self.temp_path, f'eics_list'), 'rb') as f:
-            self._chromatograms_list = dill.load(f)
-            f.close()
+            with open(os.path.join(self.temp_path, f'eics_list'), 'rb') as f:
+                self._chromatograms_list = dill.load(f)
+                f.close()
             
         return self._chromatograms_list[int(file_number)][1:]
         
@@ -464,49 +473,56 @@ class gg_archive:
         
     def get_rt_array(self, file_number):
         '''Extracts the rt array file and returns it.'''
-        self._files_in_temp = os.listdir(self.temp_path)
-        
-        if f'{file_number}_RTs' not in self._files_in_temp:
-            if f'{file_number}_eics' not in self._files_in_temp:
+        try:
+            with open(os.path.join(self.temp_path, f'{file_number}_RTs'), 'rb') as f:
+                _rt_array = dill.load(f)
+                f.close()
+        except:
+            try:
+                self.extract_file(f'{file_number}_RTs', os.path.join(self.temp_path, f'{file_number}_eics'))
+            except:
                 self.extract_file(f'{file_number}_eics')
-            self.extract_file(f'{file_number}_RTs', os.path.join(self.temp_path, f'{file_number}_eics'))
-            
-        with open(os.path.join(self.temp_path, f'{file_number}_RTs'), 'rb') as f:
-            _rt_array = dill.load(f)
-            f.close()
+                self.extract_file(f'{file_number}_RTs', os.path.join(self.temp_path, f'{file_number}_eics'))
+                
+            with open(os.path.join(self.temp_path, f'{file_number}_RTs'), 'rb') as f:
+                _rt_array = dill.load(f)
+                f.close()
             
         return _rt_array
             
     def get_chromatogram(self, file_number, chromatogram_name, chromatogram_type):
         '''Extracts the corresponding chromatogram file from the .gg file and returns it.'''
-        self._files_in_temp = os.listdir(self.temp_path)
-        
-        if chromatogram_name not in self._files_in_temp:
-            if f'{file_number}_eics' not in self._files_in_temp:
+        try:
+            with open(os.path.join(self.temp_path, f'{file_number}_{chromatogram_type}_{chromatogram_name}'), 'rb') as f:
+                _chromatogram = dill.load(f)
+                f.close()
+        except:
+            try:
+                self.extract_file(f'{file_number}_{chromatogram_type}_{chromatogram_name}', os.path.join(self.temp_path, f'{file_number}_eics'))
+            except:
                 self.extract_file(f'{file_number}_eics')
-            self.extract_file(f'{file_number}_{chromatogram_type}_{chromatogram_name}', os.path.join(self.temp_path, f'{file_number}_eics'))
-            
-        with open(os.path.join(self.temp_path, f'{file_number}_{chromatogram_type}_{chromatogram_name}'), 'rb') as f:
-            _chromatogram = dill.load(f)
-            f.close()
+                self.extract_file(f'{file_number}_{chromatogram_type}_{chromatogram_name}', os.path.join(self.temp_path, f'{file_number}_eics'))
+            with open(os.path.join(self.temp_path, f'{file_number}_{chromatogram_type}_{chromatogram_name}'), 'rb') as f:
+                _chromatogram = dill.load(f)
+                f.close()
 
         return _chromatogram
             
     def get_fragments_library_ms2_scores(self):
         ''''''
-        self._files_in_temp = os.listdir(self.temp_path)
-        
-        if 'fragments_library' not in self._files_in_temp:
+        try:
+            with open(os.path.join(self.temp_path, 'fragments_library'), 'rb') as f:
+                _fragments_library = dill.load(f)
+                f.close()
+                
+            with open(os.path.join(self.temp_path, 'spectra_score'), 'rb') as f:
+                _spectra_score = dill.load(f)
+                f.close()
+        except:
             try:
                 self.extract_file('fragments_library')
                 self.extract_file('spectra_score')
-            except:
-                pass
                 
-        self._files_in_temp = os.listdir(self.temp_path)
-            
-        if 'fragments_library' in self._files_in_temp:
-            try:
                 with open(os.path.join(self.temp_path, 'fragments_library'), 'rb') as f:
                     _fragments_library = dill.load(f)
                     f.close()
@@ -517,22 +533,20 @@ class gg_archive:
             except:
                 _fragments_library = {}
                 _spectra_score = {}
-        else:
-            _fragments_library = {}
-            _spectra_score = {}
-
+                
         return _fragments_library, _spectra_score
         
     def get_results_table(self):
         '''Extracts the results table file from the .gg file and returns it.'''
-        self._files_in_temp = os.listdir(self.temp_path)
-        
-        if 'results' not in self._files_in_temp:
+        try:
+            with open(os.path.join(self.temp_path, 'results'), 'rb') as f:
+                self._results = dill.load(f)
+                f.close()
+        except:
             self.extract_file('results')
-            
-        with open(os.path.join(self.temp_path, 'results'), 'rb') as f:
-            self._results = dill.load(f)
-            f.close()
+            with open(os.path.join(self.temp_path, 'results'), 'rb') as f:
+                self._results = dill.load(f)
+                f.close()
             
         return self._results
         
@@ -548,40 +562,43 @@ class gg_archive:
         
     def get_metadata(self):
         '''Extracts the metadata file from the .gg file and returns it.'''
-        self._files_in_temp = os.listdir(self.temp_path)
-        
-        if 'metadata' not in self._files_in_temp:
+        try:
+            with open(os.path.join(self.temp_path, 'metadata'), 'rb') as f:
+                self._metadata = dill.load(f)
+                f.close()
+        except:
             self.extract_file('metadata')
-            
-        with open(os.path.join(self.temp_path, 'metadata'), 'rb') as f:
-            self._metadata = dill.load(f)
-            f.close()
-            
+            with open(os.path.join(self.temp_path, 'metadata'), 'rb') as f:
+                self._metadata = dill.load(f)
+                f.close()
+                
         return self._metadata
         
     def get_isotopic_fittings(self):
         '''Extracts the isotopic fittings file from the .gg file and returns it.'''
-        self._files_in_temp = os.listdir(self.temp_path)
-        
-        if 'isotopic_fittings' not in self._files_in_temp:
+        try:
+            with open(os.path.join(self.temp_path, 'isotopic_fittings'), 'rb') as f:
+                self._isotopic_fittings = dill.load(f)
+                f.close()
+        except:
             self.extract_file('isotopic_fittings')
-            
-        with open(os.path.join(self.temp_path, 'isotopic_fittings'), 'rb') as f:
-            self._isotopic_fittings = dill.load(f)
-            f.close()
-            
+            with open(os.path.join(self.temp_path, 'isotopic_fittings'), 'rb') as f:
+                self._isotopic_fittings = dill.load(f)
+                f.close()
+                
         return self._isotopic_fittings
         
     def get_curve_fittings(self):
         '''Extracts the curve fittings file from the .gg file and returns it.'''
-        self._files_in_temp = os.listdir(self.temp_path)
-        
-        if 'curve_fittings' not in self._files_in_temp:
+        try:
+            with open(os.path.join(self.temp_path, 'curve_fittings'), 'rb') as f:
+                self._curve_fittings = dill.load(f)
+                f.close()
+        except:
             self.extract_file('curve_fittings')
-            
-        with open(os.path.join(self.temp_path, 'curve_fittings'), 'rb') as f:
-            self._curve_fittings = dill.load(f)
-            f.close()
+            with open(os.path.join(self.temp_path, 'curve_fittings'), 'rb') as f:
+                self._curve_fittings = dill.load(f)
+                f.close()
             
         return self._curve_fittings
         
@@ -1158,7 +1175,7 @@ def make_total_glycans_df(df1,
                           df2,
                           percentage_auc = percentage_auc,
                           rt_tolerance = ret_time_interval[2]):
-    '''This is used here for the real-time alignment when comparing samples.'''
+    '''This is used here for the real-time alignment when comparing samples. DEPRECATED'''
     global s_to_n, iso_fit_score, curve_fit_score
     sn = s_to_n
     df1 = copy.deepcopy(df1)
@@ -1516,26 +1533,6 @@ def calculate_ambiguities(df1):
                 i['Ambiguity'][j_j] = ', '.join(j)
             else:
                 i['Ambiguity'][j_j] = 'No'
-
-def calculate_current_ambiguities():
-    '''This function is used to calculate the number of ambiguities in a per sample basis.'''
-    noted_ambiguities = []
-    ambiguity_count = 0
-    for i in chromatograms_list.get_children():
-        item_info = chromatograms_list.item(i)
-        item_text = item_info.get('text', ())
-        if item_text == 'Base Peak Chromatogram/Electropherogram':
-            continue
-        if item_text not in noted_ambiguities:
-            for j in glycans_per_sample[selected_item][item_text]:
-                if glycans_per_sample[selected_item][item_text][j]['ambiguity'] != 'No':
-                    ambiguity_count += 1
-                    noted_ambiguities.append(item_text)
-                    for k in glycans_per_sample[selected_item][item_text][j]['ambiguity'].split(", "):
-                        if k not in noted_ambiguities:
-                            noted_ambiguities.append(k.split("_")[0])
-                break
-    return ambiguity_count
     
 def load_reanalysis(reanalysis_path):
     '''This function loads the .gg file.'''
@@ -1713,14 +1710,6 @@ def annotate_ms2_spectrum(file, spectrum, fragments_dict, tolerance, target_glyc
     ''''''
     # Superscripts for pretty fragment name
     superscripts = {'0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹', '+': '⁺', '-': '⁻', '=': '⁼', '(': '⁽', ')': '⁾', 'n': 'ⁿ', 'i': 'ⁱ'}
-        
-    # Get spectrum time and precursor mz
-    try:
-        spectrum_time = file[spectrum]['retentionTime']
-        precursor_mz = file[spectrum]['precursorMz'][0]['precursorMz']
-    except:
-        spectrum_time = file[spectrum]['scanList']['scan'][0]['scan start time']
-        precursor_mz = file[spectrum]['precursorList']['precursor'][0]['isolationWindow']['isolation window target m/z']
     
     # Annotated fragments list
     annotated_fragments = []
@@ -1841,15 +1830,14 @@ def annotate_ms2_spectrum(file, spectrum, fragments_dict, tolerance, target_glyc
             
         fragment_name = "/".join(fragment_name_list)
             
-        annotated_fragments.append(['Unknown Glycan', 'Unknown Adduct', fragment_name, mz_peak, int_array[mz_peak_index], spectrum_time, precursor_mz, total_array_intensity])
+        annotated_fragments.append(['Unknown Glycan', 'Unknown Adduct', fragment_name, mz_peak, int_array[mz_peak_index], 0.0, 0.0, total_array_intensity])
         
     # Update the total intensities after it's done with the array
     for fragment in annotated_fragments:
-        if fragment[5] == spectrum_time:
-            fragment[7] = total_array_intensity
+        fragment[7] = total_array_intensity
             
-    return annotated_fragments
                 
+    return annotated_fragments
 def on_closing():
     '''This function is used to remove the function from the Close Window button (x button).'''
     return
@@ -1918,7 +1906,6 @@ def handle_selection(event):
             if selected_item in processed_data:
                 current_data = processed_data[selected_item]
     populate_treeview()
-    color_treeview()
     clear_plot(ax, canvas)
     clear_plot(ax_spec, canvas_spec)
     clear_plot(ax_spec_ms2, canvas_spec_ms2)
@@ -1947,268 +1934,192 @@ def handle_selection_vigilance():
     if f"mzml_window_{this_process_id}.txt" in os.listdir(check_folder):
         handle_selection(None)
         main_window.after(100, handle_selection_vigilance)
-    
-def add_bpc_treeview():
-    '''This function adds the BPC to the glycans treeview menu.'''
-    global selected_item, processed_data, chromatograms_list, filter_list
-    bpc_keywords = ["Base Peak Chromatogram/Electropherogram", "BPC", "BPE"]
-    if len(samples_list) > 0:
-        if selected_item in processed_data:
-            if filter_list.get() == "Filter the list of glycans...":
-                chromatograms_list.insert("", "end", text="Base Peak Chromatogram/Electropherogram")
-            else:
-                search_input = filter_list.get()
-                for i in bpc_keywords:
-                    if search_input.lower() in i.lower():
-                        chromatograms_list.insert("", "end", text="Base Peak Chromatogram/Electropherogram")
-                        break
+                        
+def check_peak_quality(**kwargs):
+    '''max_ppm, iso_fit_score, curve_fit_score, s_to_n'''
+    count = 0
+    if kwargs['ppm'] > max_ppm[1] or kwargs['ppm'] < max_ppm[0]:
+        count+= 1
+    if kwargs['iso'] < iso_fit_score:
+        count+= 1
+    if kwargs['curve'] < curve_fit_score:
+        count+= 1
+    if kwargs['sn'] < s_to_n:
+        count+= 1
+        
+    return count
     
 def populate_treeview():
     '''This function populates the glycans list with the glycans from the .gg file.'''
     global selected_item, chromatograms_list, filter_list
     
-    def get_treeview_list(tree, parent=""):
-        all_items = []
-        children = tree.get_children(parent)
-        for child in children:
-            item_info = tree.item(child)
-            all_items.append(item_info.get('text'))
-        return all_items
-                
+    # Save the current view and opened rows
+    view_top, view_bottom = chromatograms_list.yview()
+    len_list = len(chromatograms_list.get_children())
+    open_close_state = []
+    counter = 0
+    for item_id in chromatograms_list.get_children():
+        open_close_state.append(chromatograms_list.item(item_id, "open"))
+        counter+= 1
+        for sub_item_id in chromatograms_list.get_children(item_id):
+            open_close_state.append(chromatograms_list.item(sub_item_id, "open"))
+            counter+= 1
+    
     chromatograms_list.delete(*chromatograms_list.get_children())
-    add_bpc_treeview()
-    if len(reanalysis_path) > 0: #populate treeview with glycans
+        
+    filter_query = [query.lower() for query in filter_list.get().split("+") if query != "Filter the list of glycans..."]
+    
+    good_count = 0
+    average_count = 0
+    bad_count = 0
+    ambiguity_count = 0
+    noted_ambiguities = set()
+    
+    if len(samples_list) > 0:
+        if selected_item in processed_data:
+            if len(filter_query) == 0:
+                chromatograms_list.insert("", "end", text="Base Peak Chromatogram/Electropherogram")
+            else:
+                for query in filter_query:
+                    if query in "base peak chromatogram/electropherogram;bpc;bpe":
+                        chromatograms_list.insert("", "end", text="Base Peak Chromatogram/Electropherogram")
+                        break
+    
+    if len(reanalysis_path) > 0:
         sample_index = list(glycans_per_sample.keys()).index(selected_item)
-        search_input = []
-        has_glycan = False
-        if filter_list.get() != "Filter the list of glycans...":
-            for i in filter_list.get().split("+"):
-                if i.lower() != "":
-                    search_input.append(i.lower())
-                    if i.lower() != "good" and i.lower() != "bad" and i.lower() != "average" and i.lower() != "ms2":
-                        has_glycan = True
-            if len(search_input) == 0 or (("good" in search_input or "average" in search_input or "bad" in search_input or "ms2" in search_input) and not has_glycan):
-                search_input.append("all")
-        else:
-            search_input.append("all")
-        for i in glycans_per_sample[selected_item]:
-            if len(glycans_per_sample[selected_item][i]) > 0:
-                for j in search_input:
-                    if ((j in i.lower() and has_glycan) or "all" in search_input) and i not in get_treeview_list(chromatograms_list):
-                        parent_item = chromatograms_list.insert("", "end", text=i, value=("   ♦") if glycans_per_sample[selected_item][i][list(glycans_per_sample[selected_item][i].keys())[0]]['ambiguity'] != "No" else "") #value is the symbol for the ambiguity
-                        for k in glycans_per_sample[selected_item][i]:
-                            first_child = chromatograms_list.insert(parent_item, "end", text=f"{str(k)} - {str(glycans_per_sample[selected_item][i][k]['mz'])}")
-                            for l in glycans_per_sample[selected_item][i][k]['peaks']:
-                                found = False
-                                if 'ms2' in glycans_per_sample[selected_item][i][k]:
-                                    for m in list(glycans_per_sample[selected_item][i][k]['ms2'].keys()):
-                                        if float(curve_fittings[sample_index][f"{i}+{k}_{l}_RTs"][0]) <= float(m) <= float(curve_fittings[sample_index][f"{i}+{k}_{l}_RTs"][-1]):
-                                            chromatograms_list.insert(first_child, "end", text=l, value=("MS2"))
-                                            found = True
-                                            break
-                                if not found:
-                                    chromatograms_list.insert(first_child, "end", text=l, value=(""))
-    
-def color_treeview():
-    '''This function colors the glycans list based on the quality criteria thresholds chosen.'''
-    global filter_list
-    
-    def get_all_items(tree, parent=""):
-        all_items = []
-        children = tree.get_children(parent)
-        for child in children:
-            all_items.append(child)
-            all_items.extend(get_all_items(tree, child))
-        return all_items
-    
-    def remove_item_with_children(tree, item):
-        def _remove_children(item_id):
-            children = tree.get_children(item_id)
-            for child in children:
-                _remove_children(child)
-                tree.delete(child)
-        _remove_children(item)  # Remove all children recursively
-        tree.delete(item)  # Remove the item itself
-    
-    all_items = get_all_items(chromatograms_list)
-    
-    search_input = filter_list.get().lower()
-    
-    for i in all_items:
-        level = 0
-        parent_item = i
-        while parent_item:
-            level += 1
-            parent_item = chromatograms_list.parent(parent_item)
-        if level == 3:
-            parent_item = chromatograms_list.parent(i)
-            grandparent_item = chromatograms_list.parent(parent_item)
-            
-            current_ppm = glycans_per_sample[selected_item][chromatograms_list.item(grandparent_item, "text")][chromatograms_list.item(parent_item, "text").split(" ")[0]]['ppm'][glycans_per_sample[selected_item][chromatograms_list.item(grandparent_item, "text")][chromatograms_list.item(parent_item, "text").split(" ")[0]]['peaks'].index(chromatograms_list.item(i, "text"))]
-            
-            current_iso = glycans_per_sample[selected_item][chromatograms_list.item(grandparent_item, "text")][chromatograms_list.item(parent_item, "text").split(" ")[0]]['iso'][glycans_per_sample[selected_item][chromatograms_list.item(grandparent_item, "text")][chromatograms_list.item(parent_item, "text").split(" ")[0]]['peaks'].index(chromatograms_list.item(i, "text"))]
-            
-            current_curve = glycans_per_sample[selected_item][chromatograms_list.item(grandparent_item, "text")][chromatograms_list.item(parent_item, "text").split(" ")[0]]['curve'][glycans_per_sample[selected_item][chromatograms_list.item(grandparent_item, "text")][chromatograms_list.item(parent_item, "text").split(" ")[0]]['peaks'].index(chromatograms_list.item(i, "text"))]
-            
-            snratio = glycans_per_sample[selected_item][chromatograms_list.item(grandparent_item, "text")][chromatograms_list.item(parent_item, "text").split(" ")[0]]['sn'][glycans_per_sample[selected_item][chromatograms_list.item(grandparent_item, "text")][chromatograms_list.item(parent_item, "text").split(" ")[0]]['peaks'].index(chromatograms_list.item(i, "text"))]
-            
-            count = 0
-            if current_ppm > max_ppm[1] or current_ppm < max_ppm[0]:
-                count+= 1
-            if current_iso < iso_fit_score:
-                count+= 1
-            if current_curve < curve_fit_score:
-                count+= 1
-            if snratio < s_to_n:
-                count+= 1
+        for glycan, adducts in glycans_per_sample[selected_item].items():
+            if len(adducts) == 0:
+                continue
                 
-            if count == 0:
-                chromatograms_list.item(i, tags=('good', ))
-            elif count == 1:
-                chromatograms_list.item(i, tags=('warning', ))
+            temp_adducts_quality = {}
+            ambiguity = False
+            glycan_value = ''
+            
+            queriables = [glycan]
+            
+            for adduct, adduct_data in adducts.items():
+                queriables.append(adduct)
+                queriables.append(str(adduct_data['mz']))
+                
+                if 'ms2' in adduct_data.keys():
+                    queriables.append('ms2')
+                
+                # Find ambiguity
+                if adduct_data['ambiguity'] != 'No':
+                    ambiguity = True
+                    
+                temp_peaks_quality = []
+                
+                for index, rt in enumerate(adduct_data['peaks']):
+                    queriables.append(str(rt))
+                    temp_peaks_quality.append(check_peak_quality(
+                                                                 ppm = adduct_data['ppm'][index],
+                                                                 iso = adduct_data['iso'][index],
+                                                                 curve = adduct_data['curve'][index],
+                                                                 sn = adduct_data['sn'][index]
+                                                                 )
+                                              )
+                temp_adducts_quality[adduct] = temp_peaks_quality
+            
+            glycan_qualities = [item for sublist in temp_adducts_quality.values() for item in sublist]
+            if 0 in glycan_qualities:
+                glycan_tag = 'good'
+            elif 1 in glycan_qualities:
+                glycan_tag = 'warning'
             else:
-                chromatograms_list.item(i, tags=('bad', ))
+                glycan_tag = 'bad'
                 
-    for i in all_items:
-        level = 0
-        parent_item = i
-        while parent_item:
-            level += 1
-            parent_item = chromatograms_list.parent(parent_item)
-        if level == 2:
-            children = chromatograms_list.get_children(i)
-            counts_bad = 0
-            counts_warning = 0
-            counts_good = 0
-            for k in children:
-                if 'warning' in chromatograms_list.item(k, "tags"):
-                    counts_warning+= 1
-                elif 'bad' in chromatograms_list.item(k, "tags"):
-                    counts_bad+= 1
+            queriables.append(glycan_tag)
+            if ambiguity:
+                queriables.append('ambiguity')
+                glycan_value = "   ♦"
+                
+            queriables = ";".join(queriables).lower()
+            
+            query_not_found = False
+            for query in filter_query:
+                if query not in queriables:
+                    query_not_found = True
+                    break
+            if query_not_found:
+                continue
+            
+            if glycan_tag == 'good':
+                good_count += 1
+            elif glycan_tag == 'warning':
+                average_count += 1
+            else:
+                bad_count += 1
+                
+            if glycan_value == "   ♦":
+                if glycan not in noted_ambiguities:
+                    ambiguity_count += 1
+                noted_ambiguities.add(glycan)
+                noted_ambiguities.update(
+                                         k.split("_")[0]
+                                         for k in glycans_per_sample[selected_item][glycan][list(glycans_per_sample[selected_item][glycan].keys())[0]]['ambiguity'].split(", ")
+                                        )
+            
+            # Start adding the glycans, adducts and peaks to the list
+            glycan_row = chromatograms_list.insert("", "end", text=glycan, value=(glycan_value) if ambiguity else '', tags=(glycan_tag, ))
+            
+            for adduct, adduct_data in temp_adducts_quality.items():
+                # Check the adduct quality
+                if 0 in adduct_data:
+                    adduct_tag = 'good'
+                elif 1 in adduct_data:
+                    adduct_tag = 'warning'
                 else:
-                    counts_good+= 1
-            if counts_good > 0:
-                chromatograms_list.item(i, tags=('good', ))
-            elif counts_good == 0 and counts_warning == 0:
-                chromatograms_list.item(i, tags=('bad', ))
-            else:
-                chromatograms_list.item(i, tags=('warning', ))
-    final_good = 0
-    final_warning = 0
-    final_bad = 0
-    for i in all_items:
-        if chromatograms_list.item(i, "text") == "Base Peak Chromatogram/Electropherogram":
-            continue
-        level = 0
-        parent_item = i
-        while parent_item:
-            level += 1
-            parent_item = chromatograms_list.parent(parent_item)
-        if level == 1:
-            children = chromatograms_list.get_children(i)
-            counts_bad = 0
-            counts_warning = 0
-            counts_good = 0
-            for k in children:
-                if 'warning' in chromatograms_list.item(k, "tags"):
-                    counts_warning+= 1
-                elif 'bad' in chromatograms_list.item(k, "tags"):
-                    counts_bad+= 1
-                else:
-                    counts_good+= 1
-            if counts_good > 0:
-                chromatograms_list.item(i, tags=('good', ))
-                final_good+=1
-            elif counts_good == 0 and counts_warning == 0:
-                chromatograms_list.item(i, tags=('bad', ))
-                final_bad+=1
-            else:
-                chromatograms_list.item(i, tags=('warning', ))
-                final_warning+=1
-    
-    #combinations of quality to filter list
-    if "good" in search_input and "average" in search_input and "bad" in search_input:
-        None
+                    adduct_tag = 'bad'
                 
-    elif "good" in search_input and "average" in search_input:
-        final_bad = 0
-        for i in chromatograms_list.get_children():
-            item_info = chromatograms_list.item(i)
-            tag = item_info.get('tags', ())
-            if tag[0] != 'good' and tag[0] != 'warning':
-                remove_item_with_children(chromatograms_list, i)
+                # Insert the adduct row
+                adduct_row = chromatograms_list.insert(glycan_row, "end", text=f"{adduct} - {glycans_per_sample[selected_item][glycan][adduct]['mz']}", tags=(adduct_tag, ))
                 
-    elif "average" in search_input and "bad" in search_input:
-        final_good = 0
-        for i in chromatograms_list.get_children():
-            item_info = chromatograms_list.item(i)
-            tag = item_info.get('tags', ())
-            if tag[0] != 'warning' and tag[0] != 'bad':
-                remove_item_with_children(chromatograms_list, i)
-                
-    elif "good" in search_input and "bad" in search_input:
-        final_warning = 0
-        for i in chromatograms_list.get_children():
-            item_info = chromatograms_list.item(i)
-            tag = item_info.get('tags', ())
-            if tag[0] != 'good' and tag[0] != 'bad':
-                remove_item_with_children(chromatograms_list, i)
-                
-    elif "good" in search_input:
-        final_warning = 0
-        final_bad = 0
-        for i in chromatograms_list.get_children():
-            item_info = chromatograms_list.item(i)
-            tag = item_info.get('tags', ())
-            if tag[0] != 'good':
-                remove_item_with_children(chromatograms_list, i)
-                
-    elif "average" in search_input:
-        final_bad = 0
-        final_good = 0
-        for i in chromatograms_list.get_children():
-            item_info = chromatograms_list.item(i)
-            tag = item_info.get('tags', ())
-            if tag[0] != 'warning':
-                remove_item_with_children(chromatograms_list, i)
-                
-    elif "bad" in search_input:
-        final_warning = 0
-        final_good = 0
-        for i in chromatograms_list.get_children():
-            item_info = chromatograms_list.item(i)
-            tag = item_info.get('tags', ())
-            if tag[0] != 'bad':
-                remove_item_with_children(chromatograms_list, i)
-    
-    if "ms2" in search_input:
-        for i in chromatograms_list.get_children():
-            remove = True
-            for j in chromatograms_list.get_children(i):
-                for k in chromatograms_list.get_children(j):
-                    item_info = chromatograms_list.item(k)
-                    values = item_info.get('values', ())
-                    if 'MS2' in values:
-                        remove = False
-            if remove:
-                tag = chromatograms_list.item(i, 'tags')
-                if tag[0] == 'bad':
-                    final_bad -= 1
-                elif tag[0] == 'warning':
-                    final_warning -= 1
-                elif tag[0] == 'good':
-                    final_good -= 1
-                remove_item_with_children(chromatograms_list, i)
-    
-    if len(all_items) > 1:
-        ambiguity_count = calculate_current_ambiguities()
-        chromatograms_qc_numbers.config(text=f"Compositions Quality:\n        Good: {final_good}    Average: {final_warning}    Bad: {final_bad}\n        Ambiguities: {ambiguity_count}")
-    else:
+                for index, peak_data in enumerate(adduct_data):
+                    # Check peak quality
+                    if peak_data == 0:
+                        peak_tag = 'good'
+                    elif peak_data == 1:
+                        peak_tag = 'warning'
+                    else:
+                        peak_tag = 'bad'
+                        
+                    # Default peak value
+                    peak_value = ''
+                    
+                    if 'ms2' in glycans_per_sample[selected_item][glycan][adduct].keys():
+                        # Lower and upper peak boundaries
+                        lower_boundary = curve_fittings[sample_index][f"{glycan}+{adduct}_{glycans_per_sample[selected_item][glycan][adduct]['peaks'][index]}_RTs"][0]
+                        upper_boundary = curve_fittings[sample_index][f"{glycan}+{adduct}_{glycans_per_sample[selected_item][glycan][adduct]['peaks'][index]}_RTs"][-1]
+                        
+                        # Targets list
+                        targets = np.array(list(glycans_per_sample[selected_item][glycan][adduct]['ms2'].keys()))
+                        
+                        # Filtered array
+                        if len(targets[(targets >= lower_boundary) & (targets <= upper_boundary)]) > 0:
+                            peak_value = 'MS2'
+                        
+                    # Insert peak row
+                    peak_row = chromatograms_list.insert(adduct_row, "end", text=glycans_per_sample[selected_item][glycan][adduct]['peaks'][index], values=(peak_value), tags=(peak_tag, ))
+                    
+        chromatograms_qc_numbers.config(text=f"Compositions Quality:\n        Good: {good_count}    Average: {average_count}    Bad: {bad_count}\n        Ambiguities: {ambiguity_count}")
+    else:        
         chromatograms_qc_numbers.config(text=f"Compositions Quality:\n        Good: {0}    Average: {0}    Bad: {0}\n        Ambiguities: {0}")
         
-    chromatograms_list.tag_configure('bad', background='#FED5CD')
-    chromatograms_list.tag_configure('warning', background='#FEFACD')
-    chromatograms_list.tag_configure('good', background='#E3FECD')
+    # If it has the same length as before, go to the same position and expand the same rows
+    if len(chromatograms_list.get_children()) == len_list:
+        counter = 0
+        for item_id in chromatograms_list.get_children():
+            if counter > len(open_close_state)-1:
+                break
+            chromatograms_list.item(item_id, open=open_close_state[counter])
+            counter+= 1
+            for sub_item_id in chromatograms_list.get_children(item_id):
+                if counter > len(open_close_state)-1:
+                    break
+                chromatograms_list.item(sub_item_id, open=open_close_state[counter])
+                counter+= 1
+        chromatograms_list.yview_moveto(view_top)
     
 def clear_plot(ax_here, canvas_here):
     '''This function clears the specified plot and redraws it.'''
@@ -2923,6 +2834,12 @@ def sample_grouping_window(samples_names, parent):
     sgw_samples_scrollable_frame.bind("<Configure>", lambda event: sgw_samples_canvas.configure(scrollregion=sgw_samples_canvas.bbox("all")))
     sgw_samples_scrollbar.pack(side="right", fill="y")
     sgw_samples_canvas.pack(fill=tk.BOTH, expand=True)
+        
+    if platform.system() == 'Windows':
+        sgw_samples_canvas.bind("<MouseWheel>", lambda event: scroll_canvas(event, sgw_samples_canvas))
+    else:
+        sgw_samples_canvas.bind("<Button-4>", lambda event: scroll_canvas(event, sgw_samples_canvas))    # Linux Scroll Up
+        sgw_samples_canvas.bind("<Button-5>", lambda event: scroll_canvas(event, sgw_samples_canvas))
     
     sgw_ok_button = ttk.Button(sgw, text="Ok", style="small_button_sfw_style1.TButton", command=sgw_ok)
     sgw_ok_button.grid(row=2, column=0, padx=(0, 100), pady=10, sticky="se")
@@ -3862,9 +3779,6 @@ def run_main_window():
         else:
             clear_plot(ax, canvas)
             last_plotted = None
-                
-        if gg_draw_on:
-            draw_glycans_on_chromatogram(chromatograms_list)
         
     def show_graph(item_text, clear = True, level = 0):
         global current_data, coordinate_label, ax, canvas, type_coordinate, colors, color_number, ms2_precursors_actual, spectra_indexes, last_xlims_chrom, last_ylims_chrom, og_x_range, og_y_range, chromatogram_bound, chromatogram_binds, rt_label
@@ -5017,7 +4931,7 @@ def run_main_window():
             # Remove the execution holder txt file from temp folder
             this_process_id = os.getpid()
             general_temp_folder = os.path.join(tempfile.gettempdir())
-            os.remove(os.path.join(general_temp_folder, f"{this_process_id}.txt"))
+            os.remove(os.path.join(general_temp_folder, f"gg_{this_process_id}.txt"))
             try:
                 os.remove(os.path.join(general_temp_folder, f"mzml_window_{this_process_id}.txt"))
             except:
@@ -6619,21 +6533,16 @@ def run_main_window():
                 for j_j, j in enumerate(glycans_per_sample[sample_for_qc_dist][i][k]['peaks']):
                     mzs.append(glycans_per_sample[sample_for_qc_dist][i][k]['mz'])
                     names.append(f"{i}_{k}_{j}")
-                    fails = 0
-                    if glycans_per_sample[sample_for_qc_dist][i][k]['ppm'][j_j] < max_ppm[0] or glycans_per_sample[sample_for_qc_dist][i][k]['ppm'][j_j] > max_ppm[1]:
-                        fails += 1
-                    if glycans_per_sample[sample_for_qc_dist][i][k]['iso'][j_j] < iso_fit_score:
-                        fails += 1
-                    if glycans_per_sample[sample_for_qc_dist][i][k]['curve'][j_j] < curve_fit_score:
-                        fails += 1
-                    if glycans_per_sample[sample_for_qc_dist][i][k]['sn'][j_j] < s_to_n:
-                        fails += 1
+                    
+                    fails = check_peak_quality(ppm = glycans_per_sample[sample_for_qc_dist][i][k]['ppm'][j_j], iso = glycans_per_sample[sample_for_qc_dist][i][k]['iso'][j_j], curve = glycans_per_sample[sample_for_qc_dist][i][k]['curve'][j_j], sn = glycans_per_sample[sample_for_qc_dist][i][k]['sn'][j_j])
+                    
                     if fails == 0:
                         quality_colors.append('green')
                     elif fails == 1:
                         quality_colors.append('#c7af12')
                     else:
                         quality_colors.append('red')
+                        
                 ppm_list+=glycans_per_sample[sample_for_qc_dist][i][k]['ppm']
                 iso_fit_list+=glycans_per_sample[sample_for_qc_dist][i][k]['iso']
                 curve_fit_list+=glycans_per_sample[sample_for_qc_dist][i][k]['curve']
@@ -6815,7 +6724,16 @@ def run_main_window():
         qc_dist.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
         
     def qcp_enter(event):
+        global qcp_enter_delay
+        try:
+            main_window.after_cancel(qcp_enter_delay)
+        except:
+            pass
+        qcp_enter_delay = main_window.after(100, qcp_enter_auxiliary_function)
+        
+    def qcp_enter_auxiliary_function():
         global max_ppm, iso_fit_score, curve_fit_score, s_to_n, ppm_scatter, isofitplot_scatter, curvefitplot_scatter, snplot_scatter, elec_mig_scatter, canvas_elec_mig
+        # Attempt to collect the new QC thresholds from the spinboxes
         try:
             min_ppm_range = float(ppm_error_min_entry.get())
             sn_temp = float(s_n_entry.get())
@@ -6824,12 +6742,16 @@ def run_main_window():
             iso_fit_temp = float(iso_fit_entry.get())
         except:
             return
+        
+        # Check if the PPM range is correct
         if min_ppm_range > max_ppm_range:
             return
+            
         max_ppm = (min_ppm_range, max_ppm_range)
         iso_fit_score = iso_fit_temp
         curve_fit_score = curve_fit_temp
         s_to_n = sn_temp
+        
         try:
             qc_ppm_line1.set_ydata([max_ppm[0]])
             qc_ppm_line2.set_ydata([max_ppm[1]])
@@ -6841,15 +6763,9 @@ def run_main_window():
             for i in glycans_per_sample[sample_for_qc_dist]: #going through glycans
                 for k in glycans_per_sample[sample_for_qc_dist][i]: #going through adducts
                     for j_j, j in enumerate(glycans_per_sample[sample_for_qc_dist][i][k]['peaks']):
-                        fails = 0
-                        if glycans_per_sample[sample_for_qc_dist][i][k]['ppm'][j_j] < max_ppm[0] or glycans_per_sample[sample_for_qc_dist][i][k]['ppm'][j_j] > max_ppm[1]:
-                            fails += 1
-                        if glycans_per_sample[sample_for_qc_dist][i][k]['iso'][j_j] < iso_fit_score:
-                            fails += 1
-                        if glycans_per_sample[sample_for_qc_dist][i][k]['curve'][j_j] < curve_fit_score:
-                            fails += 1
-                        if glycans_per_sample[sample_for_qc_dist][i][k]['sn'][j_j] < s_to_n:
-                            fails += 1
+                        
+                        fails = check_peak_quality(ppm = glycans_per_sample[sample_for_qc_dist][i][k]['ppm'][j_j], iso = glycans_per_sample[sample_for_qc_dist][i][k]['iso'][j_j], curve = glycans_per_sample[sample_for_qc_dist][i][k]['curve'][j_j], sn = glycans_per_sample[sample_for_qc_dist][i][k]['sn'][j_j])
+                        
                         if fails == 0:
                             new_colors.append('green')
                         elif fails == 1:
@@ -6868,18 +6784,24 @@ def run_main_window():
             canvas_snplot.draw_idle()
         except:
             pass
+            
         try:
             elec_mig_scatter.set_color(new_colors)
             canvas_elec_mig.draw_idle()
         except:
             pass
-        color_treeview()
+            
+        populate_treeview()
         toggle_hide_bad_peaks()
         
     def on_key_release_filter(event, entry):
         # Get the current content of the entry widget
-        populate_treeview()
-        color_treeview()
+        global filter_list_update_timer
+        try:
+            main_window.after_cancel(filter_list_update_timer)
+        except:
+            pass
+        filter_list_update_timer = main_window.after(500, populate_treeview)
             
     def clear_treeview_selection(event):
         global plot_graph_button
@@ -7686,8 +7608,8 @@ def run_main_window():
                 
             for i_i, i in enumerate(selected_items_qtl):
                 values_qtl = quick_trace_list.item(i, "values")
-                target_mz = values_qtl[1]
-                tolerance = float(values_qtl[2])
+                target_mz = values_qtl[0]
+                tolerance = float(values_qtl[1])
                 color_to_trace = quick_trace_list.item(i, 'tags')[0]
                 
                 rt_array = current_data['rt_array']
@@ -7735,12 +7657,9 @@ def run_main_window():
             column = quick_trace_list.identify_column(event.x)
             item = quick_trace_list.identify_row(event.y)
             
-            if region == "cell" and (column == "#1" or column == "#4"):
+            if region == "tree" or (region == "cell" and column == "#3"):
                 values = quick_trace_list.item(item, "values")
-                if "███████████████" in values or "❌" in values:
-                    quick_trace_list.config(cursor="hand2")
-                else:
-                    quick_trace_list.config(cursor="")
+                quick_trace_list.config(cursor="hand2")
             else:
                 quick_trace_list.config(cursor="")
         
@@ -7756,6 +7675,16 @@ def run_main_window():
             quick_traces_list_save = [values_list, tags_list]
             quick_trace_opened = False
             quick_trace_window.destroy()
+            
+        def draw_rectangle(color):
+            # Create a small green rectangle image (16x16 pixels)
+            size = (32, 16)
+            rect_image = Image.new("RGBA", size, (255, 255, 255, 0))  # Transparent background
+            draw = ImageDraw.Draw(rect_image)
+            draw.rectangle((0, 0, 32, 16), fill=color)  # Draw green rectangle
+            photo = ImageTk.PhotoImage(rect_image)
+            
+            return photo
 
         def click_quick_trace_list(event):
             region_qtl = quick_trace_list.identify_region(event.x, event.y)
@@ -7763,15 +7692,17 @@ def run_main_window():
             item_qtl = quick_trace_list.identify_row(event.y)
             values_qtl = quick_trace_list.item(item_qtl, "values")
             
-            if region_qtl == "cell" and column_qtl == '#1':
+            if region_qtl == "tree":
                 color_code = colorchooser.askcolor(title="Choose a color")[1]
                 quick_trace_window.lift()
                 quick_trace_window.focus_set()
                 if color_code:
-                    quick_trace_list.tag_configure(color_code, foreground=color_code)
-                    quick_trace_list.item(item_qtl, tags=(color_code,))
+                    # quick_trace_list.tag_configure(color_code, foreground=color_code)
+                    row_image = draw_rectangle(color_code)
+                    quick_trace_list.item(item_qtl, tags=(color_code,), image=row_image)
+                    quick_trace_list_image_refs.append(row_image)
                     
-            elif region_qtl == "cell" and column_qtl == "#4":
+            elif region_qtl == "cell" and column_qtl == "#3":
                 quick_trace_list.delete(item_qtl)
             
             elif region_qtl == "cell":
@@ -7785,8 +7716,10 @@ def run_main_window():
                 if f"{selected_item}_{tolerance}_{library_name_from_path}" in glycans_list_quickcheck_save.keys():
                     for i_i, i in enumerate(glycans_list_quickcheck_save[f"{selected_item}_{tolerance}_{library_name_from_path}"]):
                         random_color = random.choice(colors)
-                        quick_trace_list.tag_configure(random_color, foreground=random_color)
-                        quick_trace_list.insert("", "end", values=("███████████████", f"{i[2]}", f"{round(General_Functions.tolerance_calc(tolerance[0], tolerance[1], mz = 1000.0), 4)}", "❌"), tags=(random_color,))
+                        # quick_trace_list.tag_configure(random_color, foreground=random_color)
+                        row_image = draw_rectangle(random_color)
+                        quick_trace_list.insert("", "end", text='', image=row_image, values=(f"{i[2]}", f"{round(General_Functions.tolerance_calc(tolerance[0], tolerance[1], mz = 1000.0), 4)}", "❌"), tags=(random_color,))
+                        quick_trace_list_image_refs.append(row_image)
                 else:
                     error_window(f"No MIS analyzed for this sample.")
                     quick_trace_window.lift()
@@ -7811,8 +7744,10 @@ def run_main_window():
                     quick_trace_window.focus_set()
                     return
                 random_color = random.choice(colors)
-                quick_trace_list.tag_configure(random_color, foreground=random_color)
-                quick_trace_list.insert("", "end", values=("███████████████", f"{mz_entry.get()}", f"{tol_entry.get()}", "❌"), tags=(random_color,))
+                # quick_trace_list.tag_configure(random_color, foreground=random_color)
+                row_image = draw_rectangle(random_color)
+                quick_trace_list.insert("", "end", text='', image=row_image, values=(f"{mz_entry.get()}", f"{tol_entry.get()}", "❌"), tags=(random_color,))
+                quick_trace_list_image_refs.append(row_image)
                 
         def save_qtraces_csv():
             # Create the save file dialog
@@ -7835,8 +7770,8 @@ def run_main_window():
             for row in quick_trace_list.get_children():
                 # Get the values from the row
                 row_values = quick_trace_list.item(row, "values")
-                mz_qtr_save = row_values[1]
-                tol_qtr_save = row_values[2]
+                mz_qtr_save = row_values[0]
+                tol_qtr_save = row_values[1]
                 
                 # Get the color from the row
                 row_color = quick_trace_list.item(row, "tags")[0]
@@ -7871,7 +7806,7 @@ def run_main_window():
                             continue
                             
                         # Get the data from the row
-                        color_load_qtr, mz_load_qtr, tol_load_qtr = line.split(",")
+                        color_load_qtr, mz_load_qtr, tol_load_qtr = line.strip().split(",")
                         
                         # Check if there's a color specified, if not, pick random color
                         if len(color_load_qtr) == 0:
@@ -7882,7 +7817,7 @@ def run_main_window():
                         float(tol_load_qtr)
                             
                         # Add the line to the new_qtraces
-                        new_qtraces.append((["███████████████", mz_load_qtr, tol_load_qtr, "❌"], color_load_qtr))
+                        new_qtraces.append(([mz_load_qtr, tol_load_qtr, "❌"], color_load_qtr))
             except:
                 error_window("Couldn't load the quick traces from the file. Make sure it is formatted correctly.")
                 quick_trace_window.deiconify()
@@ -7895,10 +7830,10 @@ def run_main_window():
                 
             for row_values, color_load_qtr in new_qtraces:
                 # Create the tag for color
-                quick_trace_list.tag_configure(color_load_qtr, foreground=color_load_qtr)
-                
-                # Insert the new row
-                quick_trace_list.insert("", "end", values=row_values, tags=(color_load_qtr,))
+                # quick_trace_list.tag_configure(color_load_qtr, foreground=color_load_qtr)
+                row_image = draw_rectangle(color_load_qtr)
+                quick_trace_list.insert("", "end", text='', image=row_image, values=row_values, tags=(color_load_qtr,))
+                quick_trace_list_image_refs.append(row_image)
                 
             quick_trace_window.deiconify()
             quick_trace_window.lift()
@@ -7911,6 +7846,9 @@ def run_main_window():
             return
         
         quick_trace_opened = True
+        
+        global quick_trace_list_image_refs
+        quick_trace_list_image_refs = []
         
         small_button_qtw_style1 = ttk.Style().configure("small_button_qtw_style1.TButton", font=("Segoe UI", list_font_size), relief="raised", padding = (0, 0), justify="center")
         
@@ -7948,14 +7886,15 @@ def run_main_window():
         add_button = ttk.Button(quick_trace_window, text="Add Trace", style="small_button_qtw_style1.TButton", command=add_qtl)
         add_button.grid(row=0, column=0, padx=(10, 10), pady=(10,0), sticky="ens")
         
+        quick_trace_list_columns = ["m/z", "Tolerance", "Remove"]
         quick_trace_list_scrollbar = tk.Scrollbar(quick_trace_window, orient=tk.VERTICAL)
-        quick_trace_list = ttk.Treeview(quick_trace_window, columns=("Color", "m/z", "Tolerance", "Remove"), height=25, yscrollcommand=quick_trace_list_scrollbar.set, show='headings')
+        quick_trace_list = ttk.Treeview(quick_trace_window, columns=quick_trace_list_columns, height=25, yscrollcommand=quick_trace_list_scrollbar.set, show='tree headings')
         
-        quick_trace_list_columns = ["Color", "m/z", "Tolerance", "Remove"]
         for col in quick_trace_list_columns:
             quick_trace_list.heading(col, text=col)
-        
-        quick_trace_list.column("Color", width=10, anchor='center')
+            
+        quick_trace_list.heading("#0", text="Color")
+        quick_trace_list.column("#0", width=10, anchor='w')
         quick_trace_list.column("m/z", width=80)
         quick_trace_list.column("Tolerance", width=10)
         quick_trace_list.column("Remove", width=5, anchor='center')
@@ -8072,10 +8011,11 @@ def run_main_window():
     def toggle_gg_draw(treeview):
         '''
         '''
-        global gg_draw_on, gg_draw_list, photo_ggdraw, photo_ggdraw_off, gg_draw_zoom_scale, gg_draw_zoom_scale_value
+        global gg_draw_on, gg_draw_list, photo_ggdraw, photo_ggdraw_off, gg_draw_zoom_scale, gg_draw_zoom_scale_value, gg_draw_zoom_scale_value_float
         if gg_draw_on:
             gg_draw_on = False
             gg_draw.config(image=photo_ggdraw)
+            gg_draw_zoom_scale_value_float = gg_draw_zoom_scale_value.get()
             
             gg_draw_zoom_scale.destroy()
             
@@ -8091,7 +8031,7 @@ def run_main_window():
             gg_draw_zoom_scale_value = tk.DoubleVar()
             gg_draw_zoom_scale = ttk.Scale(main_window, from_=0.1, to=0.5, orient='horizontal', variable=gg_draw_zoom_scale_value, command=gg_draw_zoom_scale_moved)
             gg_draw_zoom_scale.grid(row=0, column=2, padx=(10,200), sticky='se')
-            gg_draw_zoom_scale_value.set(0.2)
+            gg_draw_zoom_scale_value.set(gg_draw_zoom_scale_value_float)
             ToolTip(gg_draw_zoom_scale, "Set the size of the glycans drawings on the chromatogram/electropherogram plot.")
             
             if reanalysis_path != "":
@@ -8246,18 +8186,15 @@ def run_main_window():
             if level == 1:
                 for adduct in glycans_per_sample[samples_dropdown.get()][glycan]:
                     for index, peak in enumerate(glycans_per_sample[samples_dropdown.get()][glycan][adduct]['peaks']):
-                        if peak not in rts:
-                            rts.append(peak)
                         
-                        # To filter by quality
-                        # current_ppm = glycans_per_sample[samples_dropdown.get()][glycan][adduct]['ppm'][index]
-                        # current_iso = glycans_per_sample[samples_dropdown.get()][glycan][adduct]['iso'][index]
-                        # current_curve = glycans_per_sample[samples_dropdown.get()][glycan][adduct]['curve'][index]
-                        # snratio = glycans_per_sample[samples_dropdown.get()][glycan][adduct]['sn'][index]
-                
-                        # count = 0
-                        # if current_ppm <= max_ppm[1] and current_ppm >= max_ppm[0] and current_iso >= iso_fit_score and current_curve >= curve_fit_score and snratio >= s_to_n:
-                            # rts.append(peak)
+                        if hide_bad_peaks_checkbox_state.get():
+                            peak_quality_fails = check_peak_quality(ppm = glycans_per_sample[samples_dropdown.get()][glycan][adduct]['ppm'][index], iso = glycans_per_sample[samples_dropdown.get()][glycan][adduct]['iso'][index], curve = glycans_per_sample[samples_dropdown.get()][glycan][adduct]['curve'][index], sn = glycans_per_sample[samples_dropdown.get()][glycan][adduct]['sn'][index])
+                            if peak_quality_fails == 0 and peak not in rts:
+                                rts.append(peak)
+                        else:
+                            if peak not in rts:
+                                rts.append(peak)
+                                
             elif level == 2 or level == 3:
                 for index, peak in enumerate(glycans_per_sample[samples_dropdown.get()][glycan][adduct]['peaks']):
                     if peak not in rts:
@@ -8929,6 +8866,10 @@ def run_main_window():
             if len(graph_lines) > 1:
                 ax.fill_between(x_data, y_data, color=color, alpha=0.25)
                 
+        if gg_draw_on:
+            toggle_gg_draw(chromatograms_list)
+            toggle_gg_draw(chromatograms_list)
+                
         canvas.draw_idle()
         
     def on_tab_selected(event):
@@ -9358,13 +9299,21 @@ def run_main_window():
 
     chromatograms_list_scrollbar = tk.Scrollbar(left_side_widgets_frame, orient=tk.VERTICAL)
     chromatograms_list = ttk.Treeview(left_side_widgets_frame, height=100, style="chromatograms_list.Treeview", yscrollcommand=chromatograms_list_scrollbar.set)
+        
+    chromatograms_list.tag_configure('bad', background='#FED5CD')
+    chromatograms_list.tag_configure('warning', background='#FEFACD')
+    chromatograms_list.tag_configure('good', background='#E3FECD')
+    
     chromatograms_list["show"] = "tree" #removes the header
     chromatograms_list["columns"] = ("#1")
+    
     chromatograms_list.column("#0", width=230)
     chromatograms_list.column("#1", width=35, stretch=False) #this column is for showing ambiguities
+    
     chromatograms_list_scrollbar.config(command=chromatograms_list.yview, width=10)
     chromatograms_list.grid(row=2, column=0, columnspan=2, padx=10, pady=(0, 0), sticky="nsew")
     chromatograms_list_scrollbar.grid(row=2, column=0, columnspan=2, pady=(0, 0), sticky="nse")
+    
     chromatograms_list.bind("<KeyRelease-Up>", handle_treeview_select)
     chromatograms_list.bind("<KeyRelease-Down>", handle_treeview_select)
     chromatograms_list.bind("<ButtonRelease-1>", click_treeview)
