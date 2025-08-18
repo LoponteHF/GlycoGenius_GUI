@@ -1635,4 +1635,4 @@ def draw_glycan(figures_folder, size, glycan_input, glycan_class):
                     index_combo = draw_full_o_glycan(i, index_combo, derivatized_sialic_acids, figures_folder, glycan_input, size)
                     
 if __name__ == '__main__':
-    draw_glycan("D:/Arquivos/Desktop/GG_test/gg_draw_tests", 50, "H5N4S2", 'none')
+    draw_glycan("D:/Arquivos/Desktop/GG_test", 50, "H6N4Am2E1", 'none')

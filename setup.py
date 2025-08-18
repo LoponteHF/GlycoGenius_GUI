@@ -21,7 +21,7 @@ from distutils.command.install import INSTALL_SCHEMES
 import sys
 import os
 
-current_version='1.0.14'
+current_version='1.0.15'
 
 for scheme in INSTALL_SCHEMES.values():
     scheme['data'] = scheme['purelib']

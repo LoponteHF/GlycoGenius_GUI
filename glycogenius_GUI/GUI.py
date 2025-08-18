@@ -17,8 +17,8 @@
 # by typing 'glycogenius'. If not, see <https://www.gnu.org/licenses/>.
 
 global gg_version, GUI_version
-gg_version = '1.2.14'
-GUI_version = '1.0.14'
+gg_version = '1.2.15'
+GUI_version = '1.0.15'
 
 from PIL import Image, ImageTk
 from tkinter import messagebox
@@ -158,7 +158,7 @@ if platform.system() != 'Windows':
     multiprocessing.set_start_method('spawn', force=True)
 
 # All the settings necessary to make a Glycogenius run
-global min_max_monos, min_max_hex, min_max_hn, min_max_hexnac, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, min_max_ua, forced, max_adducts, max_charges, reducing_end_tag, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, fast_iso, high_res, number_cores, multithreaded_analysis, exp_lib_name, min_samples, lyase_digested, custom_monosaccharides
+global min_max_monos, min_max_hex, min_max_hn, min_max_hexnac, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, min_max_ua, forced, max_adducts, max_charges, reducing_end_tag, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, fast_iso, high_res, number_cores, multithreaded_analysis, exp_lib_name, min_samples, lyase_digested, custom_monosaccharides, ion_mode_selected
 
 custom_glycans_list = [False, '']
 min_max_monos = [5, 22]
@@ -176,6 +176,7 @@ forced = 'n_glycans'
 max_adducts = {}
 adducts_exclusion = []
 max_charges = 3
+ion_mode_selected = False
 reducing_end_tag = 0.0
 permethylated = False
 reduced = False
@@ -347,6 +348,13 @@ list_font_size = 10
 list_font_size_smaller = 8
 button_font_size = 10
 big_button_size = (int(button_font_size), int(button_font_size*2))
+
+global standard_library_parameters
+standard_library_parameters = {
+                               'N-glycans': {'monos': [3, 22], 'h': [1, 10], 'hn': [0, 0], 'n': [2, 8], 'x': [0, 0], 'f': [0, 2], 'sia': [0, 4], 'ua': [0, 0], 's': [0, 4], 'g': [0, 0], 'class': 'n_glycans', 'lyase': False},
+                               'O-glycans': {'monos': [1, 10], 'h': [0, 8], 'hn': [0, 0], 'n': [1, 8], 'x': [0, 0], 'f': [0, 2], 'sia': [0, 4], 'ua': [0, 0], 's': [0, 4], 'g': [0, 0], 'class': 'o_glycans', 'lyase': False},
+                               'GAGs': {'monos': [1, 6], 'h': [0, 0], 'hn': [0, 3], 'n': [0, 3], 'x': [0, 0], 'f': [0, 0], 'sia': [0, 0], 'ua': [0, 3], 's': [0, 0], 'g': [0, 0], 'class': 'gags', 'lyase': True}
+                               }
 
 # Classes
 class gg_archive:
@@ -1836,8 +1844,8 @@ def annotate_ms2_spectrum(file, spectrum, fragments_dict, tolerance, target_glyc
     for fragment in annotated_fragments:
         fragment[7] = total_array_intensity
             
-                
     return annotated_fragments
+    
 def on_closing():
     '''This function is used to remove the function from the Close Window button (x button).'''
     return
@@ -5242,7 +5250,7 @@ def run_main_window():
                     glycan = parent_text
                     parent_item = chromatograms_list.parent(parent_item)
                     parent_text = chromatograms_list.item(parent_item, "text")
-                    
+                
                 remove = False
                 for index, element in enumerate(selected_chromatograms):
                     if glycan == element[0] or f"{parent_text}+{glycan}" == element[0]:
@@ -5251,7 +5259,7 @@ def run_main_window():
                         break
                         
                 if not remove:
-                    if len(glycan.split("-")) > 1 or type(glycan) == float:
+                    if (len(glycan.split("-")) > 1 and not f"{parent_text}+{glycan}".startswith("+")) or type(glycan) == float:
                         selected_chromatograms.append([f"{parent_text}+{glycan}", 2])
                     else:
                         selected_chromatograms.append([glycan, 1])
@@ -8761,6 +8769,8 @@ def run_main_window():
                             glycan+= "+"+label_split[index]
                         if "(p)" in part:
                             glycan+= "+"+label_split[index]
+                        if "1Na" in part or "2Na" in part:
+                            glycan+= "+"+label_split[index]
                             
                     if len(label.split(" - ")) > 1:
                         adduct = glycan.split(" - ")[-1]
@@ -10118,7 +10128,7 @@ def run_set_parameters_window():
         full_library = library_data[0]
         library_metadata = library_data[1]
         
-        global min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, min_max_hn, min_max_ua, min_max_gc, forced, max_adducts, max_charges, reducing_end_tag, internal_standard, permethylated, lactonized_ethyl_esterified, min_max_sulfation, min_max_phosphorylation, reduced, fast_iso, high_res, lyase_digested, custom_monosaccharides, custom_glycans_list
+        global min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, min_max_hn, min_max_ua, min_max_gc, forced, max_adducts, max_charges, reducing_end_tag, internal_standard, permethylated, lactonized_ethyl_esterified, min_max_sulfation, min_max_phosphorylation, reduced, fast_iso, high_res, lyase_digested, custom_monosaccharides, custom_glycans_list, ion_mode_selected
         
         min_max_monos = library_metadata[0]
         min_max_hex = library_metadata[1]
@@ -10147,6 +10157,7 @@ def run_set_parameters_window():
             lyase_digested = library_metadata[23]
         if len(library_metadata) > 24:
             custom_monosaccharides = library_metadata[24]
+        ion_mode_selected = True
             
     # Fetch global variables, whenever possible
     global custom_glycans_list, analyze_ms2, custom_monosaccharides
@@ -10271,9 +10282,6 @@ def run_set_parameters_window():
     def lac_ee_checkbox_state_check():
         state = lac_ee_checkbox_state.get()
         
-    def negative_mode_checkbox_state_check():
-        state = negative_mode_checkbox_state.get()
-        
     def fast_iso_checkbox_state_check():
         state = fast_iso_checkbox_state.get()
         if int(state) == 1:
@@ -10344,7 +10352,7 @@ def run_set_parameters_window():
             lyase_digested_checkbox.config(state=tk.DISABLED)
             
     def ok_sp_window():
-        global save_path, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_fuc,  min_max_sia, min_max_ac, min_max_gc, min_max_hn, min_max_ua, internal_standard, reducing_end_boolean, reducing_end_tag, permethylated, reduced, lactonized_ethyl_esterified,  min_max_sulfation,  min_max_phosphorylation,  forced, fast_iso, high_res, multithreaded_analysis, number_cores, min_ppp,  close_peaks, iso_fit_score, curve_fit_score, s_to_n, max_ppm, h_adduct, na_adduct, k_adduct, li_adduct, max_charges, max_adducts, adducts_exclusion, custom_glycans_list, lyase_digested, custom_monosaccharides
+        global save_path, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_fuc,  min_max_sia, min_max_ac, min_max_gc, min_max_hn, min_max_ua, internal_standard, reducing_end_boolean, reducing_end_tag, permethylated, reduced, lactonized_ethyl_esterified,  min_max_sulfation,  min_max_phosphorylation,  forced, fast_iso, high_res, multithreaded_analysis, number_cores, min_ppp,  close_peaks, iso_fit_score, curve_fit_score, s_to_n, max_ppm, h_adduct, na_adduct, k_adduct, li_adduct, max_charges, max_adducts, adducts_exclusion, custom_glycans_list, lyase_digested, custom_monosaccharides, ion_mode_selected
         
         parameters_dict = {'Min. Monosaccharides':min_monosaccharides_entry.get(), 
                            'Max. Monosaccharides':max_monosaccharides_entry.get(), 
@@ -10395,6 +10403,9 @@ def run_set_parameters_window():
             else:
                 cores_good=False
                 error_window("Invalid input on the field:\n\nNumber of Cores\n\nCorrect it and try again.")
+        if not ion_mode_choice.get():
+            error_window("You must set an ion mode before confirming settings!")
+            return
         # if local_custom_glycans_list[0] and local_custom_glycans_list[1] == '':
             # error_window("No custom glycan file set. Uncheck 'Use Custom Library' or select a file.")
             # return
@@ -10416,7 +10427,7 @@ def run_set_parameters_window():
                     error_window("Max. Li value must be greater than min. Li value.")
                     return
                 li_adduct = [int(lithium_min_entry.get()), int(lithium_max_entry.get())]
-                max_charges = int(max_charges_entry.get()) if negative_mode_checkbox_state.get() == False else -int(max_charges_entry.get())
+                max_charges = int(max_charges_entry.get()) if ion_mode_choice.get() == 'pos' else -int(max_charges_entry.get())
                 max_adducts = {'H':h_adduct[1], 'Na':na_adduct[1], 'K':k_adduct[1], 'Li':li_adduct[1]}
                 min_adducts = {'H':h_adduct[0], 'Na':na_adduct[0], 'K':k_adduct[0], 'Li':li_adduct[0]}
                 for i in min_adducts:
@@ -10538,6 +10549,7 @@ def run_set_parameters_window():
                     set_parameters_frame.config(bg="lightgreen")
                 else:
                     set_parameters_frame.config(bg="red")
+                ion_mode_selected = True
                 close_sp_window()
             except Exception:
                 last_line = traceback.format_exc().split(" ")[-1][1:-2]
@@ -10632,7 +10644,7 @@ def run_set_parameters_window():
             export_na_adduct = [int(sodium_min_entry.get()), int(sodium_max_entry.get())]
             export_k_adduct = [int(potassium_min_entry.get()), int(potassium_max_entry.get())]
             export_li_adduct = [int(lithium_min_entry.get()), int(lithium_max_entry.get())]
-            export_max_charges = int(max_charges_entry.get()) if negative_mode_checkbox_state.get() == False else -int(max_charges_entry.get())
+            export_max_charges = int(max_charges_entry.get()) if ion_mode_choice.get() == 'pos' else -int(max_charges_entry.get())
             export_max_adducts = {'H':export_h_adduct[1], 'Na':export_na_adduct[1], 'K':export_k_adduct[1], 'Li':export_li_adduct[1]}
             export_min_adducts = {'H':export_h_adduct[0], 'Na':export_na_adduct[0], 'K':export_k_adduct[0], 'Li':export_li_adduct[0]}
             for i in export_min_adducts:
@@ -10675,7 +10687,7 @@ def run_set_parameters_window():
             f.write("\n")
             f.write(f"[post-analysis/reanalysis]\n")
             f.write(f"filter_ms2_by_reporter_ions = \n")
-            f.write(f"align_chromatograms = True\n")
+            f.write(f"align_chromatograms = False\n")
             f.write(f"auc_percentage_threshold = 1\n")
             f.write(f"minimum_samples = 0\n")
             f.write(f"max_ppm_threshold = {float(ppm_error_min_entry.get())}, {float(ppm_error_max_entry.get())}\n")
@@ -10776,9 +10788,9 @@ def run_set_parameters_window():
         max_charges_entry.delete(0, tk.END)
         max_charges_entry.insert(0, abs(parameters[0][11]))
         if parameters[0][11] < 0:
-            negative_mode_checkbox_state.set(True)
+            ion_mode_choice.set('neg')
         else:
-            negative_mode_checkbox_state.set(False)
+            ion_mode_choice.set('pos')
             
         # Insert score values in the entry boxes
         ppm_error_min_entry.delete(0, tk.END)
@@ -11443,6 +11455,140 @@ def run_set_parameters_window():
             acc_value_entry.delete(0, tk.END)
             new_value = int((previous_value/1000)*(10**6))
             acc_value_entry.insert(0, new_value)
+            
+    def create_standard_library_param_window():    
+        def on_focus_loss(event):
+            if not any(widget.winfo_exists() and widget.focus_displayof() for widget in std_param_window.winfo_children()):
+                std_param_window.destroy()
+                
+        def set_parameters(params):
+            # Custom library settings
+            use_custom_library_checkbox_state.set(False)
+            from_file_button_state = tk.DISABLED
+            from_file_button.config(state = from_file_button_state)
+            local_custom_glycans_list[0] = False
+            
+            # Activate monosaccharide number entries
+            min_monosaccharides_entry.config(state=tk.NORMAL)
+            max_monosaccharides_entry.config(state=tk.NORMAL)
+            min_hex_entry.config(state=tk.NORMAL)
+            max_hex_entry.config(state=tk.NORMAL)
+            min_hn_entry.config(state=tk.NORMAL)
+            max_hn_entry.config(state=tk.NORMAL)
+            min_hexnac_entry.config(state=tk.NORMAL)
+            max_hexnac_entry.config(state=tk.NORMAL)
+            min_xyl_entry.config(state=tk.NORMAL)
+            max_xyl_entry.config(state=tk.NORMAL)
+            min_dhex_entry.config(state=tk.NORMAL)
+            max_dhex_entry.config(state=tk.NORMAL)
+            min_sia_entry.config(state=tk.NORMAL)
+            max_sia_entry.config(state=tk.NORMAL)
+            min_ua_entry.config(state=tk.NORMAL)
+            max_ua_entry.config(state=tk.NORMAL)
+            min_neu5ac_entry.config(state=tk.NORMAL)
+            max_neu5ac_entry.config(state=tk.NORMAL)
+            min_neu5gc_entry.config(state=tk.NORMAL)
+            max_neu5gc_entry.config(state=tk.NORMAL)
+            
+            # Set monosaccharide numbers
+            min_monosaccharides_entry.delete(0, tk.END)
+            min_monosaccharides_entry.insert(0, params['monos'][0])
+            max_monosaccharides_entry.delete(0, tk.END)
+            max_monosaccharides_entry.insert(0, params['monos'][1])
+            min_hex_entry.delete(0, tk.END)
+            min_hex_entry.insert(0, params['h'][0])
+            max_hex_entry.delete(0, tk.END)
+            max_hex_entry.insert(0, params['h'][1])
+            min_hn_entry.delete(0, tk.END)
+            min_hn_entry.insert(0, params['hn'][0])
+            max_hn_entry.delete(0, tk.END)
+            max_hn_entry.insert(0, params['hn'][1])
+            min_hexnac_entry.delete(0, tk.END)
+            min_hexnac_entry.insert(0, params['n'][0])
+            max_hexnac_entry.delete(0, tk.END)
+            max_hexnac_entry.insert(0, params['n'][1])
+            min_xyl_entry.delete(0, tk.END)
+            min_xyl_entry.insert(0, params['x'][0])
+            max_xyl_entry.delete(0, tk.END)
+            max_xyl_entry.insert(0, params['x'][1])
+            min_dhex_entry.delete(0, tk.END)
+            min_dhex_entry.insert(0, params['f'][0])
+            max_dhex_entry.delete(0, tk.END)
+            max_dhex_entry.insert(0, params['f'][1])
+            min_sia_entry.delete(0, tk.END)
+            min_sia_entry.insert(0, params['sia'][0])
+            max_sia_entry.delete(0, tk.END)
+            max_sia_entry.insert(0, params['sia'][1])
+            min_ua_entry.delete(0, tk.END)
+            min_ua_entry.insert(0, params['ua'][0])
+            max_ua_entry.delete(0, tk.END)
+            max_ua_entry.insert(0, params['ua'][1])
+            min_neu5ac_entry.delete(0, tk.END)
+            min_neu5ac_entry.insert(0, params['s'][0])
+            max_neu5ac_entry.delete(0, tk.END)
+            max_neu5ac_entry.insert(0, params['s'][1])
+            min_neu5gc_entry.delete(0, tk.END)
+            min_neu5gc_entry.insert(0, params['g'][0])
+            max_neu5gc_entry.delete(0, tk.END)
+            max_neu5gc_entry.insert(0, params['g'][1])
+            
+            # Set glycan class
+            lyase_digested_checkbox.config(state=tk.NORMAL)
+            lyase_digested_checkbox_state.set(False)
+            lyase_digested_checkbox.config(state=tk.DISABLED)
+            
+            if params['class'] == 'n_glycans':
+                forced_class_dropdown.set('N-Glycans')
+            elif params['class'] == 'o_glycans':
+                forced_class_dropdown.set('O-Glycans')
+            elif params['class'] == 'gags':
+                forced_class_dropdown.set('GAGs')
+                lyase_digested_checkbox.config(state=tk.NORMAL)
+                lyase_digested_checkbox_state.set(params['lyase'])
+            else:
+                forced_class_dropdown.set('None')
+        
+        # Mouse cursor location
+        x = main_window.winfo_pointerx()+15
+        y = main_window.winfo_pointery()+15
+        
+        # Screen size
+        screen_width = main_window.winfo_screenwidth()
+        screen_height = main_window.winfo_screenheight()
+        
+        # Widget size
+        widget_width = 150
+        widget_height = 80
+        
+        # Adjustment for tooltip position on screen
+        if x + widget_width > screen_width:  # Tooltip goes off the screen
+            x = main_window.winfo_pointerx()-15 - widget_width  # Move to the left side
+        if y + widget_height > screen_height:  # Tooltip goes off the screen
+            y = main_window.winfo_pointery()-15 - widget_height  # Move to the left side
+        
+        # Window creation
+        std_param_window = tk.Toplevel(set_parameters_window)
+        std_param_window.overrideredirect(True)
+        std_param_window.geometry(f"+{x}+{y}")
+        std_param_window.attributes('-topmost', True)
+        std_param_window.bind("<FocusOut>", on_focus_loss)
+        
+        std_param_window.focus_set()
+
+        std_param_window_frame = tk.Frame(std_param_window, highlightbackground="grey", highlightthickness=1)
+        std_param_window_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Buttons creation
+        buttons = {}
+        options_count = 0
+        for option, params in standard_library_parameters.items():
+            buttons[option] = ttk.Button(std_param_window_frame, text=option, command=lambda p=params: set_parameters(p))
+            buttons[option].grid(row=options_count//3, column=options_count%3, pady=5, padx=5)
+            options_count += 1
+            
+        # Warning label
+        warning_label = ttk.Label(std_param_window_frame, text="Adjust the parameters manually based on\nyour sample for optimal performance.", foreground="red", font=("Segoe UI", list_font_size, "bold"))
+        warning_label.grid(row=(options_count//3)+1, column=0, columnspan=3, pady=(0, 5), padx=5)
         
     # Create a new top-level window
     set_parameters_window = tk.Toplevel()
@@ -11804,8 +11950,12 @@ def run_set_parameters_window():
     ToolTip(intstandard_entry, "Insert the internal standard used. You can input a mass, a chemical formula or a glycan formula. If you use a glycan formula, the reducing end modification (tag or reduced) or permethylation will be applied to it, if you selected these modifications.\nIn case of Amidation/ Ethyl-Esterification, input the modified sialic acid (e.g.: Am, E, AmG or EG).")
     
     custom_monosaccharide_button = ttk.Button(library_building_frame, text="Custom Monosaccharides", style="small_button_spw_style1.TButton", command=open_custom_monosaccharides_window)
-    custom_monosaccharide_button.grid(row=14, column=1, padx=(10, 10), pady=0, sticky='we')
+    custom_monosaccharide_button.grid(row=13, column=1, padx=(10, 10), pady=(5, 0), sticky='we')
     ToolTip(custom_monosaccharide_button, "Opens a window that let's you input custom monosaccharides information, allowing you to build search spaces with different derivatizations or exotic monosaccharides.")
+    
+    standard_lib_param_button = ttk.Button(library_building_frame, text="Standard Library\nParameters", style="small_button_spw_style1.TButton", command=create_standard_library_param_window)
+    standard_lib_param_button.grid(row=14, rowspan=2, column=1, padx=(10, 10), pady=0, sticky='we')
+    ToolTip(standard_lib_param_button, "Provides standard parameters to be used as a starting point for your data analysis.\nWarning: As these default parameters are based of mammalian samples, you may need to adjust them to better fit samples from other organisms.")
     
     modifications_label = ttk.Label(library_building_frame, text='Modifications:', font=("Segoe UI", list_font_size))
     modifications_label.grid(row=15, column=0, columnspan=2, padx=(10, 10), pady=(10, 0), sticky="w")
@@ -11904,6 +12054,22 @@ def run_set_parameters_window():
     max_phosphorylation_entry.grid(row=22, column=0, padx=(160, 0), sticky='w')
     max_phosphorylation_entry.insert(0, min_max_phosphorylation[1])
     ToolTip(max_phosphorylation_entry, "Input the minimum and maximum number of phosphorylations per glycan.")
+    
+    ion_mode_label = ttk.Label(library_building_frame, text='Ion mode:', font=("Segoe UI", list_font_size, 'bold'))
+    ion_mode_label.grid(row=23, column=0, columnspan=2, padx=10, pady=(0, 10), sticky="w")
+    ToolTip(ion_mode_label, "Select the ionization mode used during the data acquisition.")
+    
+    ion_mode_choice = tk.StringVar(value=None if not ion_mode_selected else ('neg' if max_charges<0 else "pos"))
+    
+    radio_button_style = ttk.Style().configure("Bold.TRadiobutton", font=("Segoe UI", list_font_size, 'bold'))
+
+    positive_mode_radio = ttk.Radiobutton(library_building_frame, text="Positive", value='pos', variable=ion_mode_choice, style="Bold.TRadiobutton")
+    positive_mode_radio.grid(row=23, column=0, columnspan=2, padx=(200, 0), pady=(0, 10), sticky="w")
+    ToolTip(positive_mode_radio, "Select this option if data was acquired in positive mode.")
+    
+    negative_mode_radio = ttk.Radiobutton(library_building_frame, text="Negative", value='neg', variable=ion_mode_choice, style="Bold.TRadiobutton")
+    negative_mode_radio.grid(row=23, column=0, columnspan=2, padx=(280, 0), pady=(0, 10), sticky="w")
+    ToolTip(negative_mode_radio, "Select this option if data was acquired in negative mode.")
     
     add_settings_label = ttk.Label(library_building_frame, text='Additional Settings:', font=("Segoe UI", list_font_size))
     add_settings_label.grid(row=24, column=0, columnspan=2, padx=(10, 10), pady=(0, 0), sticky="w")
@@ -12006,11 +12172,6 @@ def run_set_parameters_window():
     max_charges_entry.grid(row=22, column=1, padx=(110, 0), pady=(5, 10), sticky='w')
     max_charges_entry.insert(0, abs(max_charges))
     ToolTip(max_charges_entry, "Set the maximum amount of charges for any given combination of the adducts selected. Adducts combination that exceed this number won't be used for analysis.")
-    
-    negative_mode_checkbox_state = tk.BooleanVar(value=(True if max_charges<0 else False))
-    negative_mode_checkbox = ttk.Checkbutton(library_building_frame, text="Negative Mode", variable=negative_mode_checkbox_state, command=negative_mode_checkbox_state_check)
-    negative_mode_checkbox.grid(row=23, column=1, padx=(20, 10), pady=(0, 10), sticky="w")
-    ToolTip(negative_mode_checkbox, "Allows analysis of data acquired in negative mode. For now only supports proton adducts.")
     
     lyase_digested_checkbox_activation_state = tk.NORMAL
     if forced_class_dropdown.get() != 'GAGs':
