@@ -98,7 +98,7 @@ def calculate_coordinates(x, y, size):
     '''
     return (1.8*size)+(x*1.8*size), y*1.8*size
 
-def form_to_comp(string):
+def form_to_comp_glycans(string):
     '''Separates a molecular formula or monosaccharides formula of glycans into a
     dictionary with each atom/monosaccharide as a key and its amount as value.
 
@@ -1454,7 +1454,7 @@ def draw_glycan(figures_folder, size, glycan_input, glycan_class):
             font = ImageFont.load_default()
             
     # Change 'Am', 'EG' and 'AmG' to 'S' and count their amounts for later usage
-    derivatization_test = form_to_comp(glycan_input)
+    derivatization_test = form_to_comp_glycans(glycan_input)
     am_count = derivatization_test.get('Am')
     amg_count = derivatization_test.get('AmG')
     e_count = derivatization_test.get('E')
@@ -1497,7 +1497,7 @@ def draw_glycan(figures_folder, size, glycan_input, glycan_class):
             f.close()
 
         # Turn the glycan into composition
-        glycan_comp = form_to_comp(glycan)
+        glycan_comp = form_to_comp_glycans(glycan)
 
         # Check if it could be a N-glycan
         if ('N' in glycan_comp and glycan_comp['N'] >=2) and ('H' in glycan_comp and glycan_comp['H'] >= 3):
@@ -1598,7 +1598,7 @@ def draw_glycan(figures_folder, size, glycan_input, glycan_class):
             f.close()
 
         # Turn the glycan into composition
-        glycan_comp = form_to_comp(glycan)
+        glycan_comp = form_to_comp_glycans(glycan)
 
         # Check if 'N' is in the composition
         if 'N' in glycan_comp and glycan_comp['N'] > 0:

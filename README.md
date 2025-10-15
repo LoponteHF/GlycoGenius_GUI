@@ -17,11 +17,16 @@ This GUI module uses the [GlycoGenius backend](https://github.com/LoponteHF/Glyc
 ## Installation
 
 There are two ways to install it:
-1. Download the latest version from the [Releases page](https://github.com/LoponteHF/GlycoGenius_GUI/releases), unzip it and run the executable file (Windows only, for other OS, you can install the GUI from PyPI);
-2. Install from PyPI:
-	1. Install Python from python.org or from your OS package distributor;
-	2. Type "pip install glycogenius_GUI" on a terminal;
-	3. Run it by typing "glycogenius_GUI" on the terminal.
+- Download the latest version from the [Releases page](https://github.com/LoponteHF/GlycoGenius_GUI/releases), unzip it and run the executable file (Windows only, for other OS, you can install the GUI from PyPI);
+- Install from PyPI:
+	1. Install Python from [python.org](https://www.python.org/) or from your OS package distributor;
+	2. Type "pip install glycogenius_GUI" or "pip3 install glycogenius_GUI" on a terminal;
+	3. Run it by typing "glycogenius_GUI" or "python3 -m glycogenius_GUI" on the terminal.
+~~~
+		glycogenius_GUI
+~~~
+	
+Older versions of MacOS might not install GlycoGenius properly on Python versions 3.14 or later, so install an earlier, compatible Python version, such as 3.13.
 	
 ## Usage
 
