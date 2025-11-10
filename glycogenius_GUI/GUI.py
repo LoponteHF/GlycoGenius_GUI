@@ -17,8 +17,8 @@
 # by typing 'glycogenius'. If not, see <https://www.gnu.org/licenses/>.
 
 global gg_version, GUI_version
-gg_version = '1.3.0'
-GUI_version = '1.1.0'
+gg_version = '1.3.1'
+GUI_version = '1.1.1'
 
 from PIL import Image, ImageTk
 from tkinter import messagebox
@@ -8588,10 +8588,10 @@ def run_main_window():
             if glycan in os.listdir(gg_draw_glycans_path):
                 directory_files = os.listdir(os.path.join(gg_draw_glycans_path, f"{glycan}"))
                 for file in directory_files:
-                    if parameters_gg[0][8] == 'n_glycans':
+                    if parameters_gg['library settings']['glycan class'] == 'n_glycans':
                         if file.split(".")[0].split("_")[2] == "N":
                             possibilities.append(file)
-                    elif parameters_gg[0][8] == 'o_glycans':
+                    elif parameters_gg['library settings']['glycan class'] == 'o_glycans':
                         if file.split(".")[0].split("_")[2] == "O":
                             possibilities.append(file)
                     else:
@@ -10612,6 +10612,7 @@ def run_set_parameters_window():
             reducing_end_tag_entry.delete(0, tk.END)
             reducing_end_tag_entry.insert(0, '0.0')
             reducing_end_tag_entry.config(state=tk.DISABLED) 
+            reducing_end_tag_dropdown.set('Custom')
             reducing_end_tag_dropdown.state(['disabled'])
             reduced_checkbox.config(state=tk.NORMAL)
             
@@ -10883,7 +10884,17 @@ def run_set_parameters_window():
                 custom_glycans_list = local_custom_glycans_list
                 custom_monosaccharides = local_custom_monos_list
                 analyze_ms2 = local_analyze_ms2
+                
+                # Test reducing end tag
                 reducing_end_boolean = reducing_end_tag_checkbox_state.get()
+                if reducing_end_tag_dropdown.get() == 'Peptide' or reducing_end_tag_entry.get().split("-")[0] == 'pep':
+                    if len(reducing_end_tag_entry.get().split("-")) > 1:
+                        to_check = reducing_end_tag_entry.get().split("-")[1]
+                    else:
+                        to_check = reducing_end_tag_entry.get()
+                    if any(ch.isdigit() for ch in to_check):
+                        error_window("A peptide sequence must be only built of letters.")
+                        return
                 reducing_end_tag = f"{f'pep-{reducing_end_tag_entry.get()}' if reducing_end_tag_dropdown.get() == 'Peptide' else reducing_end_tag_entry.get()}"
                 permethylated = permethylated_checkbox_state.get()
                 reduced = reduced_checkbox_state.get()
@@ -10905,7 +10916,7 @@ def run_set_parameters_window():
                 high_res = hires_iso_checkbox_state.get()
                 multithreaded_analysis = multithreaded_checkbox_state.get()
                 number_cores = number_cores_entry.get()
-                if len(save_path) > 0:
+                if len(save_path) > 0 and ion_mode_choice.get():
                     set_parameters_frame.config(bg="lightgreen")
                 else:
                     set_parameters_frame.config(bg="red")
@@ -10913,6 +10924,7 @@ def run_set_parameters_window():
                     ion_mode_selected = True
                     max_charges = -int(max_charges_entry.get()) if ion_mode_choice.get() == 'neg' else int(max_charges_entry.get())
                 close_sp_window()
+                
             except Exception as e:
                 print(e)
                 last_line = traceback.format_exc().split(" ")[-1][1:-2]
@@ -11414,26 +11426,38 @@ def run_set_parameters_window():
                 for i in f:
                     temp_custom_glycans_list += i
                 f.close()
+                
             if len(temp_custom_glycans_list.strip()) == 0:
                 error_window("Custom glycans file is incorrect. Make sure the glycans are comma-separated or line-separated.")
                 file_dialog.destroy()
                 custom_glycans_window.grab_set()
                 return
+                
+            # Attempt to split by commas
             ocgw_custom_glycans = temp_custom_glycans_list.split(",")
+            
+            # Attempt to split by new lines
             if len(ocgw_custom_glycans) == 1:
                 ocgw_custom_glycans = ocgw_custom_glycans[0].split("\n")
+            
+            # Cleanup
             to_remove = []
-            if len(ocgw_custom_glycans) > 1:
-                for i_i, i in enumerate(ocgw_custom_glycans):
-                    ocgw_custom_glycans[i_i] = i.strip()
-                    if len(i) == 0:
-                        to_remove.append(i_i)
+            
+            # Remove empty entries
+            for i_i, i in enumerate(ocgw_custom_glycans):
+                ocgw_custom_glycans[i_i] = i.strip()
+                if len(i) == 0:
+                    to_remove.append(i_i)
             for i in sorted(to_remove, reverse = True):
                 del ocgw_custom_glycans[i]
+                
+            # Delete the current text in the entry
             custom_glycans_text.delete(1.0, tk.END)
+            
+            # Insert the new glycans
             for i_i, i in enumerate(ocgw_custom_glycans):
                 custom_glycans_text.insert(tk.END, i)
-                if i_i != len(ocgw_custom_glycans[1])-1:
+                if i_i != len(ocgw_custom_glycans)-1:
                     custom_glycans_text.insert(tk.END, ", ")
                     
         file_dialog.destroy()
