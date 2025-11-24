@@ -18,7 +18,7 @@
 
 global gg_version, GUI_version
 gg_version = '1.3.1'
-GUI_version = '1.1.2'
+GUI_version = '1.1.3'
 
 from PIL import Image, ImageTk
 from tkinter import messagebox
@@ -903,6 +903,7 @@ class ToolTip:
         self.entered = False
         self.widget.bind("<Enter>", self.on_enter)
         self.widget.bind("<Leave>", self.on_leave)
+        self.widget.bind("<Button-1>", self.on_leave)
         
         # Store tooltip in widget dictionary
         self.widget.tooltip = self  # Assign tooltip to widget
@@ -11802,9 +11803,23 @@ def run_set_parameters_window():
             acc_value_entry.insert(0, new_value)
             
     def create_standard_library_param_window():    
-        def on_focus_loss(event):
-            if not any(widget.winfo_exists() and widget.focus_displayof() for widget in std_param_window.winfo_children()):
-                std_param_window.destroy()
+        def on_focus_loss(event):      
+            # For Linux crazy clicks to auto-unbind
+            try:
+                std_param_window.winfo_width()
+            except:
+                set_parameters_window.unbind("<Button-1>")
+                try:
+                    custom_adduct_window.destroy()
+                except:
+                    pass
+                return
+                    
+            if (main_window.winfo_pointerx() > x and main_window.winfo_pointerx() < std_param_window.winfo_width()+x) and (main_window.winfo_pointery() > y and main_window.winfo_pointery() < std_param_window.winfo_height()+y):
+                return
+                
+            std_param_window.destroy()
+            set_parameters_window.unbind("<Button-1>")
                 
         def set_parameters(params):
             # Custom library settings
@@ -11902,8 +11917,8 @@ def run_set_parameters_window():
         screen_height = main_window.winfo_screenheight()
         
         # Widget size
-        widget_width = 150
-        widget_height = 80
+        widget_width = 200
+        widget_height = 100
         
         # Adjustment for tooltip position on screen
         if x + widget_width > screen_width:  # Tooltip goes off the screen
@@ -11916,7 +11931,7 @@ def run_set_parameters_window():
         std_param_window.overrideredirect(True)
         std_param_window.geometry(f"+{x}+{y}")
         std_param_window.attributes('-topmost', True)
-        std_param_window.bind("<FocusOut>", on_focus_loss)
+        set_parameters_window.bind("<Button-1>", on_focus_loss)
         
         std_param_window.focus_set()
 
@@ -11936,9 +11951,25 @@ def run_set_parameters_window():
         warning_label.grid(row=(options_count//3)+1, column=0, columnspan=3, pady=(0, 5), padx=5)
             
     def create_custom_adduct_window(chem_form = None, charges = None):    
-        def on_focus_loss(event):
-            if not any(widget.winfo_exists() and widget.focus_displayof() for widget in custom_adduct_window.winfo_children()):
-                custom_adduct_window.destroy()
+        def on_focus_loss(event): 
+            # For Linux crazy clicks to auto-unbind
+            try:
+                custom_adduct_window.winfo_width()
+            except:
+                set_parameters_window.unbind("<Button-1>")
+                try:
+                    std_param_window.destroy()
+                except:
+                    pass
+                return
+            
+            # Check whether the click is within interface
+            if (main_window.winfo_pointerx() > x and main_window.winfo_pointerx() < custom_adduct_window.winfo_width()+x) and (main_window.winfo_pointery() > y and main_window.winfo_pointery() < custom_adduct_window.winfo_height()+y):
+                return
+                
+            # Destroy the window and unbind
+            custom_adduct_window.destroy()
+            set_parameters_window.unbind("<Button-1>")
                 
         def add_adduct(chem_form, charges):
             if type(chem_form) != str:
@@ -12018,7 +12049,7 @@ def run_set_parameters_window():
         custom_adduct_window.overrideredirect(True)
         custom_adduct_window.geometry(f"+{x}+{y}")
         custom_adduct_window.attributes('-topmost', True)
-        custom_adduct_window.bind("<FocusOut>", on_focus_loss)
+        set_parameters_window.bind("<Button-1>", on_focus_loss)
         
         custom_adduct_window.focus_set()
 
