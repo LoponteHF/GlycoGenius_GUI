@@ -1437,6 +1437,38 @@ def draw_full_o_glycan(i, index_combo, derivatized_sialic_acids, figures_folder,
 
     return index_combo
     
+# Path of the font used for drawing, found only once per session, as searching the system fonts is slow. None means not searched yet, '' means no font found
+font_path = None
+
+def load_font(font_size):
+    '''Loads the font used for drawing at the given size, falling back to the first system font found or to the default font.
+
+    Parameters
+    ----------
+    font_size : int
+        The size of the font.
+
+    Returns
+    -------
+    font
+        A PIL font.
+    '''
+    global font_path
+    
+    if font_path == None:
+        font_path = ''
+        for candidate_font in ["Arial.ttf"]+list_available_fonts():
+            try:
+                ImageFont.truetype(candidate_font, font_size)
+                font_path = candidate_font
+                break
+            except (IOError, IndexError):
+                pass
+    
+    if len(font_path) > 0:
+        return ImageFont.truetype(font_path, font_size)
+    return ImageFont.load_default()
+
 def draw_glycan(figures_folder, size, glycan_input, glycan_class):
     '''
     '''
@@ -1445,13 +1477,7 @@ def draw_glycan(figures_folder, size, glycan_input, glycan_class):
     current_dir = pathlib.Path(__file__).parent.resolve()
     
     # Load the font (use default font if custom font is not available)
-    try:
-        font = ImageFont.truetype("Arial.ttf", round(size*0.8))  # Specify font and size
-    except IOError:
-        try:
-            font = ImageFont.truetype(list_available_fonts()[0], round(size*0.8))  # Specify font and size
-        except IOError:
-            font = ImageFont.load_default()
+    font = load_font(round(size*0.8))
             
     # Change 'Am', 'EG' and 'AmG' to 'S' and count their amounts for later usage
     derivatization_test = form_to_comp_glycans(glycan_input)

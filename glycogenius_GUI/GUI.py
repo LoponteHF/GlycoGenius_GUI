@@ -17,9 +17,10 @@
 # by typing 'glycogenius'. If not, see <https://www.gnu.org/licenses/>.
 
 global gg_version, GUI_version
-gg_version = '1.3.2'
-GUI_version = '1.1.4'
+gg_version = '1.3.3'
+GUI_version = '1.1.5'
 
+# Load the bare minimum of modules to start the splash screen, which is necessary to be able to start the program without the splash screen taking a long time to load and to be able to show it while the rest of the modules are loading.
 from PIL import Image, ImageTk
 from tkinter import messagebox
 import tkinter as tk
@@ -103,6 +104,7 @@ def start_splash():
 # This has to come before importing everything, as these imports can take some time!
 start_splash()
 
+# Load all the necessary modules while the splash screen is running so the user doesn't think that the program is stuck
 from glycogenius.Modules.core import main as run_glycogenius
 from glycogenius.Modules import Execution_Functions, General_Functions, Config_Handler
 from tkinter import Menu, ttk, filedialog, colorchooser
@@ -125,7 +127,6 @@ import numpy as np
 import threading
 import matplotlib
 import shutil
-import importlib
 import sys
 import ctypes
 import traceback
@@ -137,18 +138,20 @@ import zipfile
 import dill
 import random
 import math
+import time
 
 # Windows only
 if platform.system() == 'Windows':
     import winreg as reg
 
-# For File Editor
+# For File Editor. These are imported here, even though only File_Editor.py uses them, so PyInstaller bundles them
 from reportlab.lib.pagesizes import letter, A4
 from reportlab.pdfgen import canvas as pdf_canvas
 from reportlab.lib.utils import ImageReader
 from reportlab.lib import colors
 from reportlab.lib.units import inch
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle
+import pastaq
 
 # For GG Draw
 from PIL import ImageDraw
@@ -158,7 +161,7 @@ if platform.system() != 'Windows':
     multiprocessing.set_start_method('spawn', force=True)
 
 # All the settings necessary to make a Glycogenius run
-global min_max_monos, min_max_hex, min_max_hn, min_max_hexnac, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, min_max_ua, forced, min_max_proton, max_charges, reducing_end_tag, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, fast_iso, high_res, number_cores, multithreaded_analysis, exp_lib_name, min_samples, lyase_digested, custom_monosaccharides, ion_mode_selected
+global min_max_monos, min_max_hex, min_max_hn, min_max_hexnac, min_max_fuc, min_max_sia, min_max_ac, min_max_gc, min_max_ua, forced, min_max_proton, max_charges, reducing_end_tag, internal_standard, permethylated, lactonized_ethyl_esterified, reduced, fast_iso, high_res, number_cores, multithreaded_analysis, exp_lib_name, min_samples, lyase_digested, custom_monosaccharides, ion_mode_selected
 
 custom_glycans_list = [False, '']
 min_max_monos = [5, 22]
@@ -235,6 +238,9 @@ gg_file_name = ""
 
 global former_reanalysis_list
 former_reanalysis_list = []
+
+global reanalysis_load_failed
+reanalysis_load_failed = False
 
 reducing_end_tags = {
     '2-AB': 'C7H8N2', 
@@ -1447,7 +1453,7 @@ def pre_process_one_sample(sample, sample_name):
         ms_key = 'msLevel'
         intensity_key = 'basePeakIntensity'
         precursor_key = ['precursorMz']
-        
+
     try:
         # Determine time unit
         if file_type == 'mzml':
@@ -1465,7 +1471,9 @@ def pre_process_one_sample(sample, sample_name):
             current_rt = float(i[rt_key]['scan'][0][rt_subkey]) if file_type == 'mzml' else float(i[rt_key])
 
             if ms_level == 2:
-                data['ms2'][last_ms1][current_rt] = [get_nested(i, precursor_key, fallback_precursor_key)] if file_type == 'mzml' else [k['precursorMz'] for k in get_nested(i, precursor_key)]
+                # MS2 scans before the first MS1 scan have no parent MS1 to be attached to
+                if last_ms1 in data['ms2']:
+                    data['ms2'][last_ms1][current_rt] = [get_nested(i, precursor_key, fallback_precursor_key)] if file_type == 'mzml' else [k['precursorMz'] for k in get_nested(i, precursor_key)]
 
             elif ms_level == 1:
                 ms1_array.append(i_i)
@@ -1541,8 +1549,13 @@ def calculate_ambiguities(df1):
     
 def load_reanalysis(reanalysis_path):
     '''This function loads the .gg file.'''
-    global glycans_per_sample, ms2_spectra_glycans, samples_dropdown_options, df1, df2, gg_file, parameters_gg, isotopic_fittings, curve_fittings, fragments_library_ms2_scores, gg_analysis_tolerance, adduct_combos_dict
+    global glycans_per_sample, ms2_spectra_glycans, samples_dropdown_options, df1, df2, gg_file, parameters_gg, isotopic_fittings, curve_fittings, fragments_library_ms2_scores, gg_analysis_tolerance, adduct_combos_dict, reanalysis_load_failed, former_alignments
+
+    reanalysis_load_failed = False
     
+    # Aligned chromatograms cached in the temp folder belong to the previously loaded file
+    former_alignments = []
+
     # Loads back data that had already been loaded before in this run or load from anew
     gg_file = gg_archive(reanalysis_path)
     
@@ -1560,10 +1573,12 @@ def load_reanalysis(reanalysis_path):
         
         if type(parameters_gg) != dict:
             error_window(f"This analysis file was created in a version of GlycoGenius before 1.3.0, and thus can only be opened in that or older versions.")
+            reanalysis_load_failed = True
             return "Error"
-        
+
     except:
         error_window(f"Something went wrong when loading the reanalysis file. Check if it is a .gg file. If it is, it might be corrupted.")
+        reanalysis_load_failed = True
         return "Error"
     
     # Add the filename to the dropdown menu
@@ -1947,7 +1962,23 @@ def handle_selection_vigilance():
     if f"mzml_window_{this_process_id}.txt" in os.listdir(check_folder):
         handle_selection(None)
         main_window.after(100, handle_selection_vigilance)
-                        
+
+def parse_plot_label(label, sample_glycans):
+    '''Splits the label of a plotted chromatogram into glycan, adduct and treeview level. Returns (None, None, 0) for lines that are not glycans, such as the BPC or quick traces.'''
+    if label in sample_glycans:
+        return label, None, 1
+    if " - " in label:
+        glycan, adduct = label.rsplit(" - ", 1)
+        level = 3
+    elif "+" in label:
+        glycan, adduct = label.rsplit("+", 1)
+        level = 2
+    else:
+        return None, None, 0
+    if glycan in sample_glycans and adduct in sample_glycans[glycan]:
+        return glycan, adduct, level
+    return None, None, 0
+
 def check_peak_quality(**kwargs):
     '''max_ppm, iso_fit_score, curve_fit_score, s_to_n'''
     count = 0
@@ -2883,13 +2914,18 @@ def run_main_window():
     def file_name_window(file_type = None):
         '''This function creates a window for setting the file name that will be saved when the library generation, analysis or save results finish.'''
             
-        invalid_characters = [':', '\"', '/', '\\', '|', '?', '*']
-        
+        invalid_characters = [':', '\"', '/', '\\', '|', '?', '*', '<', '>']
+
         def fn_ok(file_type = None):
             global exp_lib_name, gg_file_name
+            if len(file_name_entry.get().strip()) == 0:
+                error_window("You must type a file name.")
+                return
+            # '<' and '>' are only allowed as part of the <date> and <time> tags, which are replaced when the file is saved
+            name_to_check = file_name_entry.get().replace("<date>", "").replace("<time>", "")
             for i in invalid_characters:
-                if i in file_name_entry.get():
-                    error_window("You can use ':', '\"', '/', '\\', '|', '?', '*' in your file name")
+                if i in name_to_check:
+                    error_window("You can't use ':', '\"', '/', '\\', '|', '?', '*', '<', '>' in your file name, except for '<' and '>' in the <date> and <time> tags")
                     return
             if file_type == 'library':
                 exp_lib_name = file_name_entry.get()
@@ -3498,7 +3534,7 @@ def run_main_window():
                 
             def wait_thread():
                 reanalysis_file.join()
-                if reanalysis_file == 'Error':
+                if reanalysis_load_failed:
                     loading_files.destroy()
                     return
                 samples_dropdown.current(0)
@@ -3614,7 +3650,7 @@ def run_main_window():
             information_text.insert(tk.END, "\n")
             information_text.insert(tk.END, "Library properties:\n")
             
-            custom_glycans = library_metadata.get('custom glycans', [False, []])
+            custom_glycans = library_metadata.get('custom glycans list', [False, []])
             min_max_monos = library_metadata.get('min/max monosaccharides', [0, 0])
             min_max_hex = library_metadata.get('min/max hexoses', [0, 0])
             min_max_hexnac = library_metadata.get('min/max hexnac', [0, 0])
@@ -4026,7 +4062,7 @@ def run_main_window():
         t.start()
             
     def save_results_button_command():
-        if reanalysis_path == "":
+        if reanalysis_path == "" or reanalysis_load_failed:
             error_window("No reanalysis file found! Choose an reanalysis file in the 'Select Files' menu or run an analysis on sample files before trying to save results!")
         elif save_path == "":
             error_window("You must select a working directory in the 'Set Parameters' window before saving results!")
@@ -4549,7 +4585,7 @@ def run_main_window():
                 annotate_spectrum_button.config(state=tk.NORMAL)
                 files = samples_dropdown.cget('values')
                 file_index = files.index(samples_dropdown.get())
-                if spectrum_id in fragments_library_ms2_scores[1][file_index].keys():
+                if spectrum_id in fragments_library_ms2_scores[1].get(file_index, {}).keys():
                     spectrum_score = fragments_library_ms2_scores[1][file_index][spectrum_id]
                     spectrum_score_label.config(text=f"Glycan probability: {spectrum_score}/10")
                     ToolTip(spectrum_score_label, "Glycan probability is based on whether the top 10 most annotated fragments during the analysis were found within this spectrum.")
@@ -4573,17 +4609,18 @@ def run_main_window():
             if data_list and len(data_list) > 0:
                 plotted_glycans = [line.get_label() for line in ax.get_lines() if line.get_label()[0] != "_"]
                 
-                for glycan in plotted_glycans:
-                    glycan_splitted = glycan.split(" - ")
-                    if len(glycan_splitted) == 1:
-                        glycan_splitted = glycan.split("+")
-                        if len(glycan_splitted) != 1:
-                            glycan, adduct = glycan_splitted
-                        else:
-                            adduct = None
+                glycan = None
+                adduct = None
+                for label in plotted_glycans:
+                    if label in glycans_per_sample[selected_item]:
+                        glycan, adduct = label, None
+                    elif " - " in label:
+                        glycan, adduct = label.rsplit(" - ", 1)
+                    elif "+" in label:
+                        glycan, adduct = label.rsplit("+", 1)
                     else:
-                        glycan, adduct = glycan_splitted
-                        
+                        glycan, adduct = None, None
+
                     if glycan in data_list:
                         break
                     else:
@@ -5302,7 +5339,10 @@ def run_main_window():
             # Remove the execution holder txt file from temp folder
             this_process_id = os.getpid()
             general_temp_folder = os.path.join(tempfile.gettempdir())
-            os.remove(os.path.join(general_temp_folder, f"gg_{this_process_id}.txt"))
+            try:
+                os.remove(os.path.join(general_temp_folder, f"gg_{this_process_id}.txt"))
+            except:
+                pass
             try:
                 os.remove(os.path.join(general_temp_folder, f"mzml_window_{this_process_id}.txt"))
             except:
@@ -5361,7 +5401,14 @@ def run_main_window():
                 parent_item = chromatograms_list.parent(parent_item)
             if level != 3:
                 return
-        
+
+        # Check that there's curve-fitting data for this peak before building the window
+        pv_parent_item = chromatograms_list.parent(selected_item_pv)
+        pv_key = f"{chromatograms_list.item(chromatograms_list.parent(pv_parent_item), 'text')}+{chromatograms_list.item(pv_parent_item, 'text').split(' ')[0]}_{chromatograms_list.item(selected_item_pv, 'text')}_RTs"
+        if pv_key not in curve_fittings[list(glycans_per_sample.keys()).index(selected_item)]:
+            error_window("No curve-fitting data is available for this peak.")
+            return
+
         def close_peak_visualizer():
             peak_visualizer.destroy()
             
@@ -5556,7 +5603,7 @@ def run_main_window():
 
     def click_treeview(event):
         global chromatograms_list, selected_item, samples_list, selected_chromatograms, last_plotted
-        
+
         if gg_draw_on:
             check_gg_drawings_available(chromatograms_list, False)
         
@@ -5948,7 +5995,7 @@ def run_main_window():
                     total_glycans_df = make_total_glycans_df(df1, df2)
                     if len(total_glycans_df[0]['Glycan']) != 0:
                         chromatograms_delta = Execution_Functions.align_assignments(total_glycans_df, "total_glycans", multithreaded_analysis, number_cores, rt_tol = ret_time_interval[2])
-                        Execution_Functions.align_assignments(df2, 'chromatograms', multithreaded_analysis, number_cores, temp_folder, reanalysis_path, chromatograms_delta[1], None, iso_fit_score, curve_fit_score, max_ppm, s_to_n)
+                        Execution_Functions.align_assignments(df2, 'chromatograms', multithreaded_analysis, number_cores, gg_file.temp_path, reanalysis_path, chromatograms_delta[1], None, iso_fit_score, curve_fit_score, max_ppm, s_to_n)
                     former_alignments.append(f"{iso_fit_score}_{curve_fit_score}_{max_ppm}_{s_to_n}")
                 
                 last_xlims_chrom = ax_comp.get_xlim()
@@ -5961,7 +6008,7 @@ def run_main_window():
                     for i_i, i in enumerate(chromatograms_checkboxes.get_checked()):
                 
                         # Load retention times from file
-                        with open(os.path.join(temp_folder, f"{i}_aligned_RTs_{iso_fit_score}_{curve_fit_score}_{max_ppm}_{s_to_n}"), 'rb') as f:
+                        with open(os.path.join(gg_file.temp_path, f"{i}_aligned_RTs_{iso_fit_score}_{curve_fit_score}_{max_ppm}_{s_to_n}"), 'rb') as f:
                             x_values_comp = dill.load(f)
                             f.close()
                             
@@ -5987,7 +6034,7 @@ def run_main_window():
                     for i_i, i in enumerate(chromatograms_checkboxes.get_checked()):
                 
                         # Load retention times from file
-                        with open(os.path.join(temp_folder, f"{i}_aligned_RTs_{iso_fit_score}_{curve_fit_score}_{max_ppm}_{s_to_n}"), 'rb') as f:
+                        with open(os.path.join(gg_file.temp_path, f"{i}_aligned_RTs_{iso_fit_score}_{curve_fit_score}_{max_ppm}_{s_to_n}"), 'rb') as f:
                             x_values_comp = dill.load(f)
                             f.close()
                             
@@ -6084,7 +6131,7 @@ def run_main_window():
                     for i_i, i in enumerate(chromatograms_checkboxes.get_checked()):
                 
                         # Load retention times from file
-                        with open(os.path.join(temp_folder, f"{i}_aligned_RTs_{iso_fit_score}_{curve_fit_score}_{max_ppm}_{s_to_n}"), 'rb') as f:
+                        with open(os.path.join(gg_file.temp_path, f"{i}_aligned_RTs_{iso_fit_score}_{curve_fit_score}_{max_ppm}_{s_to_n}"), 'rb') as f:
                             x_values_comp = dill.load(f)
                             f.close()
                             
@@ -6110,7 +6157,7 @@ def run_main_window():
                     for i_i, i in enumerate(chromatograms_checkboxes.get_checked()):
                 
                         # Load retention times from file
-                        with open(os.path.join(temp_folder, f"{i}_aligned_RTs_{iso_fit_score}_{curve_fit_score}_{max_ppm}_{s_to_n}"), 'rb') as f:
+                        with open(os.path.join(gg_file.temp_path, f"{i}_aligned_RTs_{iso_fit_score}_{curve_fit_score}_{max_ppm}_{s_to_n}"), 'rb') as f:
                             x_values_comp = dill.load(f)
                             f.close()
                             
@@ -6316,7 +6363,7 @@ def run_main_window():
         
         # Align chromatograms checkbox, deprecated function
         align_chromatograms_checkbox_state = tk.BooleanVar(value=False)
-        align_chromatograms_checkbox = ttk.Checkbutton(compare_samples, text="Align Chromatograms/Electropherograms", variable=align_chromatograms_checkbox_state, command=align_chromatograms_checkbox_state_check)
+        align_chromatograms_checkbox = ttk.Checkbutton(compare_samples, text="Align Chromatograms/Electropherograms [LEGACY, SLOW]", variable=align_chromatograms_checkbox_state, command=align_chromatograms_checkbox_state_check)
         align_chromatograms_checkbox.grid(row=0, column=1, padx=10, pady=(10, 20), sticky="ne")
         ToolTip(align_chromatograms_checkbox, "Aligns the chromatograms/electropherograms. It's very dependent on the quality of the peaks, so adjusting quality thresholds may affect the alignment quality. The first time you check this box for a given set of QC thresholds it will take a while to calculate the alignments. DEPRECATED")
         
@@ -6492,6 +6539,13 @@ def run_main_window():
         
     def check_qc_dist():
         global sample_for_qc_dist, qc_dist_opened, qc_dist
+
+        def calculate_kde(values, y_values):
+            # The density curve can't be calculated for a single peak or when all values are equal, so it's left flat
+            try:
+                return gaussian_kde(values)(y_values)
+            except Exception:
+                return np.zeros(len(y_values))
             
         def adjust_subplot_size_qc(event, ax_plot, ax_kde):
             # Get the current size of the graph frame
@@ -6562,223 +6616,14 @@ def run_main_window():
                     tooltip.set_visible(False)
                     canvas.draw_idle()
                     
-        def model_electro_migrations():
-            def exit_check_electro_mig():
-                electro_migrations.destroy()
-                
-            def on_hover_electro_mig(event, canvas, ax, scatter, x_values, y_values, tooltip):
-                if event.inaxes == ax:
-                    cont, ind = scatter.contains(event)
-                    if cont:
-                        ind = ind['ind'][0]
-                        name = names[ind]
-                        x, y = x_values[ind], y_values[ind]
-                        tooltip.set_text(f'{name}\nX: {x:.1e}\nY: {y}')
-                        tooltip.xy = (x, y)
-                        tooltip.set_visible(True)
-                        canvas.draw_idle()
-                    else:
-                        tooltip.set_visible(False)
-                        canvas.draw_idle()
-                        
-            def ph_enter(event, hover_connect, tooltip, eq_r2, ax, canvas, scatter, trendline_base, trendline_plus20, trendline_minus20):
-                try:
-                    float(ph_entry.get())
-                except:
-                    error_window("Input a float in the pH entry field.")
-                    return
-                
-                glycans_list, quality_colors, q_list, mass_list, me_list, rt_list = calculate_electrophoretic_migrations()
-                
-                # Calculate the trendline (linear regression)
-                coefficients = np.polyfit(me_list, rt_list, 1)
-                polynomial = np.poly1d(coefficients)
-                trendline = polynomial(me_list)
-                    
-                # Calculate the trendline equation and R squared
-                trendline_equation = f"y = {coefficients[0]:2f}x + {coefficients[1]:.2f}"
-                y_mean = np.mean(rt_list)
-                ss_tot = np.sum((rt_list - y_mean) ** 2)
-                ss_res = np.sum((rt_list - trendline) ** 2)
-                r_squared = f"R² = {1 - (ss_res / ss_tot):.2f}"
-                
-                fig_elec_mig = plt.figure(figsize=(0, 0))
-                ax_elec_mig = fig_elec_mig.add_subplot(111)
-                ax_elec_mig.set_xlabel(r'$q / M^{\alpha}$')
-                ax_elec_mig.set_ylabel("t'")
-                
-                eq_r2.set_text(f"{trendline_equation}\n{r_squared}")
-                                     
-                scatter.set_offsets(np.c_[me_list, rt_list])
-                trendline_base[0].set_data(me_list, trendline)
-                trendline_plus20[0].set_data(me_list, [i*1.2 for i in trendline])
-                trendline_minus20[0].set_data(me_list, [i*0.8 for i in trendline])
-            
-                ax.set_ylim(min(rt_list)-0.1, max(rt_list)+0.1)
-                ax.set_xlim(min(me_list)-0.0001, max(me_list)+0.0001)
-                
-                canvas.draw()
-                
-                canvas.mpl_disconnect(hover_connect)
-                
-                hover_tooltip = canvas.mpl_connect('motion_notify_event', lambda event: on_hover_electro_mig(event, canvas, ax, scatter, me_list, rt_list, tooltip))
-            
-            def adjust_subplot_size_electro_mig(event, ax1):
-                # Get the current size of the graph frame
-                frame_width = event.width
-                frame_height = event.height
-                
-                # Define margin sizes (in pixels)
-                left_margin = 65
-                right_margin = 10
-                top_margin = 20
-                bottom_margin = 45
-                
-                # Calculate the position of the subplot relative to the frame size
-                subplot_width = (frame_width - left_margin - right_margin) / frame_width
-                subplot_height = (frame_height - top_margin - bottom_margin) / frame_height
-                subplot_left = left_margin / frame_width
-                subplot_bottom = bottom_margin / frame_height
-                
-                # Set the position of the subplot
-                ax1.set_position([subplot_left, subplot_bottom, subplot_width, subplot_height])
-            
-            def calculate_electrophoretic_migrations():
-                glycans_list = []
-                quality_colors = []
-                q_list = []
-                mass_list = []
-                me_list = []
-                rt_list = []
-                for i in glycans_per_sample[sample_for_qc_dist]:
-                    for j in glycans_per_sample[sample_for_qc_dist][i]:
-                        
-                        adduct_charge = adduct_combos_dict[j]['charges']
-                        
-                        for k_k, k in enumerate(glycans_per_sample[sample_for_qc_dist][i][j]['peaks']):
-                            glycans_list.append(f"{i}_{j}_{k}")
-                            
-                            fails = 0
-                            if glycans_per_sample[sample_for_qc_dist][i][j]['ppm'][k_k] < max_ppm[0] or glycans_per_sample[sample_for_qc_dist][i][j]['ppm'][k_k] > max_ppm[1]:
-                                fails += 1
-                            if glycans_per_sample[sample_for_qc_dist][i][j]['iso'][k_k] < iso_fit_score:
-                                fails += 1
-                            if glycans_per_sample[sample_for_qc_dist][i][j]['curve'][k_k] < curve_fit_score:
-                                fails += 1
-                            if glycans_per_sample[sample_for_qc_dist][i][j]['sn'][k_k] < s_to_n:
-                                fails += 1
-                            if fails == 0:
-                                quality_colors.append('green')
-                            elif fails == 1:
-                                quality_colors.append('#c7af12')
-                            else:
-                                quality_colors.append('red')
-                                
-                            q = 1
-                            composition = General_Functions.form_to_comp_glycans(i)
-                            if 'S' in composition.keys():
-                                q -= (composition['S']*(1/(1+10**(2.6-float(ph_entry.get())))))
-                            if 'G' in composition.keys():
-                                q -= (composition['G']*(1/(1+10**(2.92-float(ph_entry.get())))))
-                            q_list.append(q)
-                            mass_list.append(float(glycans_per_sample[sample_for_qc_dist][i][j]['mz'])*adduct_charge)
-                            me_list.append(q_list[-1]/(mass_list[-1]**1/2))
-                            rt_list.append(k)
-                reference_rt_id = mass_list.index(max(mass_list))
-                reference_rt = rt_list[reference_rt_id]
-                for i_i, i in enumerate(rt_list):
-                    rt_list[i_i] = float("%.2f" % round(i/reference_rt, 2))
-                    
-                return glycans_list, quality_colors, q_list, mass_list, me_list, rt_list
-                    
-            electro_migrations = tk.Toplevel()
-            icon = ImageTk.PhotoImage(ico_image)
-            electro_migrations.iconphoto(False, icon)
-            electro_migrations.withdraw()
-            electro_migrations.minsize(500, 500)
-            electro_migrations.bind("<Configure>", on_resize)
-            electro_migrations.title(f"Electrophoretic Migration Modelling - {sample_for_qc_dist}")
-            electro_migrations.resizable(True, True)
-            electro_migrations.protocol("WM_DELETE_WINDOW", exit_check_electro_mig)
-            
-            electro_migrations.grid_rowconfigure(0, weight=0)
-            electro_migrations.grid_rowconfigure(1, weight=1)
-            electro_migrations.grid_columnconfigure(0, weight=1)
-            
-            ph_label = ttk.Label(electro_migrations, text='Background Electrolyte pH: ', font=("Segoe UI", list_font_size))
-            ph_label.grid(row=0, column=0, padx=10, pady=(10, 10), sticky="nsw")
-            
-            ph_entry = ttk.Entry(electro_migrations, width=10)
-            ph_entry.insert(0, "2.3")
-            ph_entry.grid(row=0, column=0, padx=(180, 10), pady=(10, 10), sticky="nsw")
-    
-            glycans_list, quality_colors, q_list, mass_list, me_list, rt_list = calculate_electrophoretic_migrations()
-            
-            # Calculate the trendline (linear regression)
-            coefficients = np.polyfit(me_list, rt_list, 1)
-            polynomial = np.poly1d(coefficients)
-            trendline = polynomial(me_list)
-            
-            # Calculate the trendline equation and R squared
-            trendline_equation = f"y = {coefficients[0]:2f}x + {coefficients[1]:.2f}"
-            y_mean = np.mean(rt_list)
-            ss_tot = np.sum((rt_list - y_mean) ** 2)
-            ss_res = np.sum((rt_list - trendline) ** 2)
-            r_squared = f"R² = {1 - (ss_res / ss_tot):.2f}"
-            
-            fig_elec_mig = plt.figure(figsize=(0, 0))
-            ax_elec_mig = fig_elec_mig.add_subplot(111)
-            ax_elec_mig.set_xlabel(r'$q / M^{\alpha}$')
-            ax_elec_mig.set_ylabel("t'")
-            
-            eq_r2 = ax_elec_mig.text(0.95, 0.95, f"{trendline_equation}\n{r_squared}",
-                                     horizontalalignment='right',
-                                     verticalalignment='top',
-                                     transform=plt.gca().transAxes)
-            
-            global elec_mig_scatter, canvas_elec_mig
-            elec_mig_scatter = ax_elec_mig.scatter(me_list, rt_list, s=1, c=quality_colors)
-            trendline_base = ax_elec_mig.plot(me_list, trendline, color='red', label='Trendline')
-            trendline_plus20 = ax_elec_mig.plot(me_list, [i*1.2 for i in trendline], color='red', linestyle = ":", label='Trendline')
-            trendline_minus20 = ax_elec_mig.plot(me_list, [i*0.8 for i in trendline], color='red', linestyle = ":", label='Trendline')
-            
-            ax_elec_mig.xaxis.set_major_formatter(ScalarFormatter(useMathText=True))
-            ax_elec_mig.ticklabel_format(style='sci', axis='x', scilimits=(0,0))
-            
-            ax_elec_mig.set_ylim(min(rt_list)-0.1, max(rt_list)+0.1)
-            ax_elec_mig.set_xlim(min(me_list)-0.0001, max(me_list)+0.0001)
-            
-            canvas_elec_mig = FigureCanvasTkAgg(fig_elec_mig, master=electro_migrations)
-            canvas_elec_mig.draw()
-            canvas_elec_mig.get_tk_widget().grid(row=1, column=0, padx=(10, 10), pady=(10, 10), sticky="nswe")
-        
-            tooltip_elec_mig = ax_elec_mig.annotate('', xy=(0, 0), xytext=(10, -20), textcoords='offset points', bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.9), arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'), clip_on=True)
-        
-            hover_tooltip = canvas_elec_mig.mpl_connect('motion_notify_event', lambda event: on_hover_electro_mig(event, canvas_elec_mig, ax_elec_mig, elec_mig_scatter, me_list, rt_list, tooltip_elec_mig))
-            canvas_elec_mig.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_elec_mig, canvas_elec_mig, False) if event.button == 3 else None)
-            
-            ph_entry.bind("<Return>", lambda event: ph_enter(event, hover_tooltip, tooltip_elec_mig, eq_r2, ax_elec_mig, canvas_elec_mig, elec_mig_scatter, trendline_base, trendline_plus20, trendline_minus20))
-        
-            electro_migrations.bind("<Configure>", lambda event: adjust_subplot_size_electro_mig(event, ax_elec_mig))
-        
-            electro_migrations.update_idletasks()
-            electro_migrations.deiconify()
-            window_width = electro_migrations.winfo_width()
-            window_height = electro_migrations.winfo_height()
-            screen_width = electro_migrations.winfo_screenwidth()
-            screen_height = electro_migrations.winfo_screenheight()
-            x_position = (screen_width - window_width) // 2
-            y_position = (screen_height - window_height) // 2
-            electro_migrations.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
-            
         def sort_by_mz_checkbox_command():
             global hover_tooltip_ppm, hover_tooltip_isofit, hover_tooltip_snplot, hover_tooltip_curvefitplot, ax_ppmplot, ax_snplot, ax_isofitplot, ax_curvefitplot
             state = sort_by_mz_checkbox_state.get()
             
             if state:
                 #adjust ppm_plot
-                canvas_ppmplot.mpl_disconnect(hover_tooltip_isofit)
-                
+                canvas_ppmplot.mpl_disconnect(hover_tooltip_ppm)
+
                 ppm_scatter.set_offsets(np.c_[mzs, ppm_list])
                 ax_ppmplot.set_xlim([min(mzs)-((max(mzs)-min(mzs))*0.05), max(mzs)*1.05])
                 ax_ppmplot.set_xlabel('m/z')
@@ -6788,8 +6633,8 @@ def run_main_window():
                 hover_tooltip_ppm = canvas_ppmplot.mpl_connect('motion_notify_event', lambda event: on_hover_qc_plot(event, canvas_ppmplot, ax_ppmplot, ppm_scatter, mzs, ppm_list, tooltip_ppmplot))
                 
                 #adjust isofit_plot
-                canvas_isofitplot.mpl_disconnect(hover_tooltip_ppm)
-                
+                canvas_isofitplot.mpl_disconnect(hover_tooltip_isofit)
+
                 isofitplot_scatter.set_offsets(np.c_[mzs, iso_fit_list])
                 ax_isofitplot.set_xlim([min(mzs)-((max(mzs)-min(mzs))*0.05), max(mzs)*1.05])
                 ax_isofitplot.set_xlabel('m/z')
@@ -6946,9 +6791,8 @@ def run_main_window():
         ax_ppmplot.axhline(0, linestyle='--', linewidth=1, color='black')
         
         values_ppm = np.array(ppm_list)
-        kde_ppm = gaussian_kde(values_ppm)
         y_values_ppm = np.linspace(ax_ppmplot.get_ylim()[0], ax_ppmplot.get_ylim()[1], 500)
-        kde_ppm_values = kde_ppm(y_values_ppm)
+        kde_ppm_values = calculate_kde(values_ppm, y_values_ppm)
         
         ax_ppmplot_kde.plot(kde_ppm_values, y_values_ppm)
         ax_ppmplot_kde.axis('off')
@@ -6982,9 +6826,8 @@ def run_main_window():
         qc_isofit_line = ax_isofitplot.axhline(iso_fit_score, linestyle='--', linewidth=1, color='blue')
         
         values_isofit = np.array(iso_fit_list)
-        kde_isofit = gaussian_kde(values_isofit)
         y_values_isofit = np.linspace(ax_isofitplot.get_ylim()[0], ax_isofitplot.get_ylim()[1], 500)
-        kde_isofit_values = kde_isofit(y_values_isofit)
+        kde_isofit_values = calculate_kde(values_isofit, y_values_isofit)
         
         ax_isofitplot_kde.plot(kde_isofit_values, y_values_isofit)
         ax_isofitplot_kde.axis('off')
@@ -7022,9 +6865,8 @@ def run_main_window():
         ax_snplot.axhline(10, linestyle='--', linewidth=1, color='green')
         
         values_sn = np.array(sn_list)
-        kde_sn = gaussian_kde(values_sn)
         y_values_sn = np.linspace(ax_snplot.get_ylim()[0], ax_snplot.get_ylim()[1], 500)
-        kde_sn_values = kde_sn(y_values_sn)
+        kde_sn_values = calculate_kde(values_sn, y_values_sn)
         
         ax_snplot_kde.plot(kde_sn_values, y_values_sn)
         ax_snplot_kde.axis('off')
@@ -7057,9 +6899,8 @@ def run_main_window():
         qc_curvefit_line = ax_curvefitplot.axhline(curve_fit_score, linestyle='--', linewidth=1, color='blue')
         
         values_curve = np.array(curve_fit_list)
-        kde_curve = gaussian_kde(values_curve)
         y_values_curve = np.linspace(ax_curvefitplot.get_ylim()[0], ax_curvefitplot.get_ylim()[1], 500)
-        kde_curve_values = kde_curve(y_values_curve)
+        kde_curve_values = calculate_kde(values_curve, y_values_curve)
         
         ax_curvefitplot_kde.plot(kde_curve_values, y_values_curve)
         ax_curvefitplot_kde.axis('off')
@@ -7077,12 +6918,6 @@ def run_main_window():
         canvas_curvefitplot.mpl_connect('button_press_event', lambda event: on_right_click_plot(event, ax_curvefitplot, canvas_curvefitplot, False) if event.button == 3 else None)
         curvefit_plot_resizing = curvefit_plot_frame.bind("<Configure>", lambda event: adjust_subplot_size_qc(event, ax_curvefitplot, ax_curvefitplot_kde))
         
-        
-        # Important discussion necessary for this button: The sialic acids are anionic, so it should be decreasing the charge value, instead of summing... but to do that reliably, you first need to also calculate the cationic charges, otherwise values are negative. How to deal with that? I managed to model PKa values of molecules using Python, but it needs the smiles structure... expect user to input that? Make a list of tags for that? What's the default charges for neutral glycans with reduced end? And without reducing end? Currently defaulting glycans without sialic acids to q=1, independent of tag charges and such...
-        
-        model_electro_button = ttk.Button(qc_dist, text="Model Electrophoretic Migrations", style="small_button_style1.TButton", command=model_electro_migrations, state=tk.NORMAL)
-        model_electro_button.grid(row=3, column=0, columnspan=2, padx=10, pady=(10, 10), sticky="nsw")
-        ToolTip(model_electro_button, "Allows you to plot modelled electrophoretic migrations based on the Classical Polymer Model, as described in Barroso A et al., 2015 (Analytica Chimica Acta, Elsevier). EXPERIMENTAL.")
         
         sort_by_mz_checkbox_command()
         
@@ -7105,7 +6940,7 @@ def run_main_window():
         qcp_enter_delay = main_window.after(100, qcp_enter_auxiliary_function)
         
     def qcp_enter_auxiliary_function():
-        global max_ppm, iso_fit_score, curve_fit_score, s_to_n, ppm_scatter, isofitplot_scatter, curvefitplot_scatter, snplot_scatter, elec_mig_scatter, canvas_elec_mig
+        global max_ppm, iso_fit_score, curve_fit_score, s_to_n, ppm_scatter, isofitplot_scatter, curvefitplot_scatter, snplot_scatter
         # Attempt to collect the new QC thresholds from the spinboxes
         try:
             min_ppm_range = float(ppm_error_min_entry.get())
@@ -7155,12 +6990,6 @@ def run_main_window():
             canvas_curvefitplot.draw_idle()
             canvas_isofitplot.draw_idle()
             canvas_snplot.draw_idle()
-        except:
-            pass
-            
-        try:
-            elec_mig_scatter.set_color(new_colors)
-            canvas_elec_mig.draw_idle()
         except:
             pass
             
@@ -7267,7 +7096,10 @@ def run_main_window():
             mode = 'good'
         elif len(chromatograms_list.selection()) == 1:
             mode = 'compare_samples'
-        
+        else:
+            error_window("Select a single glycan or adduct to compare it between samples, or hold CTRL and select multiple glycans to compare them within this sample.")
+            return
+
         if mode == 'good' or mode == 'compare_glycans':
             glycans = {}
             if mode == 'good':
@@ -7279,8 +7111,7 @@ def run_main_window():
                 treeview_levels = [x[1] for x in selected_chromatograms]
                 for i_i, i in enumerate(selected_chromatograms):
                     if i[1] == 2:
-                        glycan_text = i[0].split("+")[0]
-                        adduct_text = i[0].split("+")[-1]
+                        glycan_text, adduct_text = i[0].rsplit("+", 1)
                         if min(treeview_levels) == 1:
                             if glycan_text not in glycans.keys():
                                 glycans[glycan_text] = {'abundance': 0, 'sn': 0}
@@ -7296,10 +7127,9 @@ def run_main_window():
                 if mode == 'good' or (mode == 'compare_glycans' and min(treeview_levels) == 1):
                     temp_sn = []
                     for j in glycans_per_sample[selected_item][i]:
-                        for k in glycans_per_sample[selected_item][i][j]:
-                            for l_l, l in enumerate(glycans_per_sample[selected_item][i][j]['auc']):
-                                glycans[i]['abundance'] += l
-                                temp_sn.append(glycans_per_sample[selected_item][i][j]['sn'][l_l])
+                        for l_l, l in enumerate(glycans_per_sample[selected_item][i][j]['auc']):
+                            glycans[i]['abundance'] += l
+                            temp_sn.append(glycans_per_sample[selected_item][i][j]['sn'][l_l])
                         if len(temp_sn) != 0:
                             glycans[i]['sn'] = max(temp_sn)
                 elif mode == 'compare_glycans' and min(treeview_levels) == 2:
@@ -7357,7 +7187,11 @@ def run_main_window():
                 if treeview_level == 3:
                     error_window('Select a glycan or adduct. Per peak comparison between samples graph plotting implementation is still work in progress.')
                     return
-                    
+
+        if len(glycans) == 0:
+            error_window("There are no glycans to plot. If no glycans are selected, only glycans meeting all the quality thresholds are plotted.")
+            return
+
         plot_window = tk.Toplevel()
         icon = ImageTk.PhotoImage(ico_image)
         plot_window.iconphoto(False, icon)
@@ -7754,7 +7588,7 @@ def run_main_window():
                 return "bad"
                 
         def quick_check_glycans():
-            global min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_fuc, min_max_sia, min_max_ac, min_max_ac, min_max_gc, min_max_hn, min_max_ua, forced, min_max_proton, max_charges, reducing_end_tag, internal_standard, permethylated, lactonized_ethyl_esterified, min_max_sulfation, min_max_phosphorylation, reduced, fast_iso, high_res, glycans_list_quickcheck
+            global glycans_list_quickcheck
             
             if len(library_path) == 0:
                 error_window("You must first generate or import a library\nto do a quick check.")
@@ -7774,39 +7608,22 @@ def run_main_window():
                     
                 full_library = library_data[0]
                 library_metadata = library_data[1]
-                
-                min_max_monos = library_metadata[0]
-                min_max_hex = library_metadata[1]
-                min_max_hexnac = library_metadata[2]
-                min_max_fuc = library_metadata[3]
-                min_max_sia = library_metadata[4]
-                min_max_ac = library_metadata[5]
-                min_max_gc = library_metadata[6]
-                forced = library_metadata[7]
-                min_max_proton = library_metadata[8]
-                max_charges = library_metadata[9]
-                reducing_end_tag = library_metadata[10]
-                internal_standard = library_metadata[11]
-                permethylated = library_metadata[12]
-                lactonized_ethyl_esterified = library_metadata[13]
-                reduced = library_metadata[14]
-                fast_iso = library_metadata[15]
-                high_res = library_metadata[16]
-                min_max_xyl = library_metadata[18]
-                min_max_hn = library_metadata[19]
-                min_max_ua = library_metadata[20]
-                min_max_sulfation = library_metadata[21]
-                min_max_phosphorylation = library_metadata[22]
+        
+                # Maximum charges the library was built with, used only for this quick check
+                library_max_charges = library_metadata.get('maximum charges', 3)
                 
                 glycans_list_temp = []
                 
                 mz_array = list(maximum_spectra[selected_item].keys())
                 int_array = list(maximum_spectra[selected_item].values())
-                
+
+                # Charges of each adduct combination, as calculated when the library was built
+                adduct_charges = {General_Functions.comp_to_formula(adduct[0]): adduct[1] for adduct in library_metadata.get('adduct combos', [])}
+
                 for i in full_library:
                     for j in full_library[i]['Adducts_mz']:
-                        adduct_charge = General_Functions.determine_adduct_charge('neutral_mass', full_library[i]['Neutral_Mass'], full_library[i]['Adducts_mz'][j], max_charges)
-                        result = analyze_glycan(mz_array, int_array, full_library[i], full_library[i]['Adducts_mz'][j], tolerance, max_charges, adduct_charge)
+                        adduct_charge = adduct_charges[j] if j in adduct_charges else General_Functions.determine_adduct_charge('neutral_mass', full_library[i]['Neutral_Mass+Tag'], full_library[i]['Adducts_mz'][j], abs(library_max_charges))
+                        result = analyze_glycan(mz_array, int_array, full_library[i], full_library[i]['Adducts_mz'][j], tolerance, library_max_charges, adduct_charge)
                         if result != 'bad':
                             glycans_list_temp.append([(i, j, float("%.4f" % round(full_library[i]['Adducts_mz'][j], 4)), float("%.2f" % round(result[1], 2)), float("%.1f" % round(result[2], 1))), result[0], result[3]])
                             
@@ -7998,7 +7815,7 @@ def run_main_window():
                             if current_data['access'][i]['ms level'] == 1:
                                 int_array.append(0)
                                 for j in targets:
-                                    temp_id = General_Functions.binary_search_with_tolerance(current_data['access'][i]['m/z array'], float(j), 0, len(current_data['access'][i]['m/z array'])-1, tolerance, current_data['access'][i]['intensity array'])
+                                    temp_id = General_Functions.fast_binary_search_with_tolerance(current_data['access'][i]['m/z array'], float(j), tolerance, current_data['access'][i]['intensity array'])
                                     if temp_id != -1:
                                         int_array[-1] += current_data['access'][i]['intensity array'][temp_id]
                     elif current_data['file_type'] == 'mzxml':
@@ -8006,7 +7823,7 @@ def run_main_window():
                             if current_data['access'][i]['msLevel'] == 1:
                                 int_array.append(0)
                                 for j in targets:
-                                    temp_id = General_Functions.binary_search_with_tolerance(current_data['access'][i]['m/z array'], float(j), 0, len(current_data['access'][i]['m/z array'])-1, tolerance, current_data['access'][i]['intensity array'])
+                                    temp_id = General_Functions.fast_binary_search_with_tolerance(current_data['access'][i]['m/z array'], float(j), tolerance, current_data['access'][i]['intensity array'])
                                     if temp_id != -1:
                                         int_array[-1] += current_data['access'][i]['intensity array'][temp_id]
                     quick_traces_all[f"{selected_item}_{target_mz}_{tolerance}"] = int_array
@@ -8460,7 +8277,10 @@ def run_main_window():
                     glycans_to_draw.append(possibility)
                     
         if len(glycans_to_draw) > 0:
-            start_glycans_drawing(glycans_to_draw, treeview)
+            try:
+                background_glycan_drawing.grab_set()
+            except:
+                start_glycans_drawing(glycans_to_draw, treeview)
             
         if len(glycans_to_draw) == 0 and draw:
             draw_glycans_on_chromatogram(treeview)
@@ -8492,7 +8312,14 @@ def run_main_window():
                 
             close_gd()
             draw_glycans_on_chromatogram(treeview)
-            
+            key_states["Control"] = False
+            key_states["Control_L"] = False
+            key_states["Control_R"] = False
+            key_states["Shift"] = False
+            key_states["Shift_L"] = False
+            key_states["Shift_R"] = False
+
+        global background_glycan_drawing    
         background_glycan_drawing = tk.Toplevel()
         # background_glycan_drawing.attributes("-topmost", True)
         background_glycan_drawing.withdraw()
@@ -8541,19 +8368,10 @@ def run_main_window():
             if label[0] == "_":
                 continue
             
-            if len(label.split("+")) > 1:
-                glycan = label.split("+")[0]
-                adduct = label.split("+")[-1]
-                level = 2
-            elif len(label.split(" - ")) > 1:
-                glycan = label.split(" - ")[0]
-                adduct = label.split(" - ")[-1]
-                level = 3
-            else:
-                glycan = label
-                adduct = None
-                level = 1
-            
+            glycan, adduct, level = parse_plot_label(label, glycans_per_sample[samples_dropdown.get()])
+            if level == 0:
+                continue
+
             rts = []
             
             if level == 1:
@@ -8916,7 +8734,7 @@ def run_main_window():
         def wait_thread():
             if len(reanalysis_path) > 0:
                 reanalysis_file.join()
-            if len(samples_dropdown['values']) != 0:
+            if len(samples_dropdown['values']) != 0 and not (len(reanalysis_path) > 0 and reanalysis_load_failed):
                 samples_dropdown.current(0)
                 handle_selection(None)
             close_lf()
@@ -9028,9 +8846,21 @@ def run_main_window():
                     pass
             
         def on_focus_loss(event):
-            if not any(widget.winfo_exists() and widget.focus_displayof() for widget in zoomlock_window.winfo_children()):
-                zoomlock_window.destroy()
-            
+            # For Linux crazy clicks to auto-unbind
+            try:
+                zoomlock_window.winfo_width()
+            except:
+                main_window.unbind("<Button-1>")
+                return
+
+            # Check whether the click is within the flyout
+            if (main_window.winfo_pointerx() > x and main_window.winfo_pointerx() < zoomlock_window.winfo_width()+x) and (main_window.winfo_pointery() > y and main_window.winfo_pointery() < zoomlock_window.winfo_height()+y):
+                return
+
+            # Destroy the window and unbind
+            zoomlock_window.destroy()
+            main_window.unbind("<Button-1>")
+
         x = main_window.winfo_pointerx()+15
         y = main_window.winfo_pointery()+15
         screen_width = main_window.winfo_screenwidth()
@@ -9055,7 +8885,7 @@ def run_main_window():
         zoomlock_window.overrideredirect(True)
         zoomlock_window.geometry(f"+{x}+{y}")
         zoomlock_window.attributes('-topmost', True)
-        zoomlock_window.bind("<FocusOut>", on_focus_loss)
+        main_window.bind("<Button-1>", on_focus_loss)
         
         zoomlock_window.focus_set()
 
@@ -9125,37 +8955,10 @@ def run_main_window():
                 if label[0] == "_" or label == 'Base Peak Chromatogram/Electropherogram' or '±' in label:
                     continue
                 
-                if len(label.split("+")) > 1:
-                    label_split = label.split("+")
-                    glycan = label_split[0]
-                    
-                    for index, part in enumerate(label_split):
-                        if "(s)" in part:
-                            glycan+= "+"+label_split[index]
-                        if "(p)" in part:
-                            glycan+= "+"+label_split[index]
-                        if "1Na" in part or "2Na" in part:
-                            glycan+= "+"+label_split[index]
-                            
-                    if len(label.split(" - ")) > 1:
-                        adduct = glycan.split(" - ")[-1]
-                        glycan = glycan.split(" - ")[0]
-                        level = 3
-                    elif label_split[-1] in glycan:
-                        adduct = None
-                        level = 1
-                    else:
-                        adduct = label_split[-1]
-                        level = 2
-                elif len(label.split(" - ")) > 1:
-                    glycan = label.split(" - ")[0]
-                    adduct = label.split(" - ")[-1]
-                    level = 3
-                else:
-                    glycan = label
-                    adduct = None
-                    level = 1
-                
+                glycan, adduct, level = parse_plot_label(label, glycans_per_sample[samples_dropdown.get()])
+                if level == 0:
+                    continue
+
                 bad_peaks = []
                 
                 if level == 1:
@@ -10053,7 +9856,7 @@ def run_select_files_window(samples_dropdown):
                 processed_samples.join()
             if len(reanalysis_path) > 0:
                 reanalysis_file.join()
-            if len(samples_dropdown['values']) != 0:
+            if len(samples_dropdown['values']) != 0 and not (len(reanalysis_path) > 0 and reanalysis_load_failed):
                 samples_dropdown.current(0)
                 handle_selection(None)
             else:
@@ -10134,15 +9937,19 @@ def run_select_files_window(samples_dropdown):
         # Checks whether the sample files loaded are within gg file
         if len(gg_file_label.cget("text")) > 0:
             gg_files_list = list(test_access.list_samples().values())
-            samples_list = [files_list.item(item_id, 'text') for item_id in item_ids]
-            samples_names = Execution_Functions.sample_names(samples_list)
-            
-            for name in samples_names:
+            temp_samples_list = [files_list.item(item_id, 'text') for item_id in item_ids]
+            temp_samples_names = Execution_Functions.sample_names(temp_samples_list)
+
+            for name in temp_samples_names:
                 # Get the text of the item (i.e., its content)
                 if name not in gg_files_list:
                     error_window("You can't select a reanalysis file and samples files at once, unless the sample files are present in the reanalysis file. Remove the reanalysis file or the sample files or select sample files that are present in the reanalysis file.")
                     test_access.close_gg()
                     return
+
+            # Only change the samples lists after they pass the check
+            samples_list = temp_samples_list
+            samples_names = temp_samples_names
                     
         # Closes the test access and clears the temporary folder
         if len(gg_file_label.cget("text")) > 0 and str(test_access) != 'File is unloaded.':
@@ -10525,7 +10332,7 @@ def run_set_parameters_window():
         if lib_check == 'Error':
             return
     
-    local_analyze_ms2 = analyze_ms2
+    local_analyze_ms2 = copy.deepcopy(analyze_ms2)
     local_custom_glycans_list = copy.deepcopy(custom_glycans_list)
     local_custom_monos_list = copy.deepcopy(custom_monosaccharides)
     local_custom_adducts_list = copy.deepcopy(custom_adducts)
@@ -10713,7 +10520,22 @@ def run_set_parameters_window():
             lyase_digested_checkbox.config(state=tk.DISABLED)
             
     def ok_sp_window():
-        global save_path, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_fuc,  min_max_sia, min_max_ac, min_max_gc, min_max_hn, min_max_ua, internal_standard, reducing_end_boolean, reducing_end_tag, permethylated, reduced, lactonized_ethyl_esterified,  min_max_sulfation,  min_max_phosphorylation,  forced, fast_iso, high_res, multithreaded_analysis, number_cores, min_ppp,  close_peaks, iso_fit_score, curve_fit_score, s_to_n, max_ppm, max_charges, min_max_proton, custom_adducts, custom_glycans_list, lyase_digested, custom_monosaccharides, ion_mode_selected
+        '''Applies the settings, restoring the previous ones if any of them fails the checks.'''
+        global save_path, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_fuc,  min_max_sia, min_max_ac, min_max_gc, min_max_hn, min_max_ua, internal_standard, reducing_end_boolean, reducing_end_tag, permethylated, reduced, lactonized_ethyl_esterified,  min_max_sulfation,  min_max_phosphorylation,  forced, fast_iso, high_res, multithreaded_analysis, number_cores, min_ppp,  close_peaks, iso_fit_score, curve_fit_score, s_to_n, max_ppm, max_charges, min_max_proton, custom_adducts, custom_glycans_list, lyase_digested, custom_monosaccharides, ion_mode_selected, analyze_ms2
+        
+        # Settings that apply_sp_settings may change before a check fails
+        settings_names = ['save_path', 'min_max_monos', 'min_max_hex', 'min_max_hexnac', 'min_max_xyl', 'min_max_fuc', 'min_max_sia', 'min_max_ac', 'min_max_gc', 'min_max_hn', 'min_max_ua', 'internal_standard', 'reducing_end_boolean', 'reducing_end_tag', 'permethylated', 'reduced', 'lactonized_ethyl_esterified', 'min_max_sulfation', 'min_max_phosphorylation', 'forced', 'fast_iso', 'high_res', 'multithreaded_analysis', 'number_cores', 'min_ppp', 'close_peaks', 'iso_fit_score', 'curve_fit_score', 's_to_n', 'max_ppm', 'max_charges', 'min_max_proton', 'custom_adducts', 'custom_glycans_list', 'lyase_digested', 'custom_monosaccharides', 'ion_mode_selected', 'analyze_ms2', 'ret_time_interval', 'tolerance']
+        settings_snapshot = {name: copy.deepcopy(globals()[name]) for name in settings_names}
+        
+        if apply_sp_settings() != True:
+            for name, value in settings_snapshot.items():
+                if name in ['ret_time_interval', 'tolerance']:
+                    globals()[name][:] = value # These are changed in place and referenced elsewhere
+                else:
+                    globals()[name] = value
+    
+    def apply_sp_settings():
+        global save_path, min_max_monos, min_max_hex, min_max_hexnac, min_max_xyl, min_max_fuc,  min_max_sia, min_max_ac, min_max_gc, min_max_hn, min_max_ua, internal_standard, reducing_end_boolean, reducing_end_tag, permethylated, reduced, lactonized_ethyl_esterified,  min_max_sulfation,  min_max_phosphorylation,  forced, fast_iso, high_res, multithreaded_analysis, number_cores, min_ppp,  close_peaks, iso_fit_score, curve_fit_score, s_to_n, max_ppm, max_charges, min_max_proton, custom_adducts, custom_glycans_list, lyase_digested, custom_monosaccharides, ion_mode_selected, analyze_ms2
         
         parameters_dict = {'Min. Monosaccharides':min_monosaccharides_entry.get(), 
                            'Max. Monosaccharides':max_monosaccharides_entry.get(), 
@@ -10843,7 +10665,7 @@ def run_set_parameters_window():
                 if intstandard_entry.get().split("-")[0] == 'glycan':
                     test_is = General_Functions.form_to_comp_glycans(intstandard_entry.get().split("-")[1])
                     for i in test_is.keys():
-                        if i not in list(General_Functions.monosaccharides.keys())+[k['cm_short_code'] for k in custom_monosaccharides]:
+                        if i not in list(General_Functions.monosaccharides.keys())+[k['cm_short_code'] for k in local_custom_monos_list]:
                             error_window("Invalid input on Internal Standard.\nYou must input either a mass, a chemical formula or a glycan formula.")
                             return
                         
@@ -10925,6 +10747,7 @@ def run_set_parameters_window():
                     ion_mode_selected = True
                     max_charges = -int(max_charges_entry.get()) if ion_mode_choice.get() == 'neg' else int(max_charges_entry.get())
                 close_sp_window()
+                return True
                 
             except Exception as e:
                 print(e)
@@ -11065,7 +10888,7 @@ def run_set_parameters_window():
             f.write(f"signal_to_noise_threshold = {float(s_n_entry.get())}\n")
             f.write(f"output_compositions_analysis = True\n")
             f.write(f"output_metaboanalyst_file = False\n")
-            f.write(f"metaboanalyst_groups = \n")
+            f.write(f"sample_groups = \n")
             f.write(f"output_fittings_data = False\n")
             f.write(f"output_plot_data = False")
             f.close()
@@ -11504,10 +11327,12 @@ def run_set_parameters_window():
         custom_glycans_window.title("Custom Glycans List")
         icon = ImageTk.PhotoImage(ico_image)
         custom_glycans_window.iconphoto(False, icon)
-        custom_glycans_window.resizable(False, False)
+        custom_glycans_window.resizable(False, True)
         custom_glycans_window.grab_set()
         custom_glycans_window.geometry("600x625")
+        custom_glycans_window.minsize(600, 400)
         custom_glycans_window.columnconfigure(0, weight=1)
+        custom_glycans_window.rowconfigure(1, weight=1)
         
         description_custom_glycans_label = ttk.Label(custom_glycans_window, text=f"Here you can type in the glycans you wish to insert in the custom glycans list. Use the following nomenclature:\n\n    H: Hexose, HN: Hexosamine, N: HexNAc, X: Xylose, F: Deoxyhexose, S: Neu5Ac, G: Neu5Gc, UA: Uronic Acid {''.join([', '+cm['cm_short_code']+': '+cm['cm_name'] for cm in local_custom_monos_list])}\n\nand in case of amidation/ethyl-esterification of sialic acids:\n\n    Am: Amidated Neu5Ac (alpha2,3), E: Ethyl-Esterified Neu5Ac (alpha2,6)\n    AmG: Amidated Neu5Gc (alpha2,3), EG: Ethyl-Esterified Neu5Gc (alpha2,6)\n\nExample: H5N4S2F1 refers to a glycan with 5 Hexoses, 4 HexNacs, 2 Neu5Ac and 1 Deoxyhexose", font=("Segoe UI", list_font_size), wraplength=600, justify = "left")
         description_custom_glycans_label.grid(row=0, column=0, padx=(10, 10), pady=(10, 10), sticky="nsew")
@@ -11542,9 +11367,9 @@ def run_set_parameters_window():
             for index, row in enumerate(rows_widgets):
                 if len(row['entry_full_name'].get()) > 0:
                     
-                    single_letters_in_use = set([x[-1] for x in General_Functions.monosaccharides.values()]+[x['cm_single_letter_code'] for x in temp_custom_mono]+[x['cm_single_letter_code'] for x in custom_monosaccharides]+['T'])
-                    
-                    short_codes_in_use = set([x.upper() for x in General_Functions.monosaccharides.keys()]+[x['cm_short_code'] for x in temp_custom_mono]+[x['cm_short_code'] for x in custom_monosaccharides]+['T'])
+                    single_letters_in_use = set([x[-1] for x in General_Functions.monosaccharides.values()]+[x['cm_single_letter_code'] for x in temp_custom_mono]+['T'])
+
+                    short_codes_in_use = set([x.upper() for x in General_Functions.monosaccharides.keys()]+[x['cm_short_code'].upper() for x in temp_custom_mono]+['T'])
                     
                     alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
                     for letter in alphabet:
@@ -12651,10 +12476,11 @@ def run_set_parameters_window():
         custom_adducts_widgets[custom_adduct[0]].append(tk.Button(library_building_frame, text='x', command=lambda adduct=custom_adduct[0]: remove_custom_adduct(adduct), relief='flat', padx=0, pady=0))
         custom_adducts_widgets[custom_adduct[0]][-1].grid(row=19+index, column=1, padx=(10, 0), pady=(0, 0), sticky='w')
             
-    if len(custom_adducts) < 3:
-        add_custom_adduct_button = ttk.Button(library_building_frame, text="Add Adduct", style="small_button_spw_style1.TButton", command=create_custom_adduct_window)
-        add_custom_adduct_button.grid(row=19+len(custom_adducts), column=1, padx=(10, 10), pady=(0, 0), sticky="we")
-        ToolTip(add_custom_adduct_button, "Add a custom adduct to be included in the library.")
+    add_custom_adduct_button = ttk.Button(library_building_frame, text="Add Adduct", style="small_button_spw_style1.TButton", command=create_custom_adduct_window)
+    add_custom_adduct_button.grid(row=19+len(custom_adducts), column=1, padx=(10, 10), pady=(0, 0), sticky="we")
+    ToolTip(add_custom_adduct_button, "Add a custom adduct to be included in the library.")
+    if len(custom_adducts) >= 3:
+        add_custom_adduct_button.grid_remove()
     
     max_charges_label = ttk.Label(library_building_frame, text='Max Charges:', font=("Segoe UI", list_font_size))
     max_charges_label.grid(row=22, column=1, padx=(20, 10), pady=(5, 10), sticky="w")
@@ -12863,10 +12689,6 @@ def save_results_window():
             try:
                 stop_thread(t)
                 kill_concurrent_futures()
-                folders = [folder for folder in os.listdir(save_path) if os.path.isdir(os.path.join(save_path, folder))]
-                for i in folders:
-                    if "Temp" in i:
-                        shutil.rmtree(os.path.join(save_path, i))
             except:
                 pass
             
@@ -12961,8 +12783,8 @@ def save_results_window():
                                     'reanalysis': True,
                                     'reanalysis_path': reanalysis_path,
                                     'save path': save_path,
-                                    'analyze ms2': analyze_ms2[0],
-                                    'unrestricted fragments': analyze_ms2[2],
+                                    'analyze ms2': parameters_gg['analysis settings']['analyze ms2'][0],
+                                    'unrestricted fragments': parameters_gg['analysis settings']['analyze ms2'][2],
                                     'reporter ions': reporter_ions,
                                     'output abundance table': [metaboanalyst_checkbox_state.get(), ''],
                                     'output composition-separated data': save_composition_checkbox_state.get(),
@@ -13145,7 +12967,7 @@ def save_results_window():
     ToolTip(n_glycans_class_checkbox, "If used, outputs extra columns informing if a glycan's composition fits any of the N-Glycans classes, such as oligomannose, complex, hybrid or paucimannose. Can be enabled even if 'Force N-Glycans Compositions' is off in parameters' window, but it's meant to be used for N-Glycans analysis.")
     
     align_chromatograms_sr_checkbox_state = tk.BooleanVar(value=align_chromatograms)
-    align_chromatograms_sr_checkbox = ttk.Checkbutton(sr_window, text="Align Results and Chromatograms/Electropherograms by Retention/\nMigration Time", variable=align_chromatograms_sr_checkbox_state, command=align_chromatograms_sr_checkbox_state_check)
+    align_chromatograms_sr_checkbox = ttk.Checkbutton(sr_window, text="Align Results and Chromatograms/Electropherograms by Retention/\nMigration Time [LEGACY, SLOW]", variable=align_chromatograms_sr_checkbox_state, command=align_chromatograms_sr_checkbox_state_check)
     align_chromatograms_sr_checkbox.grid(row=2, column=0, columnspan=2, padx=(10, 10), pady=(5, 0), sticky="w")
     ToolTip(align_chromatograms_sr_checkbox, "Aligns the results and the chromatograms/electropherograms based on peaks assignment. DEPRECATED, will still work, but might take VERY LONG to finish.")
     
@@ -13255,12 +13077,12 @@ def save_results_window():
     
     min_samples_sr_label = ttk.Label(qcp_sr_frame, text='Glycan in minimum % of samples:', font=("Segoe UI", list_font_size))
     min_samples_sr_label.grid(row=6, column=0, padx=(10, 10), pady=(0, 5), sticky="w")
-    ToolTip(min_samples_sr_label, "Filters the glycans by the percentage of samples they are found in (e.g.: if set to 50 and a glycan is only present in 30% of the samples, that glycan will be removed from the results). If samples are set into groups, takes the % of samples within each group instead. This is applied after the gap filling option above and before filling the gaps with noise (below).")
+    ToolTip(min_samples_sr_label, "Filters the glycans by the percentage of samples they are found in (e.g.: if set to 50 and a glycan is only present in 30% of the samples, that glycan will be removed from the results). If samples are set into groups, the glycan is kept in all samples as long as it reaches this percentage within at least one group, and is only removed if it doesn't reach it in any group. This is applied after the gap filling option above and before filling the gaps with noise (below).")
     
     min_samples_sr_entry = ttk.Spinbox(qcp_sr_frame, width=5, from_=0, to=999, increment=1)
     min_samples_sr_entry.insert(0, min_samples)
     min_samples_sr_entry.grid(row=6, column=1, padx=(130, 10), pady=(0, 5), sticky='e')
-    ToolTip(min_samples_sr_entry, "Filters the glycans by the percentage of samples they are found in (e.g.: if set to 50 and a glycan is only present in 30% of the samples, that glycan will be removed from the results). If samples are set into groups, takes the % of samples within each group instead. This is applied after the gap filling option above and before filling the gaps with noise (below).")
+    ToolTip(min_samples_sr_entry, "Filters the glycans by the percentage of samples they are found in (e.g.: if set to 50 and a glycan is only present in 30% of the samples, that glycan will be removed from the results). If samples are set into groups, the glycan is kept in all samples as long as it reaches this percentage within at least one group, and is only removed if it doesn't reach it in any group. This is applied after the gap filling option above and before filling the gaps with noise (below).")
     
     fill_gaps_noise_checkbox_state = tk.BooleanVar(value=fill_gaps[3])
     fill_gaps_noise_checkbox = ttk.Checkbutton(qcp_sr_frame, text="Fill remaining gaps with local noise level in glycans abundance table", variable=fill_gaps_noise_checkbox_state, command=fill_gaps_noise_checkbox_state_check)

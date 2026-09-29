@@ -20,6 +20,7 @@ from pyteomics import mzml, mzxml
 from lxml import etree
 from PIL import Image, ImageTk
 from tkinter import ttk, filedialog, messagebox
+from tkinter.scrolledtext import ScrolledText
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.ticker import ScalarFormatter
 from matplotlib.patches import Rectangle, Ellipse
@@ -30,6 +31,7 @@ from reportlab.lib import colors
 from reportlab.lib.units import inch
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle
 from io import BytesIO
+import pastaq as pq
 import threading
 import matplotlib.pyplot as plt
 import tkinter as tk
@@ -42,6 +44,7 @@ import datetime
 import tempfile
 import numpy
 import psutil
+import webbrowser
 
 standard_calibrants = {
     '': '',
@@ -75,6 +78,65 @@ last_selection = {}
 
 global rt_bpc
 rt_bpc = {}
+
+global stop_run_event
+stop_run_event = threading.Event()
+
+# Background task running in the alignment tab ('alignment', 'auto parameters' or None), and whether the window should close when the alignment stops
+global background_task, close_after_alignment
+background_task = None
+close_after_alignment = False
+
+global alignment_settings
+alignment_settings = {
+    'instrument_type': 'TOF', # Seems to have no impact up to resampling.
+    'resolution_ms1': 70000, # BIG impact on m/z values resampling. Could be extrapolated from data. BIG impact on resampling time (higher res = longer to resample).
+    'reference_mz': 200, # Reference mz for the specified resolution. Probably has an impact between different equipments, like TOF and ORBITRAP.
+    'fwhm_rt': 9, # BIG impact on RT time resampling. Could be extrapolated from data. Small impact on resampling time. Smaller values takes longer. BIG impact on alignment.
+    'polarity': '+',
+    'num_samples_mz': 5, # The number of sub-samples per mz step in the mesh
+    'num_samples_rt': 5, # The number of sub-samples per rt step in the mesh
+    'smoothing_coefficient_mz': 0.8, # Smoothing coefficient in the mz direction
+    'smoothing_coefficient_rt': 0.4, # Smoothing coefficient in the rt direction
+    'slack': 5, # How far the end of each segment can shift during alignment (in virtual “points”)
+    'segment_length': 10, # Number of virtual “points” per segment used for alignment
+    'num_points': 500, # Total number of virtual “points” in the chromatogram; divided by segment_length gives the number of segments
+    'expand_factor': 0.2, # Allows the chromatogram to expand to accommodate the alignment at the beginning and end of the chromatogram
+    'peaks_per_window': 20 # Number of most abundant peaks in each segment to use for alignment
+}
+
+# Expected type of each numeric alignment setting, used to convert the values typed in the settings window
+alignment_settings_types = {
+    'resolution_ms1': float,
+    'reference_mz': float,
+    'fwhm_rt': float,
+    'num_samples_mz': int,
+    'num_samples_rt': int,
+    'smoothing_coefficient_mz': float,
+    'smoothing_coefficient_rt': float,
+    'slack': int,
+    'segment_length': int,
+    'num_points': int,
+    'expand_factor': float,
+    'peaks_per_window': int
+}
+
+alignment_settings_descriptions = {
+    'instrument_type': 'Type of mass spectrometer used for data acquisition. This can affect the characteristics of the data and may influence the choice of alignment parameters.',
+    'resolution_ms1': 'The resolving power of the mass spectrometer at the specified reference m/z for MS1 spectra. Higher resolution can provide more accurate m/z values but may increase processing time.',
+    'reference_mz': 'The m/z value at which the specified resolution is measured. This can help in extrapolating the expected peak widths across the m/z range and can influence the resampling of the chromatogram.',
+    'fwhm_rt': 'The full width at half maximum (FWHM) of chromatographic peaks in the retention time dimension. This parameter can influence the resampling of the chromatogram and the subsequent alignment.',
+    'polarity': 'The ionization mode (positive or negative) used during data acquisition. This can affect the types of ions detected and may influence the alignment process.',
+    'num_samples_mz': 'The number of sub-samples to take in the m/z dimension when creating the mesh for alignment. More samples can improve alignment accuracy but will increase processing time.',
+    'num_samples_rt': 'The number of sub-samples to take in the retention time dimension when creating the mesh for alignment. More samples can improve alignment accuracy but will increase processing time.',
+    'smoothing_coefficient_mz': 'The coefficient used for smoothing the data in the m/z dimension. Higher values can lead to smoother data but may obscure fine details.',
+    'smoothing_coefficient_rt': 'The coefficient used for smoothing the data in the retention time dimension. Higher values can lead to smoother data but may obscure fine details.',
+    'slack': 'The maximum allowed shift at the end of each segment during alignment, measured in virtual “points”. This parameter can help accommodate variations in retention time across segments.',
+    'segment_length': 'The number of virtual “points” in each segment used for alignment. This parameter can influence the granularity of the alignment process.',
+    'num_points': 'The total number of virtual “points” in the chromatogram. This determines the resolution of the chromatogram mesh and can affect both alignment accuracy and processing time.',
+    'expand_factor': 'The factor by which the chromatogram can expand to accommodate alignment at the beginning and end of the chromatogram. This can help ensure that peaks near the edges are properly aligned.',
+    'peaks_per_window': 'The number of most abundant peaks in each segment to use for alignment. This can help focus the alignment on the most relevant features in the data.'
+    }
 
 class ToolTip:
     '''This allows to create the mouse hover tooltips'''
@@ -243,6 +305,18 @@ def calculate_ppm_diff(mz, target):
     '''
     return ((target-mz)/target)*(10**6)
 
+def sample_name_from_path(path):
+    '''Returns the sample name of a spectra file path (the file name without its extension), the same way GlycoGenius names samples.'''
+    file_name = path.split("/")[-1].split("\\")[-1]
+    return ".".join(file_name.split(".")[:-1]) if "." in file_name else file_name
+
+def find_sample_path(sample_name, samples_list):
+    '''Finds the path of the spectra file corresponding to a sample name.'''
+    for file in samples_list:
+        if sample_name_from_path(file) == sample_name:
+            return file
+    return sample_name
+
 def error_window(text):
     '''This function makes an error window with the text.'''
     messagebox.showerror("Error", text)
@@ -256,7 +330,7 @@ def convert_to_base64(float_array):
     # Encode the compressed data to base64
     return base64.b64encode(binary_data).decode('utf-8')
     
-def make_calibration_report(output_path, file_name, calibrants_list, labels, plot_area):
+def make_calibration_report(output_path, file_name, calibrants_list, labels, plot_area, original_file_path = None):
     '''
     '''
     global equation
@@ -279,7 +353,10 @@ def make_calibration_report(output_path, file_name, calibrants_list, labels, plo
     date = datetime.datetime.now()
     begin_time = str(date)[2:4]+str(date)[5:7]+str(date)[8:10]+"_"+str(date)[11:13]+str(date)[14:16]+str(date)[17:19]
     
-    original_file_name = "_".join(file_name.split("_")[:-1])+"."+file_name.split(".")[-1]
+    if original_file_path != None:
+        original_file_name = original_file_path.split("/")[-1].split("\\")[-1]
+    else:
+        original_file_name = "_".join(file_name.split("_")[:-1])+"."+file_name.split(".")[-1]
     
     table = [['Calibrant', 'Ref. m/z', 'Found m/z', 'PPM error', 'm/z error', 'Peak Time']]
     for target in calibrants_list.get_children():
@@ -304,7 +381,7 @@ def make_calibration_report(output_path, file_name, calibrants_list, labels, plo
     
         
     # Start creating a PDF
-    c = pdf_canvas.Canvas(os.path.join(output_path, f"{begin_time}_{file_name}_alignment_report.pdf"), pagesize=A4)
+    c = pdf_canvas.Canvas(os.path.join(output_path, f"{begin_time}_{file_name}_calibration_report.pdf"), pagesize=A4)
     
     # Paper size and default line spacing
     width, height = A4
@@ -326,16 +403,16 @@ def make_calibration_report(output_path, file_name, calibrants_list, labels, plo
     # Document body font
     c.setFont("Helvetica", 12)
     
-    c.drawString(50, height-(text_line*space_between_lines), f"Alignment Date and Time: {date}")
+    c.drawString(50, height-(text_line*space_between_lines), f"Calibration Date and Time: {date}")
     text_line += 1
     
     if len(original_file_name) > 50:
-        c.drawString(50, height-(text_line*space_between_lines), f"Aligned File: {original_file_name[:50]}")
+        c.drawString(50, height-(text_line*space_between_lines), f"Calibrated File: {original_file_name[:50]}")
         text_line += 1
-        c.drawString(50, height-(text_line*space_between_lines), f"                 {original_file_name[50:]}")
+        c.drawString(50, height-(text_line*space_between_lines), f"                       {original_file_name[50:]}")
         text_line += 1
     else:
-        c.drawString(50, height-(text_line*space_between_lines), f"Aligned File: {original_file_name}")
+        c.drawString(50, height-(text_line*space_between_lines), f"Calibrated File: {original_file_name}")
         text_line += 1
         
     if len(file_name) > 50:
@@ -347,10 +424,10 @@ def make_calibration_report(output_path, file_name, calibrants_list, labels, plo
         c.drawString(50, height-(text_line*space_between_lines), f"New File Name: {file_name}")
         text_line += 1
         
-    c.drawString(50, height-(text_line*space_between_lines), f"Alignment Mode: {equation[0]}")
+    c.drawString(50, height-(text_line*space_between_lines), f"Calibration Fit: {equation[0]}")
     text_line += 1
     
-    c.drawString(50, height-(text_line*space_between_lines), f"Alignment Stats:")
+    c.drawString(50, height-(text_line*space_between_lines), f"Calibration Stats:")
     text_line += 1
     
     text = labels[0].cget("text")
@@ -382,10 +459,14 @@ def make_calibration_report(output_path, file_name, calibrants_list, labels, plo
     
     c.save()
 
-def create_mzml(spectra_file, mode, samples_list, calibration_parameters = [], trimming_parameters = []):
+def create_mzml(spectra_file, mode, samples_list, calibration_parameters = [], trimming_parameters = [], alignment_parameters = []):
     '''
     '''
     global equation, file_path
+    
+    if mode not in ["calibration", "trimming", "aligning"]:
+        print("Wrong mode used to create mzml file.")
+        return
     
     if mode == 'calibration':
         if len(equation) == 0:
@@ -393,31 +474,27 @@ def create_mzml(spectra_file, mode, samples_list, calibration_parameters = [], t
     elif mode == 'trimming':
         if len(trimming_range) == 0:
             return
-        
-    if len(samples_list) != 0:
-        spectra_file_path = spectra_file.get()
-        for file in samples_list:
-            if spectra_file_path in file:
-                spectra_file_path = file
-                break
+
+    if mode == 'aligning':
+        spectra_file_path = alignment_parameters[0]
+    elif len(samples_list) != 0:
+        spectra_file_path = find_sample_path(spectra_file.get(), samples_list)
     else:
         spectra_file_path = file_path
         
     output_file_path = "/".join(spectra_file_path.split("/")[:-1])
     
     if mode == 'calibration':
-        new_file_name = spectra_file_path.split("/")[-1].split(".")[0]+"_calibrated.mzML"
+        new_file_name = sample_name_from_path(spectra_file_path)+"_calibrated.mzML"
     elif mode == 'trimming':
-        new_file_name = spectra_file_path.split("/")[-1].split(".")[0]+"_trimmed.mzML"
+        new_file_name = sample_name_from_path(spectra_file_path)+"_trimmed.mzML"
     elif mode == 'aligning':
-        new_file_name = spectra_file_path.split("/")[-1].split(".")[0]+"_aligned.mzML"
+        new_file_name = sample_name_from_path(spectra_file_path)+"_aligned.mzML"
         
+    new_file_base = new_file_name[:-len(".mzML")]
     counter = 1
     while new_file_name in os.listdir(output_file_path):
-        if "(" in new_file_name:
-            new_file_name = new_file_name.split("(")[0]+f"({counter})"+new_file_name.split(")")[1]
-        else:
-            new_file_name = new_file_name.split(".")[0]+f"({counter})."+new_file_name.split(".")[1]
+        new_file_name = f"{new_file_base}({counter}).mzML"
         counter += 1
 
     # Read existing mzML file
@@ -523,9 +600,11 @@ def create_mzml(spectra_file, mode, samples_list, calibration_parameters = [], t
                                     count=f"{len(spectra)}",
                                     defaultDataProcessingRef="gg_calibration")
     
-    if mode == 'trimming':
+    if mode == 'trimming' or mode == 'aligning':
         first_spectrum_num = None
-        spectra_count = 0
+
+    # Counter of the spectra written to the new file, used to number them sequentially
+    written_spectra = 0
 
     # Loop through each spectrum in the existing file
     for spectrum in spectra:
@@ -533,10 +612,10 @@ def create_mzml(spectra_file, mode, samples_list, calibration_parameters = [], t
             scan_num = spectrum['num']
             temp_spectrum = {'id':f'scan={scan_num}', 'ms level':spectrum['msLevel'], 'scanList':{'scan': [{'scan start time':spectrum['retentionTime']}]}}
             
-            # Polarity
-            if spectrum['polarity'] == '+':
+            # Polarity (optional in mzXML)
+            if spectrum.get('polarity') == '+':
                 temp_spectrum['positive scan'] = ''
-            else:
+            elif spectrum.get('polarity') == '-':
                 temp_spectrum['negative scan'] = ''
                 
             # BPC
@@ -564,22 +643,54 @@ def create_mzml(spectra_file, mode, samples_list, calibration_parameters = [], t
         if mode == 'trimming':
             if spectrum['scanList']['scan'][0]['scan start time'] > (trimming_range[1] if time_unit == 'minute' else trimming_range[1]*60):
                 break
-            if not first_spectrum_num and spectrum['scanList']['scan'][0]['scan start time'] < (trimming_range[0] if time_unit == 'minute' else trimming_range[0]*60):
+            if first_spectrum_num is None and spectrum['scanList']['scan'][0]['scan start time'] < (trimming_range[0] if time_unit == 'minute' else trimming_range[0]*60):
                 continue
-            elif not first_spectrum_num:
+            elif first_spectrum_num is None:
                 if int(spectrum['ms level']) == 1:
                     first_spectrum_num = int(spectrum['id'].split("=")[-1])
                 else:
                     continue
-            spectra_count += 1
-            spectrum['id'] = f"scan={int(spectrum['id'].split('=')[-1]) - first_spectrum_num}"
             spectrum['scanList']['scan'][0]['scan start time'] = f"{(float(spectrum['scanList']['scan'][0]['scan start time']) - trimming_range[0]) if time_unit == 'minute' else (float(spectrum['scanList']['scan'][0]['scan start time']) - trimming_range[0]*60)}"
+            
+        if mode == 'aligning':
+            below = False
+            segment_found = False
+            spectrum_rt_seconds = spectrum['scanList']['scan'][0]['scan start time'] if time_unit == 'second' else spectrum['scanList']['scan'][0]['scan start time']*60
+            for segment in alignment_parameters[1]:
+                if (spectrum['scanList']['scan'][0]['scan start time'] if time_unit == 'second' else spectrum['scanList']['scan'][0]['scan start time']*60) >= segment[2] and (spectrum['scanList']['scan'][0]['scan start time'] if time_unit == 'second' else spectrum['scanList']['scan'][0]['scan start time']*60) <= segment[3]:
+                    if segment[0] < 0 and segment[1] <  0:
+                        below = True
+                        break
 
-        # Create a spectrum element
+                    spectrum['scanList']['scan'][0]['scan start time'] = (segment[0] if time_unit == 'second' else segment[0]/60) + (spectrum['scanList']['scan'][0]['scan start time'] - (segment[2] if time_unit == 'second' else segment[2]/60)) * ((segment[1]-segment[0])/(segment[3]-segment[2]))
+                    segment_found = True
+
+                    break
+
+            # Spectra outside the time map are mapped with the closest segment at the edge, so the retention times stay continuous
+            if not below and not segment_found:
+                edge_segment = alignment_parameters[1][0] if spectrum_rt_seconds < alignment_parameters[1][0][2] else alignment_parameters[1][-1]
+                if edge_segment[3] != edge_segment[2]:
+                    spectrum['scanList']['scan'][0]['scan start time'] = (edge_segment[0] if time_unit == 'second' else edge_segment[0]/60) + (spectrum['scanList']['scan'][0]['scan start time'] - (edge_segment[2] if time_unit == 'second' else edge_segment[2]/60)) * ((edge_segment[1]-edge_segment[0])/(edge_segment[3]-edge_segment[2]))
+
+            if below:
+                continue
+                       
+            if first_spectrum_num is None and spectrum['scanList']['scan'][0]['scan start time'] < 0:
+                continue
+            elif first_spectrum_num is None:
+                if int(spectrum['ms level']) == 1:
+                    first_spectrum_num = int(spectrum['id'].split("=")[-1])
+                else:
+                    continue
+
+        # Create a spectrum element, numbered sequentially
+        written_spectra += 1
+        spectrum['id'] = f"scan={written_spectra}"
         spectrum_id = spectrum['id']
-        spectrum_element = etree.SubElement(spectrumList, 
+        spectrum_element = etree.SubElement(spectrumList,
                                             "spectrum",
-                                            index=f"{int(spectrum_id[5:])-1}", 
+                                            index=f"{written_spectra-1}",
                                             id=f"{spectrum_id}", 
                                             defaultArrayLength=str(len(spectrum['m/z array'])))
 
@@ -836,7 +947,7 @@ def create_mzml(spectra_file, mode, samples_list, calibration_parameters = [], t
                          cvRef='MS',
                          accession='MS:1000523',
                          name='64-bit float')
-        etree.SubElement(mz_array_binary,
+        etree.SubElement(int_array_binary,
                          "cvParam",
                          cvRef="MS",
                          accession="MS:1000576",
@@ -856,12 +967,8 @@ def create_mzml(spectra_file, mode, samples_list, calibration_parameters = [], t
         if len(spectrum['intensity array']) > 0:
             int_array_binary_element.text = int_array_binary_string
     
-    if mode == 'trimming':
-    # Create a spectrumList element
-        spectrumList = etree.SubElement(run, 
-                                        "spectrumList",
-                                        count=f"{spectra_count}",
-                                        defaultDataProcessingRef="gg_calibration")
+    # Update the number of spectra in the file
+    spectrumList.set('count', str(written_spectra))
 
     # Convert to a pretty XML string, decoded for indexing
     xml_str = etree.tostring(mzML, pretty_print=True, xml_declaration=True, encoding='UTF-8').decode('utf-8')
@@ -904,7 +1011,7 @@ def create_mzml(spectra_file, mode, samples_list, calibration_parameters = [], t
         f.write(xml_str)
     
     if mode == 'calibration':
-        make_calibration_report(output_file_path, new_file_name, calibration_parameters[0], calibration_parameters[1], calibration_parameters[2])
+        make_calibration_report(output_file_path, new_file_name, calibration_parameters[0], calibration_parameters[1], calibration_parameters[2], spectra_file_path)
         
     return os.path.join(output_file_path, new_file_name)
     
@@ -922,16 +1029,12 @@ def add_calibrant(treeview, file_name, mz, standard, glycan, library):
     global glycans, data_storage, last_selection
     
     if type(file_name) == list:
-        spectra_file = file_name[0].get()
-        for file in file_name[1]:
-            if spectra_file in file:
-                spectra_file = file
-                break
+        spectra_file = find_sample_path(file_name[0].get(), file_name[1])
     else:
         spectra_file = file_path
     
     # Get file name
-    file_name = spectra_file.split("/")[-1].split(".")[0]
+    file_name = sample_name_from_path(spectra_file)
     
     targets = [mz.get(), standard.get(), glycan.get()]
     count = 0
@@ -983,16 +1086,12 @@ def remove_selected_item(treeview, file_name, plot_area, labels, mode_combobox, 
         treeview.delete(item)
     
     if type(file_name) == list:
-        spectra_file = file_name[0].get()
-        for file in file_name[1]:
-            if spectra_file in file:
-                spectra_file = file
-                break
+        spectra_file = find_sample_path(file_name[0].get(), file_name[1])
     else:
         spectra_file = file_path
     
     # Get file name
-    file_name = spectra_file.split("/")[-1].split(".")[0]
+    file_name = sample_name_from_path(spectra_file)
     file_name_plus_data = f"{file_name}_{search_tolerance}_{intensity_threshold}"
     
     edit_calibrant_list(treeview, file_name_plus_data, plot_area, labels, mode_combobox, search_tolerance)
@@ -1015,16 +1114,12 @@ def remove_all_items(treeview, file_name, plot_area, labels):
     global last_selection
     
     if type(file_name) == list:
-        spectra_file = file_name[0].get()
-        for file in file_name[1]:
-            if spectra_file in file:
-                spectra_file = file
-                break
+        spectra_file = find_sample_path(file_name[0].get(), file_name[1])
     else:
         spectra_file = file_path
     
     # Get file name
-    file_name = spectra_file.split("/")[-1].split(".")[0]
+    file_name = sample_name_from_path(spectra_file)
     
     selected = treeview.get_children()
     for item in selected:
@@ -1150,7 +1245,16 @@ def load_bpc_data(sample):
 def quit_mzml_window(mzml_window, from_GG):
     '''
     '''
-    global file_path
+    global file_path, close_after_alignment
+    
+    # While an alignment runs, cancel it and close the window once the alignment thread stops
+    if background_task == 'alignment':
+        close_after_alignment = True
+        stop_run_event.set()
+        return
+    # The automatic parameters calculation can't be cancelled, so the window can only be closed after it finishes
+    if background_task == 'auto parameters':
+        return
     
     if from_GG != False:
         check_folder = os.path.join(tempfile.gettempdir())
@@ -1184,16 +1288,12 @@ def on_fit_selected(event, treeview, file_name, plot_area, labels, mode_combobox
     global file_path
         
     if type(file_name) == list:
-        spectra_file = file_name[0].get()
-        for file in file_name[1]:
-            if spectra_file in file:
-                spectra_file = file
-                break
+        spectra_file = find_sample_path(file_name[0].get(), file_name[1])
     else:
         spectra_file = file_path
     
     # Get file name
-    file_name = spectra_file.split("/")[-1].split(".")[0]
+    file_name = sample_name_from_path(spectra_file)
     file_name = f"{file_name}_{search_tolerance}_{intensity_threshold}"
     
     edit_calibrant_list(treeview, file_name, plot_area, labels, mode_combobox, search_tolerance)
@@ -1222,14 +1322,10 @@ def search_all_samples(spectra_file, treeview, search_tolerance, intensity_thres
     '''
     '''
     for sample in samples_list:
-        trace(sample.split("/")[-1].split(".")[0], treeview, search_tolerance, intensity_threshold, plot_area, labels, mode_combobox, samples_list, draw = False)
+        trace(sample_name_from_path(sample), treeview, search_tolerance, intensity_threshold, plot_area, labels, mode_combobox, samples_list, draw = False)
         
-    spectra_file = spectra_file.get()
-    for file in samples_list:
-        if spectra_file in file:
-            spectra_file = file
-            break
-    file_name = spectra_file.split("/")[-1].split(".")[0]
+    spectra_file = find_sample_path(spectra_file.get(), samples_list)
+    file_name = sample_name_from_path(spectra_file)
     file_name_plus_data = f"{file_name}_{search_tolerance}_{intensity_threshold}"
     edit_calibrant_list(treeview, file_name_plus_data, plot_area, labels, mode_combobox, search_tolerance)
     
@@ -1247,10 +1343,7 @@ def trace(spectra_file, treeview, search_tolerance, intensity_threshold, plot_ar
             spectra_file = spectra_file.get()
         else:
             spectra_file = spectra_file
-        for file in samples_list:
-            if spectra_file in file:
-                spectra_file = file
-                break
+        spectra_file = find_sample_path(spectra_file, samples_list)
     else:
         spectra_file = file_path
     
@@ -1258,7 +1351,7 @@ def trace(spectra_file, treeview, search_tolerance, intensity_threshold, plot_ar
         return
     
     # Get file name
-    file_name = spectra_file.split("/")[-1].split(".")[0]
+    file_name = sample_name_from_path(spectra_file)
     file_name_plus_data = f"{file_name}_{search_tolerance}_{intensity_threshold}"
     
     if file_name_plus_data not in data_storage.keys():
@@ -1526,11 +1619,7 @@ def calibrating_spectra(spectra_file_path, mode, calibrants_list, labels, plot_a
     global file_path
     
     if len(file_list) != 0:
-        test_spectra_file_path = spectra_file_path.get()
-        for file in file_list:
-            if test_spectra_file_path in file:
-                test_spectra_file_path = file
-                break
+        test_spectra_file_path = find_sample_path(spectra_file_path.get(), file_list)
     else:
         test_spectra_file_path = file_path
         
@@ -1584,11 +1673,7 @@ def trimming_spectra(spectra_file_path, mode, trimming_range, file_list = []):
     global file_path
     
     if len(file_list) != 0:
-        test_spectra_file_path = spectra_file_path.get()
-        for file in file_list:
-            if test_spectra_file_path in file:
-                test_spectra_file_path = file
-                break
+        test_spectra_file_path = find_sample_path(spectra_file_path.get(), file_list)
     else:
         test_spectra_file_path = file_path
         
@@ -1713,13 +1798,9 @@ def click_treeview(event, treeview, file_data, spectra_viewer, search_tolerance,
     if len(selected_items) > 1:
         return
     
-    spectra_file = file_data[0].get()
-    for file in file_data[1]:
-        if spectra_file in file:
-            spectra_file = file
-            break
+    spectra_file = find_sample_path(file_data[0].get(), file_data[1])
                 
-    file_name = spectra_file.split("/")[-1].split(".")[0]
+    file_name = sample_name_from_path(spectra_file)
     file_name_plus_data = f"{file_name}_{search_tolerance}_{intensity_threshold}"
     
     for row in selected_items:
@@ -1799,10 +1880,7 @@ def switch_sample_button(direction, combobox, samples_list, mode, params = []):
     '''
     '''
     sample_name = combobox.get()
-    for sample in samples_list:
-        if sample_name in sample:
-            sample_path = sample
-            break
+    sample_path = find_sample_path(sample_name, samples_list)
             
     index = samples_list.index(sample_path)
     
@@ -1815,7 +1893,7 @@ def switch_sample_button(direction, combobox, samples_list, mode, params = []):
         index += 1
         if index > len(samples_list)-1:
             index = len(samples_list)-1
-    file_name = samples_list[index].split("/")[-1].split(".")[0]
+    file_name = sample_name_from_path(samples_list[index])
             
     # Set combobox here
     combobox.set(file_name)
@@ -1856,7 +1934,7 @@ def plot_sample_bpc(trimmer_fig, trimmer_ax, trimmer_canvas, data, time_unit):
     trimmer_ax.ticklabel_format(axis='y', style='sci', scilimits=(0,0))
     
     if len(trimming_range) != 0:
-        selected_rt_range = trimmer_ax.add_patch(Rectangle((trimming_range[0], -1000000000000), trimming_range[0]+trimming_range[1], 2000000000000, color='#03ecfc', alpha=0.3))
+        selected_rt_range = trimmer_ax.add_patch(Rectangle((trimming_range[0], -1000000000000), trimming_range[1]-trimming_range[0], 2000000000000, color='#03ecfc', alpha=0.3))
         
         slider_min.config(to=plot_data_x[-1])
         slider_max.config(to=plot_data_x[-1])
@@ -1937,11 +2015,521 @@ def update_max_rt(value, slider_value, other_slider_value, rectangle, trimmer_ca
     trimmer_canvas.draw_idle()
     
     trimming_range = [float(rectangle.get_xy()[0]), float(rectangle.get_xy()[0])+float(rectangle.get_width())]
+
+def set_reference(files_list):
+    selected_items = files_list.selection()
     
-def mzml_window_start(from_GG=False, to_lift=False, change_sample=None):
-    ''' from_GG: [combobox (contains file name), samples path list, library, [spectra ax, spectra canvas, scaling_dropdown, rt_label], processed_data (with BPC and such)]
+    if len(selected_items) > 1 or len(selected_items) == 0:
+        return
+    
+    if "reference_sample" not in files_list.item(selected_items[0], "tags"):
+        for other_item in files_list.get_children():
+            if "reference_sample" in files_list.item(other_item, "tags"):
+                files_list.item(other_item, tags=())
+        files_list.item(selected_items[0], tags=("reference_sample",))
+    else:
+        files_list.item(selected_items[0], tags=())
+        
+    files_list.selection_remove(selected_items)
+
+def update_alignment_settings(settings_scrolltext):
+    settings_scrolltext.config(state="normal")
+    settings_scrolltext.delete(1.0, tk.END)
+    for setting, value in alignment_settings.items():
+        settings_scrolltext.insert(tk.END, f"{setting}: {value}\n")
+    settings_scrolltext.config(state="disabled")
+
+def open_alignment_settings_window(settings_scrolltext):
+    global alignment_settings
+
+    alignment_settings_window = tk.Toplevel()
+    alignment_settings_window.withdraw()
+    alignment_settings_window.title("Alignment Settings")
+    alignment_settings_window.iconphoto(False, icon)
+
+    setting_entries = {}
+
+    def update_numeric_setting(setting):
+        # Only store the value if it can be converted to the expected type, otherwise keep the last valid value
+        try:
+            alignment_settings[setting] = alignment_settings_types[setting](setting_entries[setting].get())
+        except ValueError:
+            return
+        update_alignment_settings(settings_scrolltext)
+
+    for setting, value in alignment_settings.items():
+        # Crete a label for the setting
+        ttk.Label(alignment_settings_window, text=setting, font=("Segoe UI", fontsize)).grid(row=len(setting_entries), column=0, padx=10, pady=5, sticky="w")
+
+        if setting == 'instrument_type':
+            setting_entries[setting] = ttk.Combobox(alignment_settings_window, values=['ORBITRAP', 'TOF', 'QUAD', 'FTICR'], state="readonly")
+            setting_entries[setting].set(value)
+            setting_entries[setting].grid(row=len(setting_entries)-1, column=1, padx=10, pady=5)
+            setting_entries[setting].bind("<<ComboboxSelected>>", lambda event, s=setting: (alignment_settings.update({s: setting_entries[s].get()}), update_alignment_settings(settings_scrolltext)))
+
+        elif setting == 'polarity':
+            setting_entries[setting] = ttk.Combobox(alignment_settings_window, values=['+', '-'], state="readonly")
+            setting_entries[setting].set(value)
+            setting_entries[setting].grid(row=len(setting_entries)-1, column=1, padx=10, pady=5)
+            setting_entries[setting].bind("<<ComboboxSelected>>", lambda event, s=setting: (alignment_settings.update({s: setting_entries[s].get()}), update_alignment_settings(settings_scrolltext)))
+
+        else:
+            # Create the entry widget
+            setting_entries[setting] = ttk.Entry(alignment_settings_window)
+            setting_entries[setting].insert(0, str(value))
+            setting_entries[setting].grid(row=len(setting_entries)-1, column=1, padx=10, pady=5)
+            setting_entries[setting].bind("<KeyRelease>", lambda event, s=setting: update_numeric_setting(s))
+
+        ToolTip(setting_entries[setting], alignment_settings_descriptions[setting])
+
+    ttk.Button(alignment_settings_window, text="Close", style="small_button_sfw_style1.TButton", command=alignment_settings_window.destroy).grid(row=len(setting_entries), column=0, columnspan=2, pady=10)
+
+    # Parent window position and size
+    parent_x = mzml_window.winfo_x()
+    parent_y = mzml_window.winfo_y()
+    parent_width = mzml_window.winfo_width()
+
+    # Position to the right of parent
+    new_x = parent_x + parent_width
+    new_y = parent_y
+
+    # Place to the right of parent
+    alignment_settings_window.geometry(f"+{new_x}+{new_y}")
+    alignment_settings_window.resizable(False, False)
+    alignment_settings_window.deiconify()
+
+def infer_res(x, y, max_rel_overlap=0.01, min_sigma=1e-12):
+    '''This functions plots non-overlapping gaussians over the data to infer the resolution.'''
+
+    x = numpy.asarray(x, dtype=float)
+    y = numpy.asarray(y, dtype=float)
+    if x.size < 10:
+        return numpy.array([])
+
+    if not (0 < max_rel_overlap < 1):
+        raise ValueError("max_rel_overlap must be in (0,1)")
+
+    n = x.size
+
+    # distances between consecutive points in the inumpyut order (absolute)
+    d_left = numpy.empty(n)
+    d_right = numpy.empty(n)
+    d_left[0] = numpy.inf
+    d_left[1:] = numpy.abs(x[1:] - x[:-1])
+    d_right[-1] = numpy.inf
+    d_right[:-1] = numpy.abs(x[1:] - x[:-1])
+
+    # sigma limit so that contribution at neighbor center <= max_rel_overlap
+    factor = numpy.sqrt(-2.0 * numpy.log(max_rel_overlap))
+    sigma_lim_left = numpy.where(numpy.isfinite(d_left), d_left / factor, numpy.inf)
+    sigma_lim_right = numpy.where(numpy.isfinite(d_right), d_right / factor, numpy.inf)
+
+    sigmas = numpy.minimum(sigma_lim_left, sigma_lim_right)
+
+    if numpy.isinf(sigmas).all():
+        sigmas = numpy.full(n, max(min_sigma, 1e-6))
+    else:
+        finite_min = numpy.min(sigmas[numpy.isfinite(sigmas)])
+        sigmas[numpy.isinf(sigmas)] = finite_min
+
+    sigmas = numpy.maximum(sigmas, min_sigma)
+
+    # vectorized FWHM with safe fallback and cap
+    fwhms = 2.3548 * sigmas
+    fallback_fwhm = 1.0
+    max_fwhm = 1e6
+    fwhms = numpy.where(numpy.isfinite(fwhms) & (fwhms > 0), fwhms, fallback_fwhm)
+    fwhms = numpy.minimum(fwhms, max_fwhm)
+
+    # vectorized resolution (safe divide)
+    res = numpy.divide(x, fwhms, out=numpy.zeros_like(x, dtype=float), where=(fwhms != 0))
+
+    return res
+
+def auto_parameters(samples_list_widget, settings_scrolltext, buttons, from_GG=False):
+    global alignment_settings, background_task
+    
+    background_task = 'auto parameters'
+    for name, button in buttons.items():
+        button.config(state="disabled")
+    block_tabs(True)
+
+    try:
+        def get_ms_level(spectrum):
+            return spectrum.get('ms level', spectrum.get('msLevel'))
+
+        if len(samples_list_widget.get_children()) == 0:
+            error_window("No samples found. Please add at least one sample to the list.")
+            return
+    
+        reference_sample = None
+        samples_list = []
+        for item_id in samples_list_widget.get_children():
+            if "reference_sample" in samples_list_widget.item(item_id, "tags"):
+                reference_sample = samples_list_widget.item(item_id, "text")
+            else:
+                samples_list.append(samples_list_widget.item(item_id, "text"))
+
+        if reference_sample == None:
+            reference_sample = samples_list[0]
+
+        # Check whether it's a mzML or mzXML file and load accordingly
+        if reference_sample.split(".")[-1].lower() == 'mzml':
+            file_type = 'mzml'
+        elif reference_sample.split(".")[-1].lower() == 'mzxml':
+            file_type = 'mzxml'
+    
+        # Infer the resolution from the reference sample
+        if file_type == 'mzml':
+            spectra = mzml.MzML(reference_sample)
+        elif file_type == 'mzxml':
+            spectra = mzxml.MzXML(reference_sample)
+
+        # Figure out time unit
+        if file_type == 'mzml' and float(spectra[-1]['scanList']['scan'][0]['scan start time']) > 300:
+            time_unit = 'second'
+        else:
+            time_unit = 'minute'
+
+        perc_array_of_resolutions = []
+
+        for spectrum in spectra:
+            if get_ms_level(spectrum) != 1:
+                continue
+            centers = spectrum['m/z array']
+            amps = spectrum['intensity array']
+            resolutions = infer_res(centers, amps, max_rel_overlap=0.01)
+            if len(resolutions) > 0:
+                perc_array_of_resolutions.append(numpy.percentile(resolutions, 95))
+    
+        inferred_resolution = numpy.percentile(perc_array_of_resolutions, 95)
+
+        # Infer the FWHM_rt from the reference sample
+        if file_type == 'mzml':
+            spectra = mzml.MzML(reference_sample)
+        elif file_type == 'mzxml':
+            spectra = mzxml.MzXML(reference_sample)
+
+        # Find the optimal target
+        highest_intensity = 0
+        highest_intensity_mz = None
+        for spectrum in spectra:
+            if get_ms_level(spectrum) != 1:
+                continue
+            if len(spectrum['intensity array']) > 0 and max(spectrum['intensity array']) > highest_intensity:
+                highest_intensity = max(spectrum['intensity array'])
+                highest_intensity_mz = spectrum['m/z array'][spectrum['intensity array'].argmax()]
+
+        # Trace EIC
+        tolerance = 0.05
+        eic = []
+        eic_rts = []
+        if file_type == 'mzml':
+            spectra = mzml.MzML(reference_sample)
+        elif file_type == 'mzxml':
+            spectra = mzxml.MzXML(reference_sample)
+        for spectrum in spectra:
+            if get_ms_level(spectrum) != 1:
+                continue
+            id = binary_search_with_tolerance(spectrum['m/z array'], highest_intensity_mz, 0, len(spectrum['m/z array'])-1, tolerance, spectrum['intensity array'])
+            eic.append(spectrum['intensity array'][id] if id != -1 else 0)
+            if file_type == 'mzml':
+                eic_rts.append(float(spectrum['scanList']['scan'][0]['scan start time'])*(1 if time_unit == 'second' else 60))
+            else:
+                eic_rts.append(float(spectrum['retentionTime'])*60)
+
+        # Find FWHM
+        max_intensity = max(eic)
+        max_intensity_id = eic.index(max_intensity)
+        half_max = max_intensity / 2
+
+        # Seek on the left side
+        for i in range(max_intensity_id, -1, -1):
+            if eic[i] <= half_max:
+                left_id = i
+                break
+
+        # Seek on the right side
+        for i in range(max_intensity_id, len(eic)):
+            if eic[i] <= half_max:
+                right_id = i
+                break
+    
+        fwhm = eic_rts[right_id] - eic_rts[left_id]
+
+        # To finalize, get the polarity from the sample
+        if file_type == 'mzml':
+            polarity = '+' if 'positive scan' in spectra[-1] else '-'
+        elif file_type == 'mzxml':
+            polarity = spectra[-1].get('polarity', alignment_settings['polarity'])
+
+        # Update the alignment settings
+        alignment_settings['resolution_ms1'] = int(inferred_resolution)
+        alignment_settings['fwhm_rt'] = round(fwhm, 1)
+        alignment_settings['polarity'] = polarity
+        update_alignment_settings(settings_scrolltext)
+        
+    except Exception as e:
+        error_window(f"Could not set the alignment parameters automatically.\nError message: {str(e)}")
+        mzml_window.lift()
+        mzml_window.focus_set()
+    finally:
+        # Always re-enable the interface, even if the parameters calculation failed
+        background_task = None
+        block_tabs(False)
+        for name, button in buttons.items():
+            if name == 'align' or name == 'add' or name == 'remove' or name == 'ref' or name == 'auto' or name == 'param' or name == 'close':
+                button.config(state="normal")
+            if name == 'cancel':
+                button.config(state="disabled")
+
+def align_sample_pair(ref, sample, progress_bar_info=None):
+    try:
+        # Update progress bar text
+        if stop_run_event.is_set():
+            stop_run_event.clear()
+            raise Exception("Process stopped by user.")
+        progress_bar_info[1].config(text=f"File: {progress_bar_info[3]}/{progress_bar_info[4]}. Loading data...")
+
+        # Check whether it's a mzML or mzXML file and load accordingly
+        if ref.split(".")[-1].lower() == 'mzml':
+            file_type = 'mzml'
+        elif ref.split(".")[-1].lower() == 'mzxml':
+            file_type = 'mzxml'
+
+        # Check if ref and sample file are same extension
+        if sample.split(".")[-1].lower() != ref.split(".")[-1].lower():
+            raise Exception("The files you are trying to align do not have the same extension. Please make sure both files are either mzML or mzXML.")
+
+        # Load data into PASTAQ. ~5% of the progress bar...
+        if file_type == 'mzml':
+            ref_data = pq.read_mzml(ref, instrument_type = alignment_settings['instrument_type'], resolution_ms1 = float(alignment_settings['resolution_ms1']), resolution_msn=17500, reference_mz = float(alignment_settings['reference_mz']), fwhm_rt = float(alignment_settings['fwhm_rt']), polarity = alignment_settings['polarity'], ms_level = 1)
+            align_data = pq.read_mzml(sample, instrument_type = alignment_settings['instrument_type'], resolution_ms1 = float(alignment_settings['resolution_ms1']), resolution_msn=17500, reference_mz = float(alignment_settings['reference_mz']), fwhm_rt = float(alignment_settings['fwhm_rt']), polarity = alignment_settings['polarity'], ms_level = 1)
+        elif file_type == 'mzxml':
+            ref_data = pq.read_mzxml(ref, instrument_type = alignment_settings['instrument_type'], resolution_ms1 = float(alignment_settings['resolution_ms1']), resolution_msn=17500, reference_mz = float(alignment_settings['reference_mz']), fwhm_rt = float(alignment_settings['fwhm_rt']), polarity = alignment_settings['polarity'], ms_level = 1)
+            align_data = pq.read_mzxml(sample, instrument_type = alignment_settings['instrument_type'], resolution_ms1 = float(alignment_settings['resolution_ms1']), resolution_msn=17500, reference_mz = float(alignment_settings['reference_mz']), fwhm_rt = float(alignment_settings['fwhm_rt']), polarity = alignment_settings['polarity'], ms_level = 1)
+
+        # Update progress bar
+        if stop_run_event.is_set():
+            stop_run_event.clear()
+            raise Exception("Process stopped by user.")
+        progress_bar_info[0]['value'] += (100/progress_bar_info[4])*0.05
+        progress_bar_info[1].config(text=f"File: {progress_bar_info[3]}/{progress_bar_info[4]}. Resampling data...")
+        progress_bar_info[2].config(text=f"{int(progress_bar_info[0]['value'])}% Done")
+
+        # Resample the data. ~60% of the progress bar...
+        grid1 = pq.resample(ref_data, alignment_settings['num_samples_mz'], alignment_settings['num_samples_rt'], alignment_settings['smoothing_coefficient_mz'], alignment_settings['smoothing_coefficient_rt'])
+        grid2 = pq.resample(align_data, alignment_settings['num_samples_mz'], alignment_settings['num_samples_rt'], alignment_settings['smoothing_coefficient_mz'], alignment_settings['smoothing_coefficient_rt'])
+
+        # Update progress bar
+        if stop_run_event.is_set():
+            stop_run_event.clear()
+            raise Exception("Process stopped by user.")
+        progress_bar_info[0]['value'] += (100/progress_bar_info[4])*0.6
+        progress_bar_info[1].config(text=f"File: {progress_bar_info[3]}/{progress_bar_info[4]}. Identifying peaks...")
+        progress_bar_info[2].config(text=f"{int(progress_bar_info[0]['value'])}% Done")
+
+        # Identify peaks. ~5% of the progress bar...
+        peaks1 = pq.find_peaks(ref_data, grid1, 1000000)
+        peaks2 = pq.find_peaks(align_data, grid2, 1000000)
+
+        # Update progress bar
+        if stop_run_event.is_set():
+            stop_run_event.clear()
+            raise Exception("Process stopped by user.")
+        progress_bar_info[0]['value'] += (100/progress_bar_info[4])*0.05
+        progress_bar_info[1].config(text=f"File: {progress_bar_info[3]}/{progress_bar_info[4]}. Calculating time map...")
+        progress_bar_info[2].config(text=f"{int(progress_bar_info[0]['value'])}% Done")
+
+        # Generate time alignment map. ~5% of the progress bar...
+        time_map_1r_2s = pq.calculate_time_map(peaks1, peaks2, alignment_settings['slack'], alignment_settings['segment_length'], alignment_settings['num_points'], alignment_settings['expand_factor'], alignment_settings['peaks_per_window'])
+
+        # Update progress bar
+        if stop_run_event.is_set():
+            stop_run_event.clear()
+            raise Exception("Process stopped by user.")
+        progress_bar_info[0]['value'] += (100/progress_bar_info[4])*0.05
+        progress_bar_info[1].config(text=f"File: {progress_bar_info[3]}/{progress_bar_info[4]}. Creating aligned MzML file...")
+        progress_bar_info[2].config(text=f"{int(progress_bar_info[0]['value'])}% Done")
+
+        # Convert time alignment map to useable format. ~5% of the progress bar...
+        index = 0
+        alignment_parameters_sample = [sample, []]
+        for time_ref, time_target in zip(time_map_1r_2s.rt_start, time_map_1r_2s.sample_rt_start):
+            alignment_parameters_sample[1].append([time_ref, time_map_1r_2s.rt_end[index], time_target, time_map_1r_2s.sample_rt_end[index]])
+            index += 1
+
+        # Create mzML file with aligned retention times
+        create_mzml(None, 'aligning', [], calibration_parameters = [], trimming_parameters = [], alignment_parameters = alignment_parameters_sample)
+
+        # Update progress bar
+        if stop_run_event.is_set():
+            stop_run_event.clear()
+            raise Exception("Process stopped by user.")
+        progress_bar_info[0]['value'] += (100/progress_bar_info[4])*0.20
+        progress_bar_info[2].config(text=f"{int(progress_bar_info[0]['value'])}% Done")
+
+        return "success"
+    except Exception as e:
+        if str(e) == "Process stopped by user.":
+            if not close_after_alignment:
+                messagebox.showinfo("Alignment Cancelled", "The alignment was cancelled.")
+        else:
+            error_window(f"An error occurred while aligning {sample.split("/")[-1]} to {ref.split("/")[-1]}.\nError message: {str(e)}")
+        mzml_window.lift()
+        mzml_window.focus_set()
+        return "error"
+
+def align_samples(samples_list_widget, buttons, progress_bar_info, from_GG=False):
+    global background_task, close_after_alignment
+    
+    reference_sample = None
+    samples_list = []
+    for item_id in samples_list_widget.get_children():
+        if "reference_sample" in samples_list_widget.item(item_id, "tags"):
+            reference_sample = samples_list_widget.item(item_id, "text")
+        else:
+            samples_list.append(samples_list_widget.item(item_id, "text"))
+
+    if reference_sample == None:
+        error_window("You must select a reference sample to align to.")
+        mzml_window.lift()
+        mzml_window.focus_set()
+        return
+    
+    for name, button in buttons.items():
+        if name == 'align' or name == 'add' or name == 'remove' or name == 'ref' or name == 'auto' or name == 'param' or name == 'close':
+            button.config(state="disabled")
+        if name == 'cancel':
+            button.config(state="normal")
+
+    progress_bar_info[0]['value'] = 0
+    progress_bar_info[1].config(text=f"")
+    progress_bar_info[2].config(text=f"{0}% Done")
+
+    # Clear any cancel request left over from a previous run
+    stop_run_event.clear()
+    background_task = 'alignment'
+    close_after_alignment = False
+    block_tabs(True)
+
+    for index, sample in enumerate(samples_list):
+        if align_sample_pair(reference_sample, sample, [progress_bar_info[0], progress_bar_info[1], progress_bar_info[2], index+1, len(samples_list)]) == "error":
+            background_task = None
+            
+            # The window was closed during the alignment, so close it now that the alignment stopped
+            if close_after_alignment:
+                mzml_window.after(0, lambda: quit_mzml_window(mzml_window, from_GG))
+                return
+            
+            progress_bar_info[0]['value'] = 0
+            progress_bar_info[1].config(text=f"")
+            progress_bar_info[2].config(text=f"{0}% Done")
+            block_tabs(False)
+            
+            for name, button in buttons.items():
+                if name == 'align' or name == 'add' or name == 'remove' or name == 'ref' or name == 'auto' or name == 'param' or name == 'close':
+                    button.config(state="normal")
+                if name == 'cancel':
+                    button.config(state="disabled")
+
+            return
+
+    background_task = None
+    
+    # The window was closed right as the last sample finished aligning
+    if close_after_alignment:
+        mzml_window.after(0, lambda: quit_mzml_window(mzml_window, from_GG))
+        return
+
+    for name, button in buttons.items():
+        if name == 'align' or name == 'add' or name == 'remove' or name == 'ref' or name == 'auto' or name == 'param' or name == 'close':
+            button.config(state="normal")
+        if name == 'cancel':
+            button.config(state="disabled")
+
+    progress_bar_info[0]['value'] = 100
+    progress_bar_info[1].config(text=f"")
+    progress_bar_info[2].config(text=f"{100}% Done")
+    block_tabs(False)
+    alignment_done(from_GG=from_GG)
+    
+def alignment_done(from_GG=False):
     '''
-    global current_dir, ico_image, mzml_window, last_selection, calibrants_list, mztol_entry, min_int_entry, ax_calibrate, canvas_calibrate, fig_calibrate, stats_label_SD, stats_label_fitr2, stats_label_eq, fit_combobox, trimmer_fig, trimmer_ax, trimmer_canvas, rt_bpc
+    '''
+    def close_ad():
+        alignment_done_window.destroy()
+
+    def on_closing():
+        '''This function is used to remove the function from the Close Window button (x button).'''
+        return
+        
+    alignment_done_window = tk.Toplevel()
+    # alignment_done_window.attributes("-topmost", True)
+    alignment_done_window.withdraw()
+    alignment_done_window.title("Alignment Done!")
+    alignment_done_window.iconphoto(False, icon)
+    alignment_done_window.resizable(False, False)
+    alignment_done_window.grab_set()
+    alignment_done_window.protocol("WM_DELETE_WINDOW", on_closing)
+    
+    calibrating_spectra_window_label = ttk.Label(alignment_done_window, text=f"Alignment Done!{"\nLoad the new files into GlycoGenius to analyze them." if from_GG else ""}", font=("Segoe UI", fontsize))
+    calibrating_spectra_window_label.pack(pady=10, padx=70)
+    
+    # ok button
+    ok_button = ttk.Button(alignment_done_window, text="Ok", style="small_button_sfw_style1.TButton", command=close_ad)
+    ok_button.pack(pady=10, padx=70)
+    
+    alignment_done_window.update_idletasks()
+    alignment_done_window.deiconify()
+    window_width = alignment_done_window.winfo_width()
+    window_height = alignment_done_window.winfo_height()
+    screen_width = alignment_done_window.winfo_screenwidth()
+    screen_height = alignment_done_window.winfo_screenheight()
+    x_position = (screen_width - window_width) // 2
+    y_position = (screen_height - window_height) // 2
+    alignment_done_window.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
+        
+def open_file_dialog_add_alignment_file(files_list):
+    file_dialog = tk.Toplevel()
+    file_dialog.attributes("-topmost", True)
+    file_dialog.withdraw()
+    file_dialog.grab_set()
+    
+    file_path = filedialog.askopenfilenames(filetypes=[("MzXML or MzML files", "*.mzML *.mzXML"), ("All files", "*.*")])
+        
+    for i in file_path:
+        files_list.insert('', 'end', text=i)
+    longest_len = 0
+    for i in files_list.get_children():
+        if len(files_list.item(i, "text")) > longest_len:
+            longest_len = len(files_list.item(i, "text"))
+    if longest_len*7 > 428:
+        files_list.column("#0", width=longest_len*7)
+        
+    file_dialog.destroy()
+    mzml_window.grab_set()
+            
+def remove_selected_item_alignment_file(files_list):
+    selected_items = files_list.selection()  # Get the selected item(s)
+    for item in selected_items:
+        files_list.delete(item)
+
+def block_tabs(state = False):
+    if state:
+        function_tabs.bind("<Button-1>", lambda e: "break")
+    else:
+        function_tabs.unbind("<Button-1>")
+
+def mzml_window_start(from_GG=False, to_lift=False, change_sample=None):
+    ''' from_GG: 
+        0.  combobox (contains file name), 
+        1.  samples path list, 
+        2.  library, 
+        3.  [spectra ax, spectra canvas, scaling_dropdown, rt_label], 
+        4.  processed_data (with BPC and such)
+    '''
+    global current_dir, ico_image, mzml_window, last_selection, calibrants_list, mztol_entry, min_int_entry, ax_calibrate, canvas_calibrate, fig_calibrate, stats_label_SD, stats_label_fitr2, stats_label_eq, fit_combobox, trimmer_fig, trimmer_ax, trimmer_canvas, rt_bpc, function_tabs
     
     current_dir = pathlib.Path(__file__).parent.resolve()
     
@@ -1992,6 +2580,7 @@ def mzml_window_start(from_GG=False, to_lift=False, change_sample=None):
     mzml_window.title("Spectra File Editor")
     if from_GG != False:
         mzml_window.title(f"Spectra File Editor - {from_GG[0].get()}")
+    global icon
     icon = ImageTk.PhotoImage(ico_image)
     mzml_window.resizable(False, False)
     mzml_window.iconphoto(False, icon)
@@ -2019,6 +2608,10 @@ def mzml_window_start(from_GG=False, to_lift=False, change_sample=None):
     function_tabs = ttk.Notebook(mzml_window)
     function_tabs.grid(row=0, column=0, sticky='nsew')
     
+    # close button
+    close_button = ttk.Button(mzml_window, text="Close", style="small_button_sfw_style1.TButton", command=lambda: quit_mzml_window(mzml_window, from_GG))
+    close_button.grid(row=1, column=0, padx=(10,10), pady=(0,10), sticky="nse")
+    
     # Calibration frame
     calibration_frame = tk.Frame(function_tabs, bd=0, relief="flat")
     calibration_frame.pack(fill=tk.BOTH, expand=True)
@@ -2042,7 +2635,7 @@ def mzml_window_start(from_GG=False, to_lift=False, change_sample=None):
     if from_GG:
         standard_combobox.grid(row=0, column=0, padx=(170, 10), pady=(10, 10), sticky='nw')
     else:
-        standard_combobox.grid(row=0, column=0, padx=(170, 190), pady=(10, 10), sticky='nw')
+        standard_combobox.grid(row=0, column=0, padx=(170, 180), pady=(10, 10), sticky='nw')
     ToolTip(standard_label, "Choose from a list of standard calibrants.")
     ToolTip(standard_combobox, "Choose from a list of standard calibrants.")
     
@@ -2206,6 +2799,10 @@ def mzml_window_start(from_GG=False, to_lift=False, change_sample=None):
         calibrate_button.grid(row=5, column=0, columnspan=2, padx=(10, 10), pady=(0, 0), sticky="se")
     ToolTip(calibrate_button, "Start the calibration using the selected calibrants derived equation.")
     
+    ########################################################################################################
+    #####################################          Trimming Tab          ###################################
+    ########################################################################################################
+    
     if from_GG != False:
         # Trimming frame
         rt_bpc = {key:[value['rt_array'], value['bpc'], value['time_unit']] for key, value in from_GG[4].items()}
@@ -2296,9 +2893,95 @@ def mzml_window_start(from_GG=False, to_lift=False, change_sample=None):
         trim_sample_button = ttk.Button(trimming_frame, text="Trim Sample", style="small_button_sfw_style1.TButton", command=lambda: trimming_spectra(from_GG[0], 'trimming', trimming_range, from_GG[1]))
         trim_sample_button.grid(row=5, column=2, padx=10, pady=(0, 2), sticky="se")
     
-    # close button
-    close_button = ttk.Button(mzml_window, text="Close", style="small_button_sfw_style1.TButton", command=lambda: quit_mzml_window(mzml_window, from_GG))
-    close_button.grid(row=1, column=0, padx=(10,10), pady=(0,10), sticky="nse")
+    ########################################################################################################
+    #####################################          Alignment Tab         ###################################
+    ########################################################################################################
+    
+    align_frame = tk.Frame(function_tabs, bd=0, relief="flat")
+    align_frame.pack(fill=tk.BOTH, expand=True)
+    function_tabs.add(align_frame, text="Alignment")
+    
+    # Add Ttk Styles
+    files_list_style = ttk.Style().configure("files_list.Treeview", bg="white", fg="black", font=("Segoe UI", fontsize-1))
+    
+    # Alignment window widgets
+    main_label = ttk.Label(align_frame, text="Select files to align:", font=("Segoe UI", fontsize))
+    main_label.grid(row=0, column=0, padx=(10, 10), pady=(10, 10), sticky="nw")
+    
+    files_list_frame = tk.Frame(align_frame, bd=0, relief="flat", width=430, height=250)
+    files_list_frame.pack_propagate(0)
+    files_list_frame.grid(row=0, column=0, padx=(10,20), pady=(30, 10), sticky="nsew")
+    
+    files_list_scrollbar = tk.Scrollbar(align_frame, orient=tk.HORIZONTAL)
+    files_list_scrollbar_v = tk.Scrollbar(align_frame, orient=tk.VERTICAL)
+    files_list = ttk.Treeview(files_list_frame, height=20, style="files_list.Treeview", show="tree", xscrollcommand=files_list_scrollbar.set, yscrollcommand=files_list_scrollbar_v.set)
+    files_list.column("#0", stretch=False, width=428)
+    files_list_scrollbar.config(command=files_list.xview, width=10)
+    files_list_scrollbar_v.config(command=files_list.yview, width=10)
+    files_list.pack(fill="both", expand=True, padx=0, pady=0)
+    files_list_scrollbar.grid(row=0, column=0, padx=(10, 20), pady=0, sticky="sew")
+    files_list_scrollbar_v.grid(row=0, column=0, padx=(0, 10), pady=(30, 10), sticky="nse")
+    files_list.tag_configure("reference_sample", background="lightblue")
+    
+    if from_GG:
+        # Load the samples_list from GG if possible
+        for item in from_GG[1]:
+            files_list.insert('', 'end', text=item)
+        longest_len = 0
+        for i in files_list.get_children():
+            if len(files_list.item(i, "text")) > longest_len:
+                longest_len = len(files_list.item(i, "text"))
+        if longest_len*7 > 428:
+            files_list.column("#0", width=longest_len*7)
+    
+    add_file_button = ttk.Button(align_frame, text="Add File", style="small_button_sfw_style1.TButton", command=lambda: open_file_dialog_add_alignment_file(files_list))
+    
+    remove_selected_button = ttk.Button(align_frame, text="Remove Selected", style="small_button_sfw_style1.TButton", command=lambda: remove_selected_item_alignment_file(files_list))
+    
+    if not from_GG:
+        add_file_button.grid(row=0, column=1, padx=(0,10), pady=(30,10), sticky="new")
+        ToolTip(add_file_button, "Select one or more MzML or MzXML files to add to the list of files to align.")
+        
+        remove_selected_button.grid(row=0, column=1, padx=(0,10), pady=(60,10), sticky="new")
+        ToolTip(remove_selected_button, "Remove the currently selected file from the list of files.")
+    
+    select_reference_button = ttk.Button(align_frame, text="Select as\nReference", style="small_button_sfw_style1.TButton", command=lambda: set_reference(files_list))
+    select_reference_button.grid(row=0, column=1, padx=(0,10), pady=(90,10), sticky="new")
+    ToolTip(select_reference_button, "Select file as reference for alignment.")
+    
+    automatic_button = ttk.Button(align_frame, text="Automatically Set Parameters", style="small_button_sfw_style1.TButton", command=lambda: threading.Thread(target=auto_parameters, args=(files_list, selected_parameters, {'cancel': cancel_align_button, 'align': align_sample_button, 'auto': automatic_button, 'param': check_parameters_button, 'close': close_button, 'add': add_file_button, 'remove': remove_selected_button, 'ref': select_reference_button}, from_GG)).start())
+    automatic_button.grid(row=1, rowspan=2, column=0, padx=(10,10), pady=(15,0), sticky="nw")
+    
+    check_parameters_button = ttk.Button(align_frame, text="   Manually Set Parameters   ", style="small_button_sfw_style1.TButton", command=lambda: open_alignment_settings_window(selected_parameters))
+    check_parameters_button.grid(row=1, rowspan=2, column=0, padx=(10,10), pady=(50,10), sticky="nw")
+    
+    selected_parameters_label = ttk.Label(align_frame, text="Selected Parameters:", font=("Segoe UI", fontsize))
+    selected_parameters_label.grid(row=1, column=0, columnspan=2, padx=(230, 10), pady=(5, 0), sticky="nw")
+    selected_parameters = ScrolledText(align_frame, width=35, height=10, wrap=tk.WORD)
+    selected_parameters.grid(row=2, column=0, columnspan=2, padx=(10,10), pady=(0,10), sticky="e")
+    selected_parameters.config(state="disabled")
+    update_alignment_settings(selected_parameters)
+    
+    progress_bar_label = ttk.Label(align_frame, text="", font=("Segoe UI", fontsize))
+    progress_bar_label.grid(row=2, column=0, padx=10, pady=(0, 2), sticky="sw")
+    
+    progress_bar_align = ttk.Progressbar(align_frame, orient="horizontal", mode="determinate")
+    progress_bar_align.grid(row=3, column=0, columnspan=2, padx=10, pady=(0,0), sticky="ew")
+    
+    progress_bar_label2 = ttk.Label(align_frame, text="0% Done", font=("Segoe UI", fontsize))
+    progress_bar_label2.grid(row=4, column=0, columnspan=2, padx=10, pady=(0,10))
+    
+    powered_by_label = ttk.Label(align_frame, text="Powered by PASTAQ", font=("Segoe UI", fontsize), cursor="hand2")
+    powered_by_label.grid(row=4, column=0, padx=10, pady=(5, 2), sticky="sw")
+    powered_by_label.bind("<Button-1>", lambda event: webbrowser.open("https://github.com/PASTAQ-MS/PASTAQ"))
+    ToolTip(powered_by_label, "Go to PASTAQ's GitHub page.")
+        
+    cancel_align_button = ttk.Button(align_frame, text="Cancel Alignment", style="small_button_sfw_style1.TButton", command=lambda: (stop_run_event.set(), progress_bar_label.config(text="Cancelling...")))
+    cancel_align_button.grid(row=4, column=0, columnspan=2, padx=(10, 100), pady=(5, 2), sticky="se")
+    cancel_align_button.config(state="disabled")
+        
+    align_sample_button = ttk.Button(align_frame, text="Align Samples", style="small_button_sfw_style1.TButton", command=lambda: threading.Thread(target=align_samples, args=(files_list, {'cancel': cancel_align_button, 'align': align_sample_button, 'auto': automatic_button, 'param': check_parameters_button, 'close': close_button, 'add': add_file_button, 'remove': remove_selected_button, 'ref': select_reference_button}, [progress_bar_align, progress_bar_label, progress_bar_label2], from_GG)).start())
+    align_sample_button.grid(row=4, column=1, padx=10, pady=(5, 2), sticky="se")
     
     mzml_window.deiconify()
     
