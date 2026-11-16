@@ -17,8 +17,8 @@
 # by typing 'glycogenius'. If not, see <https://www.gnu.org/licenses/>.
 
 global gg_version, GUI_version
-gg_version = '1.3.3'
-GUI_version = '1.1.5'
+gg_version = '1.3.4'
+GUI_version = '1.1.6'
 
 # Load the bare minimum of modules to start the splash screen, which is necessary to be able to start the program without the splash screen taking a long time to load and to be able to show it while the rest of the modules are loading.
 from PIL import Image, ImageTk
